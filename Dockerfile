@@ -29,7 +29,7 @@ WORKDIR $APP_HOME
 # Install dependencies, build client app, generate server prisma client
 RUN npm install && \
     npm run build -w client && \
-    npm run prisma:generate -w server
+    DATABASE_URL=build npm run prisma:generate -w server
 
 # Set up default command
 CMD ["./node_modules/.bin/pm2-runtime", "npm", "--", "start", "-w", "server"]
