@@ -43,10 +43,10 @@ This repository contains a "starter" project for web application development in 
 
    ```
    full-stack-starter-server-1       | 5:31:23 PM client.1 |    VITE v4.3.9  ready in 327 ms
-   full-stack-starter-server-1       | 5:31:23 PM client.1 |    ➜  Local:   http://localhost:5000/
+   full-stack-starter-server-1       | 5:31:23 PM client.1 |    ➜  Local:   http://localhost:3333/
    ```
 
-5. Now you should be able to open the web app in your browser at: http://localhost:5000/
+5. Now you should be able to open the web app in your browser at: http://localhost:3333/
 
 6. Open a new tab or window of your shell, change into your repo directory as needed, and execute this command:
 
@@ -115,7 +115,7 @@ This project includes components with helpful developer tools, such as the follo
    The Scalar library automatically generates web-based API documentation for the server based on the
    Swagger/OpenAPI schema definitions included with each route, viewable at:
 
-   http://localhost:5000/api/reference
+   http://localhost:3333/api/reference
 
 4. Minio
 
