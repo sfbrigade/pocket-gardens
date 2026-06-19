@@ -1,6 +1,6 @@
 {
   "type": "module",
-  "name": "full-stack-starter-server",
+  "name": "pocket-gardens-server",
   "version": "7.0.0",
   "main": "app.js",
   "directories": {

@@ -48,7 +48,7 @@ async function build (t) {
   // extract current version of postgres image being used, start a new test container
   let dbContainer = new PostgreSqlContainer(compose.services.db.image);
   if (!process.env.CI) {
-    dbContainer = dbContainer.withNetworkMode('full-stack-starter');
+    dbContainer = dbContainer.withNetworkMode('pocket-gardens');
   }
   const startedDbContainer = await dbContainer.start();
   // set up the default template (template1) with the schema and fixtures
@@ -75,7 +75,7 @@ async function build (t) {
     .withEntrypoint(['minio', 'server', '/data'])
     .withExposedPorts(9000);
   if (!process.env.CI) {
-    storageContainer = storageContainer.withNetworkMode('full-stack-starter');
+    storageContainer = storageContainer.withNetworkMode('pocket-gardens');
   }
   const startedStorageContainer = await storageContainer.start();
   process.env.AWS_S3_ACCESS_KEY_ID = 'minioadmin';

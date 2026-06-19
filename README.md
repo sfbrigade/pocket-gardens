@@ -22,8 +22,8 @@ This repository contains a "starter" project for web application development in 
    into the directory.
 
    ```
-   git clone https://github.com/YOUR_ACCOUNT_ID/full-stack-starter.git
-   cd full-stack-starter
+   git clone https://github.com/YOUR_ACCOUNT_ID/pocket-gardens.git
+   cd pocket-gardens
    ```
 
 3. Install Docker Desktop: https://www.docker.com/products/docker-desktop
@@ -42,8 +42,8 @@ This repository contains a "starter" project for web application development in 
    like this, the server is running:
 
    ```
-   full-stack-starter-server-1       | 5:31:23 PM client.1 |    VITE v4.3.9  ready in 327 ms
-   full-stack-starter-server-1       | 5:31:23 PM client.1 |    ➜  Local:   http://localhost:3333/
+   pocket-gardens-server-1       | 5:31:23 PM client.1 |    VITE v4.3.9  ready in 327 ms
+   pocket-gardens-server-1       | 5:31:23 PM client.1 |    ➜  Local:   http://localhost:3333/
    ```
 
 5. Now you should be able to open the web app in your browser at: http://localhost:3333/
@@ -67,9 +67,9 @@ This repository contains a "starter" project for web application development in 
    If it is successful, you will see something like this:
 
    ```
-   Killing full-stack-starter_db_1           ... done
-   Killing full-stack-starter_server_1       ... done
-   Killing full-stack-starter_mailcatcher_1  ... done
+   Killing pocket-gardens_db_1           ... done
+   Killing pocket-gardens_server_1       ... done
+   Killing pocket-gardens_mailcatcher_1  ... done
    ```
 
    If it is not successful, you may see something like this:
@@ -83,9 +83,9 @@ This repository contains a "starter" project for web application development in 
 
    ```
    docker compose stop
-   Stopping full-stack-starter_db_1          ... done
-   Stopping full-stack-starter_server_1      ... done
-   Stopping full-stack-starter_mailcatcher_1 ... done
+   Stopping pocket-gardens_db_1          ... done
+   Stopping pocket-gardens_server_1      ... done
+   Stopping pocket-gardens_mailcatcher_1 ... done
    ```
 
 8. That's it! After all this setup is complete, the only command you need to run to get

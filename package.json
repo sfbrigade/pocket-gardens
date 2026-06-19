@@ -1,5 +1,5 @@
 {
-  "name": "full-stack-starter",
+  "name": "pocket-gardens",
   "version": "7.0.0",
   "workspaces": [
     "client",
