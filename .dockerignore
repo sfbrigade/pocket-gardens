@@ -4,3 +4,4 @@
 **/*.dump
 .github
 client/dist
+data

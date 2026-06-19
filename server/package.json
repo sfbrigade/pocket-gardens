@@ -9,12 +9,13 @@
   "scripts": {
     "dev": "prisma migrate deploy; prisma db push --accept-data-loss; npm run prisma:generate; fastify start -w -l info -P app.js",
     "lint": "eslint --fix",
+    "lint:check": "eslint",
     "pretest": "eslint",
     "prisma:generate": "prisma generate; tsc",
     "prisma:studio": "prisma studio",
     "start": "fastify start -l info app.js",
     "test": "node --test-concurrency 1 --test $(find test -name '*.test.js')",
-    "tsc:watch": "tsc --watch"
+    "tsc:watch": "tsc --watch --preserveWatchOutput"
   },
   "license": "AGPL-3.0-only",
   "dependencies": {

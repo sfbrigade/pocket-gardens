@@ -28,6 +28,7 @@ services:
       - .:/opt/node/app
       - /opt/node/app/node_modules
       - /opt/node/app/server/node_modules
+      - /opt/node/app/server/prisma/generated
       - /opt/node/app/client/node_modules
       - /var/run/docker.sock:/var/run/docker.sock
       - ~/.aws:/root/.aws
