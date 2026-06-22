@@ -1,10 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { airtable, formatPlot, TABLES } from '#lib/airtable.js';
-
-const PlotSchema = z.object({ id: z.string(), createdTime: z.string() }).passthrough();
-const PlotFieldsSchema = z.record(z.string(), z.unknown());
+import { airtable, formatPlot, PlotFieldsSchema, PlotSchema, TABLES } from '#lib/airtable.js';
 
 export default async function (fastify, opts) {
   fastify.patch('/:id', {
@@ -26,7 +23,7 @@ export default async function (fastify, opts) {
     const record = await airtable(TABLES.plots, `/${id}`, {
       method: 'PATCH',
       body: { fields: request.body },
-      searchParams: { typecast: 'true' },
+      searchParams: new URLSearchParams({ typecast: 'true' }),
     });
     reply.send(formatPlot(record));
   });

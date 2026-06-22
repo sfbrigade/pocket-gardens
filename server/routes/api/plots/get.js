@@ -1,9 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { airtable, formatPlot, TABLES } from '#lib/airtable.js';
-
-const PlotSchema = z.object({ id: z.string(), createdTime: z.string() }).passthrough();
+import { airtable, formatPlot, PlotSchema, TABLES } from '#lib/airtable.js';
 
 export default async function (fastify, opts) {
   fastify.get('/:id', {
