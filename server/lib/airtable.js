@@ -1,4 +1,5 @@
 import { StatusCodes } from 'http-status-codes';
+import { z } from 'zod';
 
 export const TABLES = {
   plots: 'Plots',
@@ -10,29 +11,18 @@ export const TABLES = {
   zipcodes: 'Zip Codes',
 };
 
-function config () {
+export const PlotSchema = z.object({ id: z.string(), createdTime: z.string() }).passthrough();
+export const PlotFieldsSchema = z.record(z.string(), z.unknown());
+
+export async function airtable (table, path, { method = 'GET', body, searchParams } = {}) {
   const apiKey = process.env.AIRTABLE_API_KEY;
   const baseId = process.env.AIRTABLE_BASE_ID;
   if (!apiKey || !baseId) {
     throw new Error('AIRTABLE_API_KEY and AIRTABLE_BASE_ID must be set');
   }
-  return { apiKey, baseId };
-}
-
-function airtableError (statusCode, message) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-}
-
-export async function airtable (table, path, { method = 'GET', body, searchParams } = {}) {
-  const { apiKey, baseId } = config();
   const url = new URL(`https://api.airtable.com/v0/${baseId}/${table}${path}`);
   if (searchParams) {
-    const entries = searchParams instanceof URLSearchParams
-      ? searchParams
-      : new URLSearchParams(Object.entries(searchParams));
-    for (const [key, value] of entries) {
+    for (const [key, value] of searchParams) {
       url.searchParams.append(key, value);
     }
   }
@@ -52,7 +42,9 @@ export async function airtable (table, path, { method = 'GET', body, searchParam
       : response.status === 422
         ? StatusCodes.UNPROCESSABLE_ENTITY
         : StatusCodes.BAD_GATEWAY;
-    throw airtableError(statusCode, message);
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    throw error;
   }
   return response.json();
 }
@@ -62,29 +54,6 @@ export function formatPlot ({ id, createdTime, fields }) {
 }
 
 export const DEFAULT_PAGE_SIZE = 25;
-
-function buildListSearchParams (options = {}) {
-  const pageSize = Math.min(Math.max(1, Number(options.pageSize) || DEFAULT_PAGE_SIZE), 100);
-  const params = new URLSearchParams();
-  params.set('pageSize', String(pageSize));
-  if (options.offset) params.set('offset', options.offset);
-  if (options.maxRecords) params.set('maxRecords', String(options.maxRecords));
-  if (options.view) params.set('view', options.view);
-  if (options.filterByFormula) params.set('filterByFormula', options.filterByFormula);
-  for (const field of options.fields ?? []) {
-    params.append('fields[]', field);
-  }
-  for (const [i, { field, direction = 'asc' }] of (options.sort ?? []).entries()) {
-    params.set(`sort[${i}][field]`, field);
-    params.set(`sort[${i}][direction]`, direction);
-  }
-  return params;
-}
-
-export async function listPlots (options = {}) {
-  const data = await airtable(TABLES.plots, '', { searchParams: buildListSearchParams(options) });
-  return { records: data.records, offset: data.offset };
-}
 
 // ponytail: assert formatPlot shape; upgrade to route tests when auth lands
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -96,7 +65,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   console.assert(plot.id === 'rec123');
   console.assert(plot.Status === 'Planted');
   console.assert(plot['Bed Type'] === 'Tree Well');
-  const params = buildListSearchParams({});
-  console.assert(params.get('pageSize') === '10');
+  console.assert(String(DEFAULT_PAGE_SIZE) === '25');
   console.log('formatPlot ok');
 }
