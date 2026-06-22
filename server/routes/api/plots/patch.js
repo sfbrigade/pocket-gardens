@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { formatPlot, updatePlot } from '#lib/airtable.js';
+import { airtable, formatPlot, TABLES } from '#lib/airtable.js';
 
 const PlotSchema = z.object({ id: z.string(), createdTime: z.string() }).passthrough();
 const PlotFieldsSchema = z.record(z.string(), z.unknown());
@@ -23,7 +23,11 @@ export default async function (fastify, opts) {
     // ponytail: add requireUser/requireAdmin when auth is ready
   }, async function (request, reply) {
     const { id } = request.params;
-    const record = await updatePlot(id, request.body);
+    const record = await airtable(TABLES.plots, `/${id}`, {
+      method: 'PATCH',
+      body: { fields: request.body },
+      searchParams: { typecast: 'true' },
+    });
     reply.send(formatPlot(record));
   });
 }

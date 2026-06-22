@@ -1,15 +1,22 @@
 import { StatusCodes } from 'http-status-codes';
 
-// ponytail: native fetch, no airtable npm package
+export const TABLES = {
+  plots: 'Plots',
+  plants: 'Plants',
+  people: 'People',
+  partners: 'Partners',
+  maintenance: 'Maintenance Records',
+  neighborhoods: 'Neighborhoods',
+  zipcodes: 'Zip Codes',
+};
 
 function config () {
   const apiKey = process.env.AIRTABLE_API_KEY;
   const baseId = process.env.AIRTABLE_BASE_ID;
-  const table = process.env.AIRTABLE_PLOTS_TABLE || 'Plots';
   if (!apiKey || !baseId) {
     throw new Error('AIRTABLE_API_KEY and AIRTABLE_BASE_ID must be set');
   }
-  return { apiKey, base: `https://api.airtable.com/v0/${baseId}/${table}` };
+  return { apiKey, baseId };
 }
 
 function airtableError (statusCode, message) {
@@ -18,9 +25,9 @@ function airtableError (statusCode, message) {
   return error;
 }
 
-async function airtable (path, { method = 'GET', body, searchParams } = {}) {
-  const { apiKey, base } = config();
-  const url = new URL(`${base}${path}`);
+export async function airtable (table, path, { method = 'GET', body, searchParams } = {}) {
+  const { apiKey, baseId } = config();
+  const url = new URL(`https://api.airtable.com/v0/${baseId}/${table}${path}`);
   if (searchParams) {
     for (const [key, value] of Object.entries(searchParams)) {
       url.searchParams.set(key, value);
@@ -55,23 +62,11 @@ export async function listPlots () {
   const records = [];
   let offset;
   do {
-    const data = await airtable('', { searchParams: offset ? { offset } : undefined });
+    const data = await airtable(TABLES.plots, '', { searchParams: offset ? { offset } : undefined });
     records.push(...data.records);
     offset = data.offset;
   } while (offset);
   return records;
-}
-
-export function getPlot (id) {
-  return airtable(`/${id}`);
-}
-
-export function createPlot (fields) {
-  return airtable('', { method: 'POST', body: { fields }, searchParams: { typecast: 'true' } });
-}
-
-export function updatePlot (id, fields) {
-  return airtable(`/${id}`, { method: 'PATCH', body: { fields }, searchParams: { typecast: 'true' } });
 }
 
 // ponytail: assert formatPlot shape; upgrade to route tests when auth lands
