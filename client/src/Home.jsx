@@ -8,7 +8,7 @@ function Home () {
         <title>Home</title>
       </Head>
       <Container>
-        <Title>Home</Title>
+        <Title>Pocket Gardens</Title>
       </Container>
     </>
   );
