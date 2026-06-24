@@ -85,7 +85,6 @@ export function buildListSearchParams (options = {}) {
   return params;
 }
 
-// ponytail: assert formatPlot shape; upgrade to route tests when auth lands
 if (import.meta.url === `file://${process.argv[1]}`) {
   const plot = formatPlot({
     id: 'rec123',

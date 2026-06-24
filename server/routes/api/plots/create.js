@@ -13,7 +13,6 @@ export default async function (fastify, opts) {
         [StatusCodes.UNPROCESSABLE_ENTITY]: z.null(),
       },
     },
-    // ponytail: add requireUser/requireAdmin when auth is ready
   }, async function (request, reply) {
     const record = await airtable(TABLES.plots, '', {
       method: 'POST',

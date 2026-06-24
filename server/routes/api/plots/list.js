@@ -50,7 +50,6 @@ export default async function (fastify, opts) {
         [StatusCodes.OK]: z.array(PlotSchema),
       },
     },
-    // ponytail: add requireUser/requireAdmin when auth is ready
   }, async function (request, reply) {
     const pageSize = request.query.pageSize ?? DEFAULT_PAGE_SIZE;
     const options = {

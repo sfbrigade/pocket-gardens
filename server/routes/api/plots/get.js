@@ -15,7 +15,6 @@ export default async function (fastify, opts) {
         [StatusCodes.NOT_FOUND]: z.null(),
       },
     },
-    // ponytail: add requireUser/requireAdmin when auth is ready
   }, async function (request, reply) {
     const { id } = request.params;
     const record = await airtable(TABLES.plots, `/${id}`);
