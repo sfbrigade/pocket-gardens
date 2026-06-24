@@ -13,8 +13,8 @@ import {
   buildViewportFormula,
   DEFAULT_PAGE_SIZE,
 } from '#lib/airtable.js';
-import errorPlugin from '../../../plugins/error.js';
-import plotsListRoute from '../../../routes/api/plots/list.js';
+import errorPlugin from '#plugins/error.js';
+import plotsListRoute from '#routes/api/plots/list.js';
 
 async function buildPlotsApp () {
   const app = Fastify();
