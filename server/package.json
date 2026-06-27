@@ -64,7 +64,9 @@
   "imports": {
     "#lib/*.js": "./lib/*.js",
     "#models/*.js": "./models/*.js",
+    "#plugins/*.js": "./plugins/*.js",
     "#prisma/*.js": "./prisma/*.js",
+    "#routes/*.js": "./routes/*.js",
     "#test/*.js": "./test/*.js"
   }
 }
