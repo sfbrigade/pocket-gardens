@@ -8,3 +8,8 @@ a {
 .clickable {
   cursor: pointer;
 }
+
+.leaflet-container {
+  height: 180px;
+  width: 100%;
+}
