@@ -74,53 +74,14 @@ export function parseMapCoordinates (value) {
   };
 }
 
-export function normalizePlotFields (fields) {
-  const normalized = { ...fields };
-  const needsLatitude = normalized[PLOT_LATITUDE_FIELD] === undefined;
-  const needsLongitude = normalized[PLOT_LONGITUDE_FIELD] === undefined;
-  if ((needsLatitude || needsLongitude) && normalized[PLOT_COORDINATES_FIELD] !== undefined) {
-    const parsed = parseMapCoordinates(normalized[PLOT_COORDINATES_FIELD]);
-    if (parsed) {
-      if (needsLatitude) {
-        normalized[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
-      }
-      if (needsLongitude) {
-        normalized[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
-      }
-    }
+export function preparePlotFieldsForWrite (fields) {
+  const sanitized = { ...fields };
+  if (sanitized[PLOT_COORDINATES_FIELD] !== undefined) {
+    parseMapCoordinates(sanitized[PLOT_COORDINATES_FIELD]);
   }
-  return normalized;
-}
-
-export function preparePlotCoordinateBackfill ({ id, fields }) {
-  const hasLatitude = fields[PLOT_LATITUDE_FIELD] != null;
-  const hasLongitude = fields[PLOT_LONGITUDE_FIELD] != null;
-  if (hasLatitude && hasLongitude) {
-    return null;
-  }
-  const mapCoordinates = fields[PLOT_COORDINATES_FIELD];
-  if (mapCoordinates == null || (typeof mapCoordinates === 'string' && mapCoordinates.trim() === '')) {
-    return null;
-  }
-  try {
-    const parsed = parseMapCoordinates(mapCoordinates);
-    if (!parsed) {
-      return null;
-    }
-    const update = {};
-    if (!hasLatitude) {
-      update[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
-    }
-    if (!hasLongitude) {
-      update[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
-    }
-    if (Object.keys(update).length === 0) {
-      return null;
-    }
-    return { id, update };
-  } catch {
-    return { id, invalidValue: mapCoordinates };
-  }
+  delete sanitized[PLOT_LATITUDE_FIELD];
+  delete sanitized[PLOT_LONGITUDE_FIELD];
+  return sanitized;
 }
 
 export async function airtable (table, path, { method = 'GET', body, searchParams } = {}) {

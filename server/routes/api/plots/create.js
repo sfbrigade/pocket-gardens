@@ -4,7 +4,7 @@ import { z } from 'zod';
 import {
   airtable,
   formatPlot,
-  normalizePlotFields,
+  preparePlotFieldsForWrite,
   PlotFieldsSchema,
   PlotSchema,
   TABLES,
@@ -23,7 +23,7 @@ export default async function (fastify, opts) {
   }, async function (request, reply) {
     let fields;
     try {
-      fields = normalizePlotFields(request.body);
+      fields = preparePlotFieldsForWrite(request.body);
     } catch (error) {
       if (error.statusCode === StatusCodes.UNPROCESSABLE_ENTITY) {
         return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send();
