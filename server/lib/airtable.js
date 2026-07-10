@@ -29,10 +29,13 @@ export const PlotFieldsSchema = z.object({
   [PLOT_COORDINATES_FIELD]: z.string().optional(),
 }).passthrough();
 
-function coordinateValidationError (message) {
-  const error = new Error(message);
-  error.statusCode = StatusCodes.UNPROCESSABLE_ENTITY;
-  return error;
+export class CoordinateValidationError extends Error {
+  statusCode = StatusCodes.UNPROCESSABLE_ENTITY;
+
+  constructor (message) {
+    super(message);
+    this.name = 'CoordinateValidationError';
+  }
 }
 
 export function parseMapCoordinates (value) {
@@ -40,7 +43,7 @@ export function parseMapCoordinates (value) {
     return undefined;
   }
   if (typeof value !== 'string') {
-    throw coordinateValidationError('Map Coordinates must be a string');
+    throw new CoordinateValidationError('Map Coordinates must be a string');
   }
   const trimmed = value.trim();
   if (trimmed === '') {
@@ -48,23 +51,23 @@ export function parseMapCoordinates (value) {
   }
   const parts = trimmed.split(',');
   if (parts.length !== 2) {
-    throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+    throw new CoordinateValidationError(`Invalid Map Coordinates: "${value}"`);
   }
   const latPart = parts[0].trim();
   const lngPart = parts[1].trim();
   if (latPart === '' || lngPart === '') {
-    throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+    throw new CoordinateValidationError(`Invalid Map Coordinates: "${value}"`);
   }
   const latitude = Number(latPart);
   const longitude = Number(lngPart);
   if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-    throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+    throw new CoordinateValidationError(`Invalid Map Coordinates: "${value}"`);
   }
   if (latitude < -90 || latitude > 90) {
-    throw coordinateValidationError(`Latitude must be between -90 and 90, got ${latitude}`);
+    throw new CoordinateValidationError(`Latitude must be between -90 and 90, got ${latitude}`);
   }
   if (longitude < -180 || longitude > 180) {
-    throw coordinateValidationError(`Longitude must be between -180 and 180, got ${longitude}`);
+    throw new CoordinateValidationError(`Longitude must be between -180 and 180, got ${longitude}`);
   }
   return {
     [PLOT_LATITUDE_FIELD]: latitude,
@@ -74,7 +77,7 @@ export function parseMapCoordinates (value) {
 
 export function preparePlotFieldsForWrite (fields) {
   if (fields[PLOT_LATITUDE_FIELD] !== undefined || fields[PLOT_LONGITUDE_FIELD] !== undefined) {
-    throw coordinateValidationError('Latitude and Longitude are derived from Map Coordinates');
+    throw new CoordinateValidationError('Latitude and Longitude are derived from Map Coordinates');
   }
   if (fields[PLOT_COORDINATES_FIELD] !== undefined) {
     parseMapCoordinates(fields[PLOT_COORDINATES_FIELD]);

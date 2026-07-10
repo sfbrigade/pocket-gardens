@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   airtable,
+  CoordinateValidationError,
   formatPlot,
   preparePlotFieldsForWrite,
   PlotFieldsSchema,
@@ -30,7 +31,7 @@ export default async function (fastify, opts) {
     try {
       fields = preparePlotFieldsForWrite(request.body);
     } catch (error) {
-      if (error.statusCode === StatusCodes.UNPROCESSABLE_ENTITY) {
+      if (error instanceof CoordinateValidationError) {
         return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send();
       }
       throw error;
