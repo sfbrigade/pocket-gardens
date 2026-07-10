@@ -12,9 +12,8 @@ import {
   buildListSearchParams,
   buildViewportFormula,
   DEFAULT_PAGE_SIZE,
-  normalizePlotFields,
+  preparePlotFieldsForWrite,
   parseMapCoordinates,
-  preparePlotCoordinateBackfill,
   PLOT_COORDINATES_FIELD,
   PLOT_LATITUDE_FIELD,
   PLOT_LONGITUDE_FIELD,
@@ -172,7 +171,7 @@ test('/api/plots', async (t) => {
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
   });
 
-  await t.test('POST / sends derived Latitude and Longitude to Airtable', async () => {
+  await t.test('POST / sends Map Coordinates to Airtable without Latitude or Longitude', async () => {
     let capturedBody;
     globalThis.fetch = async (url, options) => {
       capturedBody = JSON.parse(options.body);
@@ -200,13 +199,13 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.CREATED);
-    assert.strictEqual(capturedBody.fields[PLOT_LATITUDE_FIELD], 37.78);
-    assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], -122.42);
     assert.strictEqual(capturedBody.fields[PLOT_COORDINATES_FIELD], '37.78, -122.42');
     assert.strictEqual(capturedBody.fields.Status, 'Planted');
+    assert.strictEqual(capturedBody.fields[PLOT_LATITUDE_FIELD], undefined);
+    assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], undefined);
   });
 
-  await t.test('PATCH / sends derived Latitude and Longitude to Airtable', async () => {
+  await t.test('PATCH / sends Map Coordinates to Airtable without Latitude or Longitude', async () => {
     let capturedBody;
     globalThis.fetch = async (url, options) => {
       capturedBody = JSON.parse(options.body);
@@ -233,11 +232,12 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.OK);
-    assert.strictEqual(capturedBody.fields[PLOT_LATITUDE_FIELD], 37.78);
-    assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], -122.42);
+    assert.strictEqual(capturedBody.fields[PLOT_COORDINATES_FIELD], '37.78, -122.42');
+    assert.strictEqual(capturedBody.fields[PLOT_LATITUDE_FIELD], undefined);
+    assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], undefined);
   });
 
-  await t.test('POST / preserves explicit Latitude and Longitude', async () => {
+  await t.test('POST / strips Latitude and Longitude from request body', async () => {
     let capturedBody;
     globalThis.fetch = async (url, options) => {
       capturedBody = JSON.parse(options.body);
@@ -247,8 +247,9 @@ test('/api/plots', async (t) => {
           id: 'recExplicit',
           createdTime: '2023-01-01T12:00:00.000Z',
           fields: {
-            [PLOT_LATITUDE_FIELD]: 1,
-            [PLOT_LONGITUDE_FIELD]: 2,
+            [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
+            [PLOT_LATITUDE_FIELD]: 37.78,
+            [PLOT_LONGITUDE_FIELD]: -122.42,
           },
         }),
       };
@@ -265,8 +266,9 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.CREATED);
-    assert.strictEqual(capturedBody.fields[PLOT_LATITUDE_FIELD], 1);
-    assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], 2);
+    assert.strictEqual(capturedBody.fields[PLOT_COORDINATES_FIELD], '37.78, -122.42');
+    assert.strictEqual(capturedBody.fields[PLOT_LATITUDE_FIELD], undefined);
+    assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], undefined);
   });
 
   await t.test('POST / returns 422 for invalid Map Coordinates', async () => {
@@ -303,6 +305,13 @@ test('/api/plots', async (t) => {
 });
 
 test('parseMapCoordinates', async (t) => {
+  await t.test('accepts precise coordinates', () => {
+    assert.deepStrictEqual(parseMapCoordinates('37.78044, -122.45991'), {
+      [PLOT_LATITUDE_FIELD]: 37.78044,
+      [PLOT_LONGITUDE_FIELD]: -122.45991,
+    });
+  });
+
   await t.test('accepts lat, lng string', () => {
     assert.deepStrictEqual(parseMapCoordinates('37.78, -122.42'), {
       [PLOT_LATITUDE_FIELD]: 37.78,
@@ -367,87 +376,44 @@ test('parseMapCoordinates', async (t) => {
   });
 });
 
-test('normalizePlotFields and backfill helpers', async (t) => {
-  await t.test('normalizePlotFields derives missing split fields', () => {
+test('preparePlotFieldsForWrite', async (t) => {
+  await t.test('validates Map Coordinates when present', () => {
+    assert.throws(
+      () => preparePlotFieldsForWrite({ [PLOT_COORDINATES_FIELD]: 'not coordinates' }),
+      /Invalid Map Coordinates/
+    );
+  });
+
+  await t.test('passes Map Coordinates through and strips formula fields', () => {
     assert.deepStrictEqual(
-      normalizePlotFields({ [PLOT_COORDINATES_FIELD]: '37.78, -122.42' }),
+      preparePlotFieldsForWrite({
+        [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
+        Status: 'Planted',
+      }),
       {
         [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-        [PLOT_LATITUDE_FIELD]: 37.78,
-        [PLOT_LONGITUDE_FIELD]: -122.42,
+        Status: 'Planted',
       }
     );
   });
 
-  await t.test('normalizePlotFields preserves explicit split fields', () => {
+  await t.test('removes Latitude and Longitude even when provided in request', () => {
     assert.deepStrictEqual(
-      normalizePlotFields({
+      preparePlotFieldsForWrite({
         [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
         [PLOT_LATITUDE_FIELD]: 1,
         [PLOT_LONGITUDE_FIELD]: 2,
       }),
       {
         [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-        [PLOT_LATITUDE_FIELD]: 1,
-        [PLOT_LONGITUDE_FIELD]: 2,
       }
     );
   });
 
-  await t.test('preparePlotCoordinateBackfill skips records with both split fields', () => {
-    assert.strictEqual(
-      preparePlotCoordinateBackfill({
-        id: 'recComplete',
-        fields: { [PLOT_LATITUDE_FIELD]: 1, [PLOT_LONGITUDE_FIELD]: 2 },
-      }),
-      null
-    );
-  });
-
-  await t.test('preparePlotCoordinateBackfill prepares missing split fields', () => {
+  await t.test('passes through fields without Map Coordinates unchanged', () => {
     assert.deepStrictEqual(
-      preparePlotCoordinateBackfill({
-        id: 'recMissing',
-        fields: { [PLOT_COORDINATES_FIELD]: '37.78, -122.42' },
-      }),
-      {
-        id: 'recMissing',
-        update: {
-          [PLOT_LATITUDE_FIELD]: 37.78,
-          [PLOT_LONGITUDE_FIELD]: -122.42,
-        },
-      }
-    );
-  });
-
-  await t.test('preparePlotCoordinateBackfill does not overwrite existing split fields', () => {
-    assert.deepStrictEqual(
-      preparePlotCoordinateBackfill({
-        id: 'recPartial',
-        fields: {
-          [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-          [PLOT_LATITUDE_FIELD]: 1,
-        },
-      }),
-      {
-        id: 'recPartial',
-        update: {
-          [PLOT_LONGITUDE_FIELD]: -122.42,
-        },
-      }
-    );
-  });
-
-  await t.test('preparePlotCoordinateBackfill flags invalid Map Coordinates', () => {
-    assert.deepStrictEqual(
-      preparePlotCoordinateBackfill({
-        id: 'recInvalid',
-        fields: { [PLOT_COORDINATES_FIELD]: 'bad value' },
-      }),
-      {
-        id: 'recInvalid',
-        invalidValue: 'bad value',
-      }
+      preparePlotFieldsForWrite({ Status: 'Planted' }),
+      { Status: 'Planted' }
     );
   });
 });
