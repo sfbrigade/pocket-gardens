@@ -8,15 +8,17 @@ import { useMap } from 'react-leaflet/hooks';
 import LeafletContainer from './Components/LeafletContainer';
 import 'leaflet/dist/leaflet.css';
 
-function Home () {
+function Home() {
   return (
     <>
       <Head>
         <title>Home</title>
       </Head>
-      <Container>
-        <Title>Pocket Gardens</Title>
-        <LeafletContainer />
+      <Container fluid p={0}>
+        <Title order={1} px='md' pt='md'>Pocket Gardens</Title>
+        <div style={{ height: 'calc(100dvh - 60px)', minHeight: 400, width: '100%', overflow: 'hidden', position: 'relative', zIndex: 0 }}>
+          <LeafletContainer />
+        </div>
       </Container>
     </>
   );
