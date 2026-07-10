@@ -26,8 +26,6 @@ export const PlotSchema = z.object({
 }).passthrough();
 
 export const PlotFieldsSchema = z.object({
-  Latitude: z.number().min(-90).max(90).optional(),
-  Longitude: z.number().min(-180).max(180).optional(),
   [PLOT_COORDINATES_FIELD]: z.string().optional(),
 }).passthrough();
 
@@ -75,13 +73,17 @@ export function parseMapCoordinates (value) {
 }
 
 export function preparePlotFieldsForWrite (fields) {
-  const sanitized = { ...fields };
-  if (sanitized[PLOT_COORDINATES_FIELD] !== undefined) {
-    parseMapCoordinates(sanitized[PLOT_COORDINATES_FIELD]);
+  if (fields[PLOT_LATITUDE_FIELD] !== undefined || fields[PLOT_LONGITUDE_FIELD] !== undefined) {
+    throw coordinateValidationError('Latitude and Longitude are derived from Map Coordinates');
   }
-  delete sanitized[PLOT_LATITUDE_FIELD];
-  delete sanitized[PLOT_LONGITUDE_FIELD];
-  return sanitized;
+  if (fields[PLOT_COORDINATES_FIELD] !== undefined) {
+    parseMapCoordinates(fields[PLOT_COORDINATES_FIELD]);
+  }
+  return { ...fields };
+}
+
+export function isInViewport ({ latitude, longitude }, { north, south, east, west }) {
+  return latitude >= south && latitude <= north && longitude >= west && longitude <= east;
 }
 
 export async function airtable (table, path, { method = 'GET', body, searchParams } = {}) {
@@ -120,21 +122,31 @@ export async function airtable (table, path, { method = 'GET', body, searchParam
 }
 
 export function formatPlot ({ id, createdTime, fields }) {
-  return { id, createdTime, ...fields };
+  const {
+    [PLOT_LATITUDE_FIELD]: _latitude,
+    [PLOT_LONGITUDE_FIELD]: _longitude,
+    ...safeFields
+  } = fields;
+  const plot = { id, createdTime, ...safeFields };
+  try {
+    const parsed = parseMapCoordinates(fields[PLOT_COORDINATES_FIELD]);
+    if (parsed) {
+      plot[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
+      plot[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
+    }
+  } catch {
+    // Invalid Airtable source data should not break reads.
+  }
+  return plot;
 }
 
 export const DEFAULT_PAGE_SIZE = 25;
-
-export function buildViewportFormula ({ north, south, east, west }) {
-  return `AND({${PLOT_LATITUDE_FIELD}}>=${south},{${PLOT_LATITUDE_FIELD}}<=${north},{${PLOT_LONGITUDE_FIELD}}>=${west},{${PLOT_LONGITUDE_FIELD}}<=${east})`;
-}
 
 export function buildListSearchParams (options = {}) {
   const pageSize = Math.min(Math.max(1, Number(options.pageSize) || DEFAULT_PAGE_SIZE), 100);
   const params = new URLSearchParams();
   params.set('pageSize', String(pageSize));
   if (options.offset) params.set('offset', options.offset);
-  if (options.filterByFormula) params.set('filterByFormula', options.filterByFormula);
   for (const field of options.fields ?? []) {
     params.append('fields[]', field);
   }
@@ -145,15 +157,23 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const plot = formatPlot({
     id: 'rec123',
     createdTime: '2023-01-01T12:00:00.000Z',
-    fields: { Status: 'Planted', 'Bed Type': 'Tree Well' },
+    fields: {
+      Status: 'Planted',
+      'Bed Type': 'Tree Well',
+      [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
+    },
   });
   console.assert(plot.id === 'rec123');
   console.assert(plot.Status === 'Planted');
   console.assert(plot['Bed Type'] === 'Tree Well');
+  console.assert(plot[PLOT_LATITUDE_FIELD] === 37.78);
+  console.assert(plot[PLOT_LONGITUDE_FIELD] === -122.42);
   console.assert(String(DEFAULT_PAGE_SIZE) === '25');
   console.assert(
-    buildViewportFormula({ north: 37.82, south: 37.75, east: -122.38, west: -122.45 }) ===
-    'AND({Latitude}>=37.75,{Latitude}<=37.82,{Longitude}>=-122.45,{Longitude}<=-122.38)'
+    isInViewport(
+      { latitude: 37.78, longitude: -122.42 },
+      { north: 37.82, south: 37.75, east: -122.38, west: -122.45 }
+    ) === true
   );
   console.log('formatPlot ok');
 }
