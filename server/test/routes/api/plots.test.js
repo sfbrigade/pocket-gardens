@@ -331,6 +331,27 @@ test('parseMapCoordinates', async (t) => {
     );
   });
 
+  await t.test('rejects missing latitude', () => {
+    assert.throws(
+      () => parseMapCoordinates('37.78,'),
+      /Invalid Map Coordinates/
+    );
+  });
+
+  await t.test('rejects missing longitude', () => {
+    assert.throws(
+      () => parseMapCoordinates(', -122.42'),
+      /Invalid Map Coordinates/
+    );
+  });
+
+  await t.test('rejects whitespace-only longitude', () => {
+    assert.throws(
+      () => parseMapCoordinates('37.78,   '),
+      /Invalid Map Coordinates/
+    );
+  });
+
   await t.test('rejects out-of-range latitude', () => {
     assert.throws(
       () => parseMapCoordinates('91, -122.42'),

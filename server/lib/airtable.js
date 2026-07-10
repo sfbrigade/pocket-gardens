@@ -52,8 +52,13 @@ export function parseMapCoordinates (value) {
   if (parts.length !== 2) {
     throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
   }
-  const latitude = Number(parts[0].trim());
-  const longitude = Number(parts[1].trim());
+  const latPart = parts[0].trim();
+  const lngPart = parts[1].trim();
+  if (latPart === '' || lngPart === '') {
+    throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+  }
+  const latitude = Number(latPart);
+  const longitude = Number(lngPart);
   if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
     throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
   }
