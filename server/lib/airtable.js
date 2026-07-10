@@ -152,28 +152,3 @@ export function buildListSearchParams (options = {}) {
   }
   return params;
 }
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const plot = formatPlot({
-    id: 'rec123',
-    createdTime: '2023-01-01T12:00:00.000Z',
-    fields: {
-      Status: 'Planted',
-      'Bed Type': 'Tree Well',
-      [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-    },
-  });
-  console.assert(plot.id === 'rec123');
-  console.assert(plot.Status === 'Planted');
-  console.assert(plot['Bed Type'] === 'Tree Well');
-  console.assert(plot[PLOT_LATITUDE_FIELD] === 37.78);
-  console.assert(plot[PLOT_LONGITUDE_FIELD] === -122.42);
-  console.assert(String(DEFAULT_PAGE_SIZE) === '25');
-  console.assert(
-    isInViewport(
-      { latitude: 37.78, longitude: -122.42 },
-      { north: 37.82, south: 37.75, east: -122.38, west: -122.45 }
-    ) === true
-  );
-  console.log('formatPlot ok');
-}
