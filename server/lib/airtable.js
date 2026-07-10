@@ -11,6 +11,7 @@ export const TABLES = {
   zipcodes: 'Zip Codes',
 };
 
+export const PLOT_COORDINATES_FIELD = 'Map Coordinates';
 export const PLOT_LATITUDE_FIELD = 'Latitude';
 export const PLOT_LONGITUDE_FIELD = 'Longitude';
 
@@ -19,6 +20,7 @@ export const PlotSchema = z.object({
   createdTime: z.string(),
   Latitude: z.number().optional(),
   Longitude: z.number().optional(),
+  [PLOT_COORDINATES_FIELD]: z.string().optional(),
   Status: z.string().optional(),
   'Bed Type': z.string().optional(),
 }).passthrough();
@@ -26,7 +28,95 @@ export const PlotSchema = z.object({
 export const PlotFieldsSchema = z.object({
   Latitude: z.number().min(-90).max(90).optional(),
   Longitude: z.number().min(-180).max(180).optional(),
+  [PLOT_COORDINATES_FIELD]: z.string().optional(),
 }).passthrough();
+
+function coordinateValidationError (message) {
+  const error = new Error(message);
+  error.statusCode = StatusCodes.UNPROCESSABLE_ENTITY;
+  return error;
+}
+
+export function parseMapCoordinates (value) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw coordinateValidationError('Map Coordinates must be a string');
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return undefined;
+  }
+  const parts = trimmed.split(',');
+  if (parts.length !== 2) {
+    throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+  }
+  const latitude = Number(parts[0].trim());
+  const longitude = Number(parts[1].trim());
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    throw coordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+  }
+  if (latitude < -90 || latitude > 90) {
+    throw coordinateValidationError(`Latitude must be between -90 and 90, got ${latitude}`);
+  }
+  if (longitude < -180 || longitude > 180) {
+    throw coordinateValidationError(`Longitude must be between -180 and 180, got ${longitude}`);
+  }
+  return {
+    [PLOT_LATITUDE_FIELD]: latitude,
+    [PLOT_LONGITUDE_FIELD]: longitude,
+  };
+}
+
+export function normalizePlotFields (fields) {
+  const normalized = { ...fields };
+  const needsLatitude = normalized[PLOT_LATITUDE_FIELD] === undefined;
+  const needsLongitude = normalized[PLOT_LONGITUDE_FIELD] === undefined;
+  if ((needsLatitude || needsLongitude) && normalized[PLOT_COORDINATES_FIELD] !== undefined) {
+    const parsed = parseMapCoordinates(normalized[PLOT_COORDINATES_FIELD]);
+    if (parsed) {
+      if (needsLatitude) {
+        normalized[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
+      }
+      if (needsLongitude) {
+        normalized[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
+      }
+    }
+  }
+  return normalized;
+}
+
+export function preparePlotCoordinateBackfill ({ id, fields }) {
+  const hasLatitude = fields[PLOT_LATITUDE_FIELD] != null;
+  const hasLongitude = fields[PLOT_LONGITUDE_FIELD] != null;
+  if (hasLatitude && hasLongitude) {
+    return null;
+  }
+  const mapCoordinates = fields[PLOT_COORDINATES_FIELD];
+  if (mapCoordinates == null || (typeof mapCoordinates === 'string' && mapCoordinates.trim() === '')) {
+    return null;
+  }
+  try {
+    const parsed = parseMapCoordinates(mapCoordinates);
+    if (!parsed) {
+      return null;
+    }
+    const update = {};
+    if (!hasLatitude) {
+      update[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
+    }
+    if (!hasLongitude) {
+      update[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
+    }
+    if (Object.keys(update).length === 0) {
+      return null;
+    }
+    return { id, update };
+  } catch {
+    return { id, invalidValue: mapCoordinates };
+  }
+}
 
 export async function airtable (table, path, { method = 'GET', body, searchParams } = {}) {
   const apiKey = process.env.AIRTABLE_API_KEY;
