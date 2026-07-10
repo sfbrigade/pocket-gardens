@@ -1,7 +1,14 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { airtable, formatPlot, PlotFieldsSchema, PlotSchema, TABLES } from '#lib/airtable.js';
+import {
+  airtable,
+  formatPlot,
+  normalizePlotFields,
+  PlotFieldsSchema,
+  PlotSchema,
+  TABLES,
+} from '#lib/airtable.js';
 
 export default async function (fastify, opts) {
   fastify.patch('/:id', {
@@ -19,9 +26,18 @@ export default async function (fastify, opts) {
     },
   }, async function (request, reply) {
     const { id } = request.params;
+    let fields;
+    try {
+      fields = normalizePlotFields(request.body);
+    } catch (error) {
+      if (error.statusCode === StatusCodes.UNPROCESSABLE_ENTITY) {
+        return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send();
+      }
+      throw error;
+    }
     const record = await airtable(TABLES.plots, `/${id}`, {
       method: 'PATCH',
-      body: { fields: request.body },
+      body: { fields },
       searchParams: new URLSearchParams({ typecast: 'true' }),
     });
     reply.send(formatPlot(record));
