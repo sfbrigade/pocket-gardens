@@ -10,8 +10,9 @@ import {
 
 import {
   buildListSearchParams,
-  buildViewportFormula,
   DEFAULT_PAGE_SIZE,
+  formatPlot,
+  isInViewport,
   preparePlotFieldsForWrite,
   parseMapCoordinates,
   PLOT_COORDINATES_FIELD,
@@ -36,31 +37,42 @@ async function buildPlotsApp () {
   return app;
 }
 
-test('airtable viewport helpers', async (t) => {
-  await t.test('buildViewportFormula produces an Airtable filter formula', () => {
+test('airtable list helpers', async (t) => {
+  await t.test('isInViewport matches coordinates inside bounds', () => {
     assert.strictEqual(
-      buildViewportFormula({ north: 37.82, south: 37.75, east: -122.38, west: -122.45 }),
-      'AND({Latitude}>=37.75,{Latitude}<=37.82,{Longitude}>=-122.45,{Longitude}<=-122.38)'
+      isInViewport(
+        { latitude: 37.78, longitude: -122.42 },
+        { north: 37.82, south: 37.75, east: -122.38, west: -122.45 }
+      ),
+      true
     );
   });
 
-  await t.test('buildListSearchParams includes filterByFormula when provided', () => {
+  await t.test('isInViewport rejects coordinates outside bounds', () => {
+    assert.strictEqual(
+      isInViewport(
+        { latitude: 37.70, longitude: -122.42 },
+        { north: 37.82, south: 37.75, east: -122.38, west: -122.45 }
+      ),
+      false
+    );
+  });
+
+  await t.test('buildListSearchParams includes pagination options', () => {
     const params = buildListSearchParams({
       pageSize: 50,
       offset: 'itrXXX',
-      filterByFormula: 'AND({Latitude}>=1)',
-      fields: ['Latitude', 'Longitude'],
+      fields: ['Status', PLOT_COORDINATES_FIELD],
     });
     assert.strictEqual(params.get('pageSize'), '50');
     assert.strictEqual(params.get('offset'), 'itrXXX');
-    assert.strictEqual(params.get('filterByFormula'), 'AND({Latitude}>=1)');
-    assert.deepStrictEqual(params.getAll('fields[]'), ['Latitude', 'Longitude']);
+    assert.deepStrictEqual(params.getAll('fields[]'), ['Status', PLOT_COORDINATES_FIELD]);
   });
 
   await t.test('buildListSearchParams defaults pageSize', () => {
     const params = buildListSearchParams({});
     assert.strictEqual(params.get('pageSize'), String(DEFAULT_PAGE_SIZE));
-    assert.strictEqual(params.get('filterByFormula'), null);
+    assert.strictEqual(params.get('offset'), null);
   });
 });
 
@@ -91,18 +103,55 @@ test('/api/plots', async (t) => {
   const app = await buildPlotsApp();
   t.after(() => app.close());
 
-  await t.test('GET / with viewport params sends filterByFormula to Airtable', async () => {
-    let capturedUrl;
+  await t.test('GET / with viewport params filters records in API without Airtable formula', async () => {
+    const fetchCalls = [];
     globalThis.fetch = async (url) => {
-      capturedUrl = url;
+      fetchCalls.push(url);
+      const offset = url.searchParams.get('offset');
+      if (!offset) {
+        return {
+          ok: true,
+          json: async () => ({
+            records: [
+              {
+                id: 'recInside',
+                createdTime: '2023-01-01T12:00:00.000Z',
+                fields: {
+                  [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
+                  Status: 'Planted',
+                },
+              },
+              {
+                id: 'recOutside',
+                createdTime: '2023-01-01T12:00:00.000Z',
+                fields: {
+                  [PLOT_COORDINATES_FIELD]: '37.70, -122.42',
+                  Status: 'Planted',
+                },
+              },
+            ],
+            offset: 'page2',
+          }),
+        };
+      }
       return {
         ok: true,
         json: async () => ({
-          records: [{
-            id: 'rec1',
-            createdTime: '2023-01-01T12:00:00.000Z',
-            fields: { Latitude: 37.78, Longitude: -122.42, Status: 'Planted' },
-          }],
+          records: [
+            {
+              id: 'recInvalid',
+              createdTime: '2023-01-01T12:00:00.000Z',
+              fields: {
+                [PLOT_COORDINATES_FIELD]: 'bad value',
+                Status: 'Planted',
+              },
+            },
+            {
+              id: 'recMissing',
+              createdTime: '2023-01-01T12:00:00.000Z',
+              fields: { Status: 'Planted' },
+            },
+          ],
         }),
       };
     };
@@ -112,17 +161,18 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.OK);
+    assert.strictEqual(fetchCalls.length, 2);
+    assert.strictEqual(fetchCalls[0].searchParams.get('filterByFormula'), null);
+    assert.strictEqual(fetchCalls[1].searchParams.get('offset'), 'page2');
+    assert.strictEqual(response.headers['x-next-offset'], undefined);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.length, 1);
-    assert.strictEqual(data[0].id, 'rec1');
+    assert.strictEqual(data[0].id, 'recInside');
     assert.strictEqual(data[0].Latitude, 37.78);
-    assert.strictEqual(
-      capturedUrl.searchParams.get('filterByFormula'),
-      'AND({Latitude}>=37.75,{Latitude}<=37.82,{Longitude}>=-122.45,{Longitude}<=-122.38)'
-    );
+    assert.strictEqual(data[0].Longitude, -122.42);
   });
 
-  await t.test('GET / without viewport params does not send filterByFormula', async () => {
+  await t.test('GET / without viewport params preserves pagination behavior', async () => {
     let capturedUrl;
     globalThis.fetch = async (url) => {
       capturedUrl = url;
@@ -132,8 +182,12 @@ test('/api/plots', async (t) => {
           records: [{
             id: 'rec2',
             createdTime: '2023-01-01T12:00:00.000Z',
-            fields: { Status: 'Planted' },
+            fields: {
+              Status: 'Planted',
+              [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
+            },
           }],
+          offset: 'nextPage',
         }),
       };
     };
@@ -145,6 +199,10 @@ test('/api/plots', async (t) => {
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     assert.strictEqual(capturedUrl.searchParams.get('filterByFormula'), null);
     assert.strictEqual(capturedUrl.searchParams.get('pageSize'), String(DEFAULT_PAGE_SIZE));
+    assert.strictEqual(response.headers['x-next-offset'], 'nextPage');
+    const data = JSON.parse(response.payload);
+    assert.strictEqual(data[0].Latitude, 37.78);
+    assert.strictEqual(data[0].Longitude, -122.42);
   });
 
   await t.test('GET / rejects partial viewport params', async () => {
@@ -182,8 +240,6 @@ test('/api/plots', async (t) => {
           createdTime: '2023-01-01T12:00:00.000Z',
           fields: {
             [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-            [PLOT_LATITUDE_FIELD]: 37.78,
-            [PLOT_LONGITUDE_FIELD]: -122.42,
           },
         }),
       };
@@ -216,8 +272,6 @@ test('/api/plots', async (t) => {
           createdTime: '2023-01-01T12:00:00.000Z',
           fields: {
             [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-            [PLOT_LATITUDE_FIELD]: 37.78,
-            [PLOT_LONGITUDE_FIELD]: -122.42,
           },
         }),
       };
@@ -237,22 +291,9 @@ test('/api/plots', async (t) => {
     assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], undefined);
   });
 
-  await t.test('POST / strips Latitude and Longitude from request body', async () => {
-    let capturedBody;
-    globalThis.fetch = async (url, options) => {
-      capturedBody = JSON.parse(options.body);
-      return {
-        ok: true,
-        json: async () => ({
-          id: 'recExplicit',
-          createdTime: '2023-01-01T12:00:00.000Z',
-          fields: {
-            [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-            [PLOT_LATITUDE_FIELD]: 37.78,
-            [PLOT_LONGITUDE_FIELD]: -122.42,
-          },
-        }),
-      };
+  await t.test('POST / returns 422 for Latitude or Longitude in request body', async () => {
+    globalThis.fetch = async () => {
+      throw new Error('fetch should not be called');
     };
 
     const response = await app.inject({
@@ -265,10 +306,23 @@ test('/api/plots', async (t) => {
       },
     });
 
-    assert.strictEqual(response.statusCode, StatusCodes.CREATED);
-    assert.strictEqual(capturedBody.fields[PLOT_COORDINATES_FIELD], '37.78, -122.42');
-    assert.strictEqual(capturedBody.fields[PLOT_LATITUDE_FIELD], undefined);
-    assert.strictEqual(capturedBody.fields[PLOT_LONGITUDE_FIELD], undefined);
+    assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+  });
+
+  await t.test('PATCH / returns 422 for Latitude or Longitude in request body', async () => {
+    globalThis.fetch = async () => {
+      throw new Error('fetch should not be called');
+    };
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/plots/recExplicit',
+      payload: {
+        [PLOT_LATITUDE_FIELD]: 1,
+      },
+    });
+
+    assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
   });
 
   await t.test('POST / returns 422 for invalid Map Coordinates', async () => {
@@ -301,6 +355,66 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+  });
+});
+
+test('formatPlot', async (t) => {
+  await t.test('derives Latitude and Longitude from valid Map Coordinates', () => {
+    const plot = formatPlot({
+      id: 'rec1',
+      createdTime: '2023-01-01T12:00:00.000Z',
+      fields: {
+        [PLOT_COORDINATES_FIELD]: '37.78044, -122.45991',
+        Status: 'Planted',
+      },
+    });
+    assert.strictEqual(plot.Latitude, 37.78044);
+    assert.strictEqual(plot.Longitude, -122.45991);
+    assert.strictEqual(plot.Status, 'Planted');
+  });
+
+  await t.test('overwrites stale Airtable coordinates from valid Map Coordinates', () => {
+    const plot = formatPlot({
+      id: 'rec1',
+      createdTime: '2023-01-01T12:00:00.000Z',
+      fields: {
+        [PLOT_COORDINATES_FIELD]: '37.78044, -122.45991',
+        [PLOT_LATITUDE_FIELD]: 1,
+        [PLOT_LONGITUDE_FIELD]: 2,
+      },
+    });
+    assert.strictEqual(plot.Latitude, 37.78044);
+    assert.strictEqual(plot.Longitude, -122.45991);
+  });
+
+  await t.test('omits derived coordinates when Map Coordinates is missing', () => {
+    const plot = formatPlot({
+      id: 'rec2',
+      createdTime: '2023-01-01T12:00:00.000Z',
+      fields: {
+        Status: 'Planted',
+        [PLOT_LATITUDE_FIELD]: 1,
+        [PLOT_LONGITUDE_FIELD]: 2,
+      },
+    });
+    assert.strictEqual(plot.Latitude, undefined);
+    assert.strictEqual(plot.Longitude, undefined);
+  });
+
+  await t.test('omits derived coordinates when Map Coordinates is invalid', () => {
+    const plot = formatPlot({
+      id: 'rec3',
+      createdTime: '2023-01-01T12:00:00.000Z',
+      fields: {
+        [PLOT_COORDINATES_FIELD]: 'bad value',
+        [PLOT_LATITUDE_FIELD]: 1,
+        [PLOT_LONGITUDE_FIELD]: 2,
+        Status: 'Planted',
+      },
+    });
+    assert.strictEqual(plot.Latitude, undefined);
+    assert.strictEqual(plot.Longitude, undefined);
+    assert.strictEqual(plot[PLOT_COORDINATES_FIELD], 'bad value');
   });
 });
 
@@ -384,7 +498,7 @@ test('preparePlotFieldsForWrite', async (t) => {
     );
   });
 
-  await t.test('passes Map Coordinates through and strips formula fields', () => {
+  await t.test('passes Map Coordinates through', () => {
     assert.deepStrictEqual(
       preparePlotFieldsForWrite({
         [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
@@ -397,16 +511,14 @@ test('preparePlotFieldsForWrite', async (t) => {
     );
   });
 
-  await t.test('removes Latitude and Longitude even when provided in request', () => {
-    assert.deepStrictEqual(
-      preparePlotFieldsForWrite({
+  await t.test('rejects Latitude and Longitude when provided in request', () => {
+    assert.throws(
+      () => preparePlotFieldsForWrite({
         [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
         [PLOT_LATITUDE_FIELD]: 1,
         [PLOT_LONGITUDE_FIELD]: 2,
       }),
-      {
-        [PLOT_COORDINATES_FIELD]: '37.78, -122.42',
-      }
+      /Latitude and Longitude are derived/
     );
   });
 
