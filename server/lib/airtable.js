@@ -128,14 +128,10 @@ export function formatPlot ({ id, createdTime, fields }) {
     ...safeFields
   } = fields;
   const plot = { id, createdTime, ...safeFields };
-  try {
-    const parsed = parseMapCoordinates(fields[PLOT_COORDINATES_FIELD]);
-    if (parsed) {
-      plot[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
-      plot[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
-    }
-  } catch {
-    // Invalid Airtable source data should not break reads.
+  const parsed = parseMapCoordinates(fields[PLOT_COORDINATES_FIELD]);
+  if (parsed) {
+    plot[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
+    plot[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
   }
   return plot;
 }

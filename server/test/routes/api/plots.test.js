@@ -139,14 +139,6 @@ test('/api/plots', async (t) => {
         json: async () => ({
           records: [
             {
-              id: 'recInvalid',
-              createdTime: '2023-01-01T12:00:00.000Z',
-              fields: {
-                [PLOT_COORDINATES_FIELD]: 'bad value',
-                Status: 'Planted',
-              },
-            },
-            {
               id: 'recMissing',
               createdTime: '2023-01-01T12:00:00.000Z',
               fields: { Status: 'Planted' },
@@ -401,20 +393,20 @@ test('formatPlot', async (t) => {
     assert.strictEqual(plot.Longitude, undefined);
   });
 
-  await t.test('omits derived coordinates when Map Coordinates is invalid', () => {
-    const plot = formatPlot({
-      id: 'rec3',
-      createdTime: '2023-01-01T12:00:00.000Z',
-      fields: {
-        [PLOT_COORDINATES_FIELD]: 'bad value',
-        [PLOT_LATITUDE_FIELD]: 1,
-        [PLOT_LONGITUDE_FIELD]: 2,
-        Status: 'Planted',
-      },
-    });
-    assert.strictEqual(plot.Latitude, undefined);
-    assert.strictEqual(plot.Longitude, undefined);
-    assert.strictEqual(plot[PLOT_COORDINATES_FIELD], 'bad value');
+  await t.test('throws when Map Coordinates is invalid', () => {
+    assert.throws(
+      () => formatPlot({
+        id: 'rec3',
+        createdTime: '2023-01-01T12:00:00.000Z',
+        fields: {
+          [PLOT_COORDINATES_FIELD]: 'bad value',
+          [PLOT_LATITUDE_FIELD]: 1,
+          [PLOT_LONGITUDE_FIELD]: 2,
+          Status: 'Planted',
+        },
+      }),
+      /Invalid Map Coordinates/
+    );
   });
 });
 
