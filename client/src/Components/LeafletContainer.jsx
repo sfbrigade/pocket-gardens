@@ -2,10 +2,9 @@ import { MapContainer } from 'react-leaflet/MapContainer';
 import { TileLayer } from 'react-leaflet/TileLayer';
 import { Popup } from 'react-leaflet/Popup';
 import { Marker } from 'react-leaflet/Marker';
-import { useMap } from 'react-leaflet/hooks';
 import 'leaflet/dist/leaflet.css';
 
-function LeafletContainer() {
+function LeafletContainer () {
   return (
     <MapContainer center={[51.505, -0.09]} zoom={13} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
       <TileLayer
