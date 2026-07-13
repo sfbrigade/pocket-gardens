@@ -44,7 +44,7 @@ function hasViewport (query) {
 export default async function (fastify, opts) {
   fastify.get('/', {
     schema: {
-      description: 'Returns a paginated list of Plots from Airtable. Pass north, south, east, and west (Leaflet map.getBounds()) to filter plots visible in the map viewport. Use X-Next-Offset for the next page.',
+      description: 'Returns a paginated list of Plots from Airtable. Pass north, south, east, and west (Leaflet map.getBounds()) to filter plots visible in the map viewport; in viewport mode, pageSize and offset are ignored and all matching plots are returned. Without viewport params, use X-Next-Offset for the next page.',
       querystring: ListQuerySchema,
       response: {
         [StatusCodes.OK]: z.array(PlotSchema),
