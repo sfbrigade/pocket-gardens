@@ -299,6 +299,9 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    assert.deepStrictEqual(JSON.parse(response.payload), {
+      message: 'Latitude and Longitude are derived from Map Coordinates',
+    });
   });
 
   await t.test('PATCH / returns 422 for Latitude or Longitude in request body', async () => {
@@ -315,6 +318,9 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    assert.deepStrictEqual(JSON.parse(response.payload), {
+      message: 'Latitude and Longitude are derived from Map Coordinates',
+    });
   });
 
   await t.test('POST / returns 422 for invalid Map Coordinates', async () => {
@@ -331,6 +337,9 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    assert.deepStrictEqual(JSON.parse(response.payload), {
+      message: 'Invalid Map Coordinates: "not coordinates"',
+    });
   });
 
   await t.test('PATCH / returns 422 for invalid Map Coordinates', async () => {
@@ -347,6 +356,9 @@ test('/api/plots', async (t) => {
     });
 
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    assert.deepStrictEqual(JSON.parse(response.payload), {
+      message: 'Invalid Map Coordinates: "not coordinates"',
+    });
   });
 });
 

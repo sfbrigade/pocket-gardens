@@ -22,7 +22,7 @@ export default async function (fastify, opts) {
       response: {
         [StatusCodes.OK]: PlotSchema,
         [StatusCodes.NOT_FOUND]: z.null(),
-        [StatusCodes.UNPROCESSABLE_ENTITY]: z.null(),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: z.object({ message: z.string() }),
       },
     },
   }, async function (request, reply) {
@@ -32,7 +32,7 @@ export default async function (fastify, opts) {
       fields = preparePlotFieldsForWrite(request.body);
     } catch (error) {
       if (error instanceof CoordinateValidationError) {
-        return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send();
+        return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send({ message: error.message });
       }
       throw error;
     }
