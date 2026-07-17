@@ -1,7 +1,9 @@
 import { Container, Title } from '@mantine/core';
 import { Head } from '@unhead/react';
-import LeafletContainer from './Components/LeafletContainer';
+import { lazy } from 'react';
 import 'leaflet/dist/leaflet.css';
+
+const LeafletContainer = lazy(() => import('./Components/LeafletContainer'));
 
 function Home () {
   return (
