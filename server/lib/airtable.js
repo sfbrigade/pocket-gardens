@@ -11,6 +11,7 @@ export const TABLES = {
   zipcodes: 'Zip Codes',
 };
 
+export const PLOT_COORDINATES_FIELD = 'Map Coordinates';
 export const PLOT_LATITUDE_FIELD = 'Latitude';
 export const PLOT_LONGITUDE_FIELD = 'Longitude';
 
@@ -19,14 +20,74 @@ export const PlotSchema = z.object({
   createdTime: z.string(),
   Latitude: z.number().optional(),
   Longitude: z.number().optional(),
+  [PLOT_COORDINATES_FIELD]: z.string().optional(),
   Status: z.string().optional(),
   'Bed Type': z.string().optional(),
 }).passthrough();
 
 export const PlotFieldsSchema = z.object({
-  Latitude: z.number().min(-90).max(90).optional(),
-  Longitude: z.number().min(-180).max(180).optional(),
+  [PLOT_COORDINATES_FIELD]: z.string().optional(),
 }).passthrough();
+
+export class CoordinateValidationError extends Error {
+  statusCode = StatusCodes.UNPROCESSABLE_ENTITY;
+
+  constructor (message) {
+    super(message);
+    this.name = 'CoordinateValidationError';
+  }
+}
+
+export function parseMapCoordinates (value) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new CoordinateValidationError('Map Coordinates must be a string');
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return undefined;
+  }
+  const parts = trimmed.split(',');
+  if (parts.length !== 2) {
+    throw new CoordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+  }
+  const latPart = parts[0].trim();
+  const lngPart = parts[1].trim();
+  if (latPart === '' || lngPart === '') {
+    throw new CoordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+  }
+  const latitude = Number(latPart);
+  const longitude = Number(lngPart);
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    throw new CoordinateValidationError(`Invalid Map Coordinates: "${value}"`);
+  }
+  if (latitude < -90 || latitude > 90) {
+    throw new CoordinateValidationError(`Latitude must be between -90 and 90, got ${latitude}`);
+  }
+  if (longitude < -180 || longitude > 180) {
+    throw new CoordinateValidationError(`Longitude must be between -180 and 180, got ${longitude}`);
+  }
+  return {
+    [PLOT_LATITUDE_FIELD]: latitude,
+    [PLOT_LONGITUDE_FIELD]: longitude,
+  };
+}
+
+export function preparePlotFieldsForWrite (fields) {
+  if (fields[PLOT_LATITUDE_FIELD] !== undefined || fields[PLOT_LONGITUDE_FIELD] !== undefined) {
+    throw new CoordinateValidationError('Latitude and Longitude are derived from Map Coordinates');
+  }
+  if (fields[PLOT_COORDINATES_FIELD] !== undefined) {
+    parseMapCoordinates(fields[PLOT_COORDINATES_FIELD]);
+  }
+  return { ...fields };
+}
+
+export function isInViewport ({ latitude, longitude }, { north, south, east, west }) {
+  return latitude >= south && latitude <= north && longitude >= west && longitude <= east;
+}
 
 export async function airtable (table, path, { method = 'GET', body, searchParams } = {}) {
   const apiKey = process.env.AIRTABLE_API_KEY;
@@ -64,40 +125,29 @@ export async function airtable (table, path, { method = 'GET', body, searchParam
 }
 
 export function formatPlot ({ id, createdTime, fields }) {
-  return { id, createdTime, ...fields };
+  const {
+    [PLOT_LATITUDE_FIELD]: _latitude,
+    [PLOT_LONGITUDE_FIELD]: _longitude,
+    ...safeFields
+  } = fields;
+  const plot = { id, createdTime, ...safeFields };
+  const parsed = parseMapCoordinates(fields[PLOT_COORDINATES_FIELD]);
+  if (parsed) {
+    plot[PLOT_LATITUDE_FIELD] = parsed[PLOT_LATITUDE_FIELD];
+    plot[PLOT_LONGITUDE_FIELD] = parsed[PLOT_LONGITUDE_FIELD];
+  }
+  return plot;
 }
 
 export const DEFAULT_PAGE_SIZE = 25;
-
-export function buildViewportFormula ({ north, south, east, west }) {
-  return `AND({${PLOT_LATITUDE_FIELD}}>=${south},{${PLOT_LATITUDE_FIELD}}<=${north},{${PLOT_LONGITUDE_FIELD}}>=${west},{${PLOT_LONGITUDE_FIELD}}<=${east})`;
-}
 
 export function buildListSearchParams (options = {}) {
   const pageSize = Math.min(Math.max(1, Number(options.pageSize) || DEFAULT_PAGE_SIZE), 100);
   const params = new URLSearchParams();
   params.set('pageSize', String(pageSize));
   if (options.offset) params.set('offset', options.offset);
-  if (options.filterByFormula) params.set('filterByFormula', options.filterByFormula);
   for (const field of options.fields ?? []) {
     params.append('fields[]', field);
   }
   return params;
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const plot = formatPlot({
-    id: 'rec123',
-    createdTime: '2023-01-01T12:00:00.000Z',
-    fields: { Status: 'Planted', 'Bed Type': 'Tree Well' },
-  });
-  console.assert(plot.id === 'rec123');
-  console.assert(plot.Status === 'Planted');
-  console.assert(plot['Bed Type'] === 'Tree Well');
-  console.assert(String(DEFAULT_PAGE_SIZE) === '25');
-  console.assert(
-    buildViewportFormula({ north: 37.82, south: 37.75, east: -122.38, west: -122.45 }) ===
-    'AND({Latitude}>=37.75,{Latitude}<=37.82,{Longitude}>=-122.45,{Longitude}<=-122.38)'
-  );
-  console.log('formatPlot ok');
 }

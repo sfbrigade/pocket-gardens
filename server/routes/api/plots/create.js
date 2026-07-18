@@ -1,7 +1,15 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { airtable, formatPlot, PlotFieldsSchema, PlotSchema, TABLES } from '#lib/airtable.js';
+import {
+  airtable,
+  CoordinateValidationError,
+  formatPlot,
+  preparePlotFieldsForWrite,
+  PlotFieldsSchema,
+  PlotSchema,
+  TABLES,
+} from '#lib/airtable.js';
 
 export default async function (fastify, opts) {
   fastify.post('/', {
@@ -10,13 +18,22 @@ export default async function (fastify, opts) {
       body: PlotFieldsSchema,
       response: {
         [StatusCodes.CREATED]: PlotSchema,
-        [StatusCodes.UNPROCESSABLE_ENTITY]: z.null(),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: z.object({ message: z.string() }),
       },
     },
   }, async function (request, reply) {
+    let fields;
+    try {
+      fields = preparePlotFieldsForWrite(request.body);
+    } catch (error) {
+      if (error instanceof CoordinateValidationError) {
+        return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send({ message: error.message });
+      }
+      throw error;
+    }
     const record = await airtable(TABLES.plots, '', {
       method: 'POST',
-      body: { fields: request.body },
+      body: { fields },
       searchParams: new URLSearchParams({ typecast: 'true' }),
     });
     reply.code(StatusCodes.CREATED).send(formatPlot(record));
