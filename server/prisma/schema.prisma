@@ -48,3 +48,184 @@ model Invite {
   revokedBy               User?     @relation("RevokedByUser", fields: [revokedById], references: [id])
   revokedById             String?   @db.Uuid
 }
+
+// --- Domain models migrated from Airtable ---
+// Coordinate authority: Map Coordinates → latitude/longitude Float columns
+
+model Neighborhood {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  airtableId String   @unique
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  zipCodes NeighborhoodZipCode[]
+  plots    Plot[]
+}
+
+model ZipCode {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  airtableId               String   @unique
+  code                     String?
+  plantedPlotCount         Int?
+  notYetPlantedPlotCount   Int?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  neighborhoods   NeighborhoodZipCode[]
+  plots           Plot[]
+  people          Person[]              @relation("PersonHomeZip")
+  localVolunteers PersonZipCode[]
+}
+
+model NeighborhoodZipCode {
+  neighborhoodId String       @db.Uuid
+  zipCodeId      String       @db.Uuid
+  neighborhood   Neighborhood @relation(fields: [neighborhoodId], references: [id], onDelete: Cascade)
+  zipCode        ZipCode      @relation(fields: [zipCodeId], references: [id], onDelete: Cascade)
+
+  @@id([neighborhoodId, zipCodeId])
+  @@index([zipCodeId])
+}
+
+model Person {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  airtableId String   @unique
+  firstName  String?
+  lastName   String?
+  name       String?
+  email      String?
+  phone      String?
+  homeZipId  String?  @db.Uuid
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  homeZip              ZipCode?                  @relation("PersonHomeZip", fields: [homeZipId], references: [id], onDelete: SetNull)
+  assignedPlots        PlotAssignedVolunteer[]
+  lastVolunteerPlots   Plot[]                    @relation("PlotLastVolunteer")
+  maintenanceRecords   MaintenanceRecord[]
+  localZipCodes        PersonZipCode[]
+
+  @@index([homeZipId])
+}
+
+model PersonZipCode {
+  personId  String @db.Uuid
+  zipCodeId String @db.Uuid
+  person    Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  zipCode   ZipCode @relation(fields: [zipCodeId], references: [id], onDelete: Cascade)
+
+  @@id([personId, zipCodeId])
+  @@index([zipCodeId])
+}
+
+model Plant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  airtableId    String   @unique
+  plantName     String?
+  latinName     String?
+  commonName    String?
+  locations     String?
+  numberPlanted Int?
+  photo         Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  maintenanceRecordPlants MaintenanceRecordPlant[]
+}
+
+model Plot {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  airtableId           String    @unique
+  name                 String?
+  status               String?
+  streetAddress        String?
+  streetCityAddress    String?
+  mapCoordinates       String?
+  /// Canonical coordinates derived from Map Coordinates for viewport queries
+  latitude             Float?
+  longitude            Float?
+  bedType              String?
+  bedId                String?
+  soilType             String?
+  visitIntervalDays    Int?
+  estAreaSqFt          Float?
+  locationDescription  String?
+  sethsNotes           String?
+  geocodeCache         String?
+  photo                Json?
+  photos               Json?
+  originalPlantDate    DateTime?
+  lastPlant            DateTime?
+  lastWater            DateTime?
+  lastWeed             DateTime?
+  lastMulch            DateTime?
+  lastVisit            DateTime?
+  nextVisit            String?
+  alert                String?
+  zipCodeId            String?   @db.Uuid
+  neighborhoodId       String?   @db.Uuid
+  lastVolunteerId      String?   @db.Uuid
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  zipCode              ZipCode?                  @relation(fields: [zipCodeId], references: [id], onDelete: SetNull)
+  neighborhood         Neighborhood?             @relation(fields: [neighborhoodId], references: [id], onDelete: SetNull)
+  lastVolunteer        Person?                   @relation("PlotLastVolunteer", fields: [lastVolunteerId], references: [id], onDelete: SetNull)
+  assignedVolunteers   PlotAssignedVolunteer[]
+  maintenanceRecords   MaintenanceRecord[]
+
+  @@index([latitude, longitude])
+  @@index([zipCodeId])
+  @@index([neighborhoodId])
+  @@index([lastVolunteerId])
+  @@index([status])
+}
+
+model PlotAssignedVolunteer {
+  plotId   String @db.Uuid
+  personId String @db.Uuid
+  plot     Plot   @relation(fields: [plotId], references: [id], onDelete: Cascade)
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([plotId, personId])
+  @@index([personId])
+}
+
+model MaintenanceRecord {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  airtableId       String    @unique
+  airtableNumber   Int?
+  date             DateTime?
+  activity         String[]
+  notes            String?
+  planting         String?
+  estNextVisit     DateTime?
+  volunteerPhotos  Json?
+  plotId           String?   @db.Uuid
+  volunteerId      String?   @db.Uuid
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  plot      Plot?                     @relation(fields: [plotId], references: [id], onDelete: SetNull)
+  volunteer Person?                   @relation(fields: [volunteerId], references: [id], onDelete: SetNull)
+  plants    MaintenanceRecordPlant[]
+
+  @@index([plotId])
+  @@index([volunteerId])
+  @@index([date])
+}
+
+model MaintenanceRecordPlant {
+  id                   String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  maintenanceRecordId  String @db.Uuid
+  plantId              String @db.Uuid
+  slot                 Int
+  quantity             Int?
+
+  maintenanceRecord MaintenanceRecord @relation(fields: [maintenanceRecordId], references: [id], onDelete: Cascade)
+  plant             Plant             @relation(fields: [plantId], references: [id], onDelete: Cascade)
+
+  @@unique([maintenanceRecordId, slot])
+  @@index([plantId])
+}
