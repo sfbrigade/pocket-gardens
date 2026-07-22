@@ -19,9 +19,15 @@ For production mode
 
 Run the test cases.
 
-### Airtable → Postgres migration
+### Airtable → Postgres import
 
-See [docs/AIRTABLE_POSTGRES_MIGRATION.md](docs/AIRTABLE_POSTGRES_MIGRATION.md) for Airtable → Postgres import (`airtable:import:dry`, `airtable:import`).
+Requires `AIRTABLE_API_KEY` (scope `data.records:read`), `AIRTABLE_BASE_ID`, and `DATABASE_URL`.
+
+```bash
+npx prisma migrate deploy
+npm run airtable:import:dry   # report only
+npm run airtable:import       # upsert into Postgres
+```
 
 ## Learn More
 
