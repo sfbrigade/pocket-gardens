@@ -71,6 +71,22 @@ CREATE TABLE "Plant" (
 );
 
 -- CreateTable
+CREATE TABLE "Partner" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "airtableId" TEXT NOT NULL,
+    "orgName" TEXT,
+    "contactName" TEXT,
+    "title" TEXT,
+    "email" TEXT,
+    "phone" TEXT,
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Partner_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Plot" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "airtableId" TEXT NOT NULL,
@@ -166,6 +182,9 @@ CREATE INDEX "PersonZipCode_zipCodeId_idx" ON "PersonZipCode"("zipCodeId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Plant_airtableId_key" ON "Plant"("airtableId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Partner_airtableId_key" ON "Partner"("airtableId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Plot_airtableId_key" ON "Plot"("airtableId");

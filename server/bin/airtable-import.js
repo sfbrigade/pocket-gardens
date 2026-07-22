@@ -130,6 +130,7 @@ async function main () {
     zipCode: new Map(),
     person: new Map(),
     plant: new Map(),
+    partner: new Map(),
     plot: new Map(),
     maintenanceRecord: new Map(),
   };
@@ -141,6 +142,7 @@ async function main () {
     ['zipCodes', 'Zip Codes'],
     ['people', 'People'],
     ['plants', 'Plants'],
+    ['partners', 'Suppliers|Partners'],
     ['plots', 'Plots'],
     ['maintenance', 'Maintenance Records'],
   ]) {
@@ -244,6 +246,33 @@ async function main () {
     });
     idMaps.plant.set(rec.id, row.id);
   }, idMaps.plant);
+
+  await upsertMany('Partner', fetched.partners, async (rec) => {
+    const f = rec.fields;
+    const data = {
+      airtableId: rec.id,
+      orgName: stringifyMaybe(f['Org Name']),
+      contactName: stringifyMaybe(f['Contact Name']),
+      title: stringifyMaybe(f.Title),
+      email: stringifyMaybe(f.Email),
+      phone: stringifyMaybe(f.Phone),
+      notes: stringifyMaybe(f.Notes),
+      createdAt: new Date(rec.createdTime),
+    };
+    const row = await prisma.partner.upsert({
+      where: { airtableId: rec.id },
+      create: data,
+      update: {
+        orgName: data.orgName,
+        contactName: data.contactName,
+        title: data.title,
+        email: data.email,
+        phone: data.phone,
+        notes: data.notes,
+      },
+    });
+    idMaps.partner.set(rec.id, row.id);
+  }, idMaps.partner);
 
   await upsertMany('Plot', fetched.plots, async (rec) => {
     const f = rec.fields;
@@ -435,6 +464,7 @@ async function main () {
     zipCodes: idMaps.zipCode.size,
     people: idMaps.person.size,
     plants: idMaps.plant.size,
+    partners: idMaps.partner.size,
     plots: idMaps.plot.size,
     maintenanceRecords: idMaps.maintenanceRecord.size,
     unresolvedLinks: report.unresolvedLinks.length,

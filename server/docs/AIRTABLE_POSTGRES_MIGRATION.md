@@ -1,6 +1,6 @@
 # Airtable → Postgres / Prisma Migration
 
-This project is moving domain data (Plots, Plants, People, Maintenance Records, Neighborhoods, Zip Codes) from Airtable into PostgreSQL via Prisma. Auth models (`User`, `Invite`) were already on Postgres.
+This project is moving domain data (Plots, Plants, People, Suppliers|Partners, Maintenance Records, Neighborhoods, Zip Codes) from Airtable into PostgreSQL via Prisma. Auth models (`User`, `Invite`) were already on Postgres.
 
 ## Prerequisites
 
@@ -25,7 +25,7 @@ Entrypoint: [`bin/airtable-import.js`](../bin/airtable-import.js)
 - Linked records use foreign keys or join tables (`PlotAssignedVolunteer`, `NeighborhoodZipCode`, `PersonZipCode`, `MaintenanceRecordPlant`).
 - Attachments and other structured values are stored as `Json`.
 - Lookup / rollup / formula fields are generally not persisted as first-class columns (recompute in app or snapshot later if needed).
-- **Partners** may be inaccessible with the current token (403); it is skipped until permissions allow.
+- Airtable table **Suppliers|Partners** maps to Prisma model `Partner` (org/contact scalars only; no links to other tables).
 
 ## Recommended cutover steps
 
@@ -40,6 +40,7 @@ Entrypoint: [`bin/airtable-import.js`](../bin/airtable-import.js)
 | Zip Codes | 27 |
 | People | 7 |
 | Plants | 33 |
+| Suppliers\|Partners | 4 |
 | Plots | 78 |
 | Maintenance Records | 100 |
 
@@ -51,6 +52,7 @@ const counts = {
   plots: await prisma.plot.count(),
   plants: await prisma.plant.count(),
   people: await prisma.person.count(),
+  partners: await prisma.partner.count(),
   neighborhoods: await prisma.neighborhood.count(),
   zipCodes: await prisma.zipCode.count(),
   maintenanceRecords: await prisma.maintenanceRecord.count(),
@@ -74,7 +76,7 @@ Dry-run on 2026-07-18 reported **0 unresolved links** and **0 errors** across al
 ## Verification checklist
 
 - [ ] Dry-run report has acceptable unresolved-link count
-- [ ] Row counts match Airtable (except Partners if inaccessible)
+- [ ] Row counts match Airtable
 - [ ] Plot viewport filter returns expected beds
 - [ ] Create/patch Plot writes to Postgres
 - [ ] Idempotent second import does not duplicate join rows
