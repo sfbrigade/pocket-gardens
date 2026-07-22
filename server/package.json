@@ -13,6 +13,8 @@
     "pretest": "eslint",
     "prisma:generate": "prisma generate; tsc",
     "prisma:studio": "prisma studio",
+    "airtable:import": "node bin/airtable-import.js",
+    "airtable:import:dry": "node bin/airtable-import.js --dry-run",
     "start": "fastify start -l info app.js",
     "test": "node --test-concurrency 1 --test $(find test -name '*.test.js')",
     "tsc:watch": "tsc --watch --preserveWatchOutput"

@@ -19,6 +19,10 @@ For production mode
 
 Run the test cases.
 
+### Airtable → Postgres migration
+
+See [docs/AIRTABLE_POSTGRES_MIGRATION.md](docs/AIRTABLE_POSTGRES_MIGRATION.md) for Airtable → Postgres import (`airtable:import:dry`, `airtable:import`).
+
 ## Learn More
 
 To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs/latest/).
