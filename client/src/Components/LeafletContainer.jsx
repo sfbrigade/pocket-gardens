@@ -4,8 +4,7 @@ import { Popup } from 'react-leaflet/Popup';
 import { Marker } from 'react-leaflet/Marker';
 import 'leaflet/dist/leaflet.css';
 
-function LeafletContainer () {
-console.log(center.coord)
+function LeafletContainer({center}) {
   return (
     <MapContainer center={center.coord} zoom={13} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
       <TileLayer

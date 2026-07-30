@@ -1,11 +1,22 @@
 import { Container, Title } from '@mantine/core';
 import { Head } from '@unhead/react';
 import { lazy, Suspense } from 'react';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import 'leaflet/dist/leaflet.css';
 
 const LeafletContainer = lazy(() => import('./Components/LeafletContainer'));
 
 function Home () {
+  const { isPending, error, data } = useQuery({
+    queryFn: () => fetch('/api/plots').then((res) => res.json())
+  })
+
+  if (isPending) return 'Loading...'
+  console.log("hello")
+  if (error) return 'An error has occurred: ' + error.message
+
+  console.log(data)
+
   return (
     <>
       <Head>
