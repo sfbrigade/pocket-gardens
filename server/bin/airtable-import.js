@@ -397,16 +397,24 @@ async function main () {
     const zipCodeId = resolve(idMaps.zipCode, firstLink(rec.fields['Zip Code']), {
       from: 'Plots', fromId: rec.id, field: 'Zip Code', toId: firstLink(rec.fields['Zip Code']),
     });
-    const neighborhoodId = resolve(idMaps.neighborhood, firstLink(rec.fields.Neighborhood), {
-      from: 'Plots', fromId: rec.id, field: 'Neighborhood', toId: firstLink(rec.fields.Neighborhood),
-    });
     const lastVolunteerId = resolve(idMaps.person, firstLink(rec.fields['Last Volunteer']), {
       from: 'Plots', fromId: rec.id, field: 'Last Volunteer', toId: firstLink(rec.fields['Last Volunteer']),
     });
     if (!dryRun) {
       await prisma.plot.update({
         where: { id: plotId },
-        data: { zipCodeId, neighborhoodId, lastVolunteerId },
+        data: { zipCodeId, lastVolunteerId },
+      });
+    }
+    for (const neighborhoodAirtableId of linkIds(rec.fields.Neighborhood)) {
+      const neighborhoodId = resolve(idMaps.neighborhood, neighborhoodAirtableId, {
+        from: 'Plots', fromId: rec.id, field: 'Neighborhood', toId: neighborhoodAirtableId,
+      });
+      if (!neighborhoodId || dryRun) continue;
+      await prisma.plotNeighborhood.upsert({
+        where: { plotId_neighborhoodId: { plotId, neighborhoodId } },
+        create: { plotId, neighborhoodId },
+        update: {},
       });
     }
     for (const personAirtableId of linkIds(rec.fields['Assigned Volunteer/s'])) {

@@ -116,12 +116,19 @@ CREATE TABLE "Plot" (
     "nextVisit" TEXT,
     "alert" TEXT,
     "zipCodeId" UUID,
-    "neighborhoodId" UUID,
     "lastVolunteerId" UUID,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Plot_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PlotNeighborhood" (
+    "plotId" UUID NOT NULL,
+    "neighborhoodId" UUID NOT NULL,
+
+    CONSTRAINT "PlotNeighborhood_pkey" PRIMARY KEY ("plotId","neighborhoodId")
 );
 
 -- CreateTable
@@ -196,13 +203,13 @@ CREATE INDEX "Plot_latitude_longitude_idx" ON "Plot"("latitude", "longitude");
 CREATE INDEX "Plot_zipCodeId_idx" ON "Plot"("zipCodeId");
 
 -- CreateIndex
-CREATE INDEX "Plot_neighborhoodId_idx" ON "Plot"("neighborhoodId");
-
--- CreateIndex
 CREATE INDEX "Plot_lastVolunteerId_idx" ON "Plot"("lastVolunteerId");
 
 -- CreateIndex
 CREATE INDEX "Plot_status_idx" ON "Plot"("status");
+
+-- CreateIndex
+CREATE INDEX "PlotNeighborhood_neighborhoodId_idx" ON "PlotNeighborhood"("neighborhoodId");
 
 -- CreateIndex
 CREATE INDEX "PlotAssignedVolunteer_personId_idx" ON "PlotAssignedVolunteer"("personId");
@@ -244,10 +251,13 @@ ALTER TABLE "PersonZipCode" ADD CONSTRAINT "PersonZipCode_zipCodeId_fkey" FOREIG
 ALTER TABLE "Plot" ADD CONSTRAINT "Plot_zipCodeId_fkey" FOREIGN KEY ("zipCodeId") REFERENCES "ZipCode"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Plot" ADD CONSTRAINT "Plot_neighborhoodId_fkey" FOREIGN KEY ("neighborhoodId") REFERENCES "Neighborhood"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Plot" ADD CONSTRAINT "Plot_lastVolunteerId_fkey" FOREIGN KEY ("lastVolunteerId") REFERENCES "Person"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Plot" ADD CONSTRAINT "Plot_lastVolunteerId_fkey" FOREIGN KEY ("lastVolunteerId") REFERENCES "Person"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "PlotNeighborhood" ADD CONSTRAINT "PlotNeighborhood_plotId_fkey" FOREIGN KEY ("plotId") REFERENCES "Plot"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PlotNeighborhood" ADD CONSTRAINT "PlotNeighborhood_neighborhoodId_fkey" FOREIGN KEY ("neighborhoodId") REFERENCES "Neighborhood"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "PlotAssignedVolunteer" ADD CONSTRAINT "PlotAssignedVolunteer_plotId_fkey" FOREIGN KEY ("plotId") REFERENCES "Plot"("id") ON DELETE CASCADE ON UPDATE CASCADE;

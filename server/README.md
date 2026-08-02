@@ -29,6 +29,8 @@ npm run airtable:import:dry   # report only
 npm run airtable:import       # upsert into Postgres
 ```
 
+Plot↔Neighborhood is many-to-many (`PlotNeighborhood`) because some Airtable plots link to multiple neighborhoods.
+
 ## Learn More
 
 To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs/latest/).

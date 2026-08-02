@@ -60,7 +60,7 @@ model Neighborhood {
   updatedAt  DateTime @updatedAt
 
   zipCodes NeighborhoodZipCode[]
-  plots    Plot[]
+  plots    PlotNeighborhood[]
 }
 
 model ZipCode {
@@ -177,22 +177,30 @@ model Plot {
   nextVisit            String?
   alert                String?
   zipCodeId            String?   @db.Uuid
-  neighborhoodId       String?   @db.Uuid
   lastVolunteerId      String?   @db.Uuid
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
   zipCode              ZipCode?                  @relation(fields: [zipCodeId], references: [id], onDelete: SetNull)
-  neighborhood         Neighborhood?             @relation(fields: [neighborhoodId], references: [id], onDelete: SetNull)
   lastVolunteer        Person?                   @relation("PlotLastVolunteer", fields: [lastVolunteerId], references: [id], onDelete: SetNull)
+  neighborhoods        PlotNeighborhood[]
   assignedVolunteers   PlotAssignedVolunteer[]
   maintenanceRecords   MaintenanceRecord[]
 
   @@index([latitude, longitude])
   @@index([zipCodeId])
-  @@index([neighborhoodId])
   @@index([lastVolunteerId])
   @@index([status])
+}
+
+model PlotNeighborhood {
+  plotId         String       @db.Uuid
+  neighborhoodId String       @db.Uuid
+  plot           Plot         @relation(fields: [plotId], references: [id], onDelete: Cascade)
+  neighborhood   Neighborhood @relation(fields: [neighborhoodId], references: [id], onDelete: Cascade)
+
+  @@id([plotId, neighborhoodId])
+  @@index([neighborhoodId])
 }
 
 model PlotAssignedVolunteer {
