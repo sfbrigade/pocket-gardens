@@ -134,7 +134,6 @@ model Plant {
   maintenanceRecordPlants MaintenanceRecordPlant[]
 }
 
-/// Airtable table name: Suppliers|Partners
 model Partner {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   airtableId  String   @unique
