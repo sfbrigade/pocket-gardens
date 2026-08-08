@@ -11,11 +11,16 @@
  *
  * Env: AIRTABLE_API_KEY, AIRTABLE_BASE_ID
  *      DATABASE_URL (required unless --dry-run)
+ *      AWS_S3_* (required unless --dry-run when importing Plots; used for Photo/Photos)
  */
 
 import crypto from 'node:crypto';
 
 import '../config.js';
+import {
+  isMigratedAssetPaths,
+  uploadAirtableAttachments,
+} from '#lib/airtable-photos.js';
 import {
   parseAirtableDate,
   parseMapCoordinates,
@@ -32,6 +37,7 @@ const report = {
   dryRun,
   startedAt: new Date().toISOString(),
   tables: {},
+  plotPhotos: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
   skippedFields: [],
   unresolvedLinks: [],
   typeConversionFailures: [],
@@ -42,7 +48,17 @@ let prisma;
 
 function requireEnv () {
   const required = ['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'];
-  if (!dryRun) required.push('DATABASE_URL');
+  if (!dryRun) {
+    required.push('DATABASE_URL');
+    if (!onlyTables || onlyTables.includes('Plots')) {
+      required.push(
+        'AWS_S3_ACCESS_KEY_ID',
+        'AWS_S3_SECRET_ACCESS_KEY',
+        'AWS_S3_BUCKET',
+        'AWS_S3_REGION',
+      );
+    }
+  }
   for (const key of required) {
     if (!process.env[key]) throw new Error(`${key} must be set`);
   }
@@ -294,8 +310,6 @@ async function main () {
       locationDescription: stringifyMaybe(f['Location Description']),
       sethsNotes: stringifyMaybe(f["Seth's Notes"]),
       geocodeCache: stringifyMaybe(f['Geocode Cache (for Maps)']),
-      photo: f.Photo ?? null,
-      photos: f.Photos ?? null,
       originalPlantDate: parseAirtableDate(f['Original Plant Date']),
       lastPlant: parseAirtableDate(f['Last Plant']),
       lastWater: parseAirtableDate(f['Last Water']),
@@ -312,7 +326,92 @@ async function main () {
       update: { ...data, createdAt: undefined },
     });
     idMaps.plot.set(rec.id, row.id);
+
+    const photoUpdate = {};
+    for (const [attribute, attachments, existing] of [
+      ['photo', f.Photo, row.photo],
+      ['photos', f.Photos, row.photos],
+    ]) {
+      if (isMigratedAssetPaths(existing)) {
+        report.plotPhotos.skipped += 1;
+        continue;
+      }
+      const result = await uploadAirtableAttachments({
+        plotId: row.id,
+        attribute,
+        attachments,
+        dryRun: false,
+      });
+      for (const err of result.errors) {
+        report.plotPhotos.errors.push({
+          plotId: row.id,
+          airtableId: rec.id,
+          attribute,
+          filename: err.filename,
+          message: err.message,
+        });
+        report.errors.push({
+          table: 'Plot',
+          airtableId: rec.id,
+          message: `${attribute}: ${err.message}`,
+        });
+      }
+      // Leave existing value alone if any download/upload failed
+      if (result.errors.length) {
+        continue;
+      }
+      if (result.uploaded) {
+        report.plotPhotos.uploaded += result.uploaded;
+      } else {
+        report.plotPhotos.cleared += 1;
+      }
+      photoUpdate[attribute] = result.paths;
+    }
+    if (Object.keys(photoUpdate).length) {
+      await prisma.plot.update({
+        where: { id: row.id },
+        data: photoUpdate,
+      });
+    }
   }, idMaps.plot);
+
+  // Dry-run: count intended Plot photo uploads (needs DATABASE_URL for skip accuracy)
+  if (dryRun && fetched.plots.length && process.env.DATABASE_URL) {
+    const { default: prismaDry } = await import('#prisma/client.js');
+    try {
+      const existingRows = await prismaDry.plot.findMany({
+        select: { airtableId: true, photo: true, photos: true },
+      });
+      const existingByAirtableId = new Map(existingRows.map((r) => [r.airtableId, r]));
+      for (const rec of fetched.plots) {
+        const plotId = idMaps.plot.get(rec.id);
+        if (!plotId) continue;
+        const existing = existingByAirtableId.get(rec.id);
+        for (const [attribute, attachments, existingVal] of [
+          ['photo', rec.fields.Photo, existing?.photo],
+          ['photos', rec.fields.Photos, existing?.photos],
+        ]) {
+          if (isMigratedAssetPaths(existingVal)) {
+            report.plotPhotos.skipped += 1;
+            continue;
+          }
+          const result = await uploadAirtableAttachments({
+            plotId,
+            attribute,
+            attachments,
+            dryRun: true,
+          });
+          if (result.uploaded) {
+            report.plotPhotos.uploaded += result.uploaded;
+          } else {
+            report.plotPhotos.cleared += 1;
+          }
+        }
+      }
+    } finally {
+      await prismaDry.$disconnect();
+    }
+  }
 
   await upsertMany('MaintenanceRecord', fetched.maintenance, async (rec) => {
     const f = rec.fields;
