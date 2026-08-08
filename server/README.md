@@ -23,13 +23,38 @@ Run the test cases.
 
 Requires `AIRTABLE_API_KEY` (scope `data.records:read`), `AIRTABLE_BASE_ID`, and `DATABASE_URL`.
 
+When importing Plots (default), also requires S3 credentials so Photo / Photos attachments are downloaded and stored in the bucket instead of keeping Airtable CDN URLs:
+
+- `AWS_S3_ACCESS_KEY_ID`
+- `AWS_S3_SECRET_ACCESS_KEY`
+- `AWS_S3_BUCKET`
+- `AWS_S3_REGION`
+- `AWS_S3_ENDPOINT` (optional; used for MinIO / path-style endpoints)
+
 ```bash
 npx prisma migrate deploy
 npm run airtable:import:dry   # report only
-npm run airtable:import       # upsert into Postgres
+npm run airtable:import       # upsert into Postgres; Plot photos → S3
 ```
 
+Plot `photo` / `photos` columns store JSON arrays of asset paths such as `/api/assets/plots/{uuid}/photos/{file}.jpg` (served via `GET /api/assets/*`). Re-running import skips plots whose photo fields are already migrated.
+
 Plot↔Neighborhood is many-to-many (`PlotNeighborhood`) because some Airtable plots link to multiple neighborhoods.
+
+### Migrate existing Plot photos to S3
+
+If Plots were imported earlier (raw Airtable attachment JSON still in `photo` / `photos`), run the one-shot migrator. It re-fetches fresh attachment URLs from Airtable (CDN links expire), uploads to S3, and rewrites the columns.
+
+```bash
+npm run plots:migrate-photos:dry          # report only
+npm run plots:migrate-photos              # download + upload + update DB
+npm run plots:migrate-photos -- --limit=5 # smoke-test a few plots
+npm run plots:migrate-photos -- --force   # re-upload even if already migrated
+```
+
+Same Airtable + S3 env vars as above. `DATABASE_URL` is always required (including `--dry-run`, so skip counts are accurate). S3 is not required for `--dry-run`.
+
+Re-running import or migrate skips columns that already store `/api/assets/...` path arrays. Use `--force` on the migrator to re-upload.
 
 ## Learn More
 
