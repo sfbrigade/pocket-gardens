@@ -62,12 +62,25 @@ test('/api/plots', async (t) => {
   });
 
   await t.test('GET /:id returns a plot by airtable id', async () => {
+    await prisma.plot.update({
+      where: { airtableId: 'recPlotAlpha' },
+      data: {
+        photo: ['/api/assets/plots/11111111-1111-4111-8111-111111111111/photo/a.jpg'],
+        photos: ['/api/assets/plots/11111111-1111-4111-8111-111111111111/photos/b.jpg'],
+      },
+    });
     const response = await app.inject({ url: '/api/plots/recPlotAlpha' });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.id, 'recPlotAlpha');
     assert.strictEqual(data.Status, 'Planted');
     assert.strictEqual(data.Latitude, 37.78);
+    assert.deepStrictEqual(data.Photo, [
+      '/api/assets/plots/11111111-1111-4111-8111-111111111111/photo/a.jpg',
+    ]);
+    assert.deepStrictEqual(data.Photos, [
+      '/api/assets/plots/11111111-1111-4111-8111-111111111111/photos/b.jpg',
+    ]);
   });
 
   await t.test('GET /:id returns 404 when missing', async () => {

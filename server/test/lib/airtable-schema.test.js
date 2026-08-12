@@ -41,12 +41,20 @@ test('formatPlot exposes Airtable id and Latitude/Longitude', () => {
     status: 'Planted',
     bedType: 'Tree Well',
     name: 'Alpha',
+    photo: ['/api/assets/plots/11111111-1111-4111-8111-111111111111/photo/a.jpg'],
+    photos: ['/api/assets/plots/11111111-1111-4111-8111-111111111111/photos/b.jpg'],
   });
   assert.strictEqual(formatted.id, 'recPlotAlpha');
   assert.strictEqual(formatted.Latitude, 37.78);
   assert.strictEqual(formatted.Longitude, -122.42);
   assert.strictEqual(formatted.Status, 'Planted');
   assert.strictEqual(formatted['Bed Type'], 'Tree Well');
+  assert.deepStrictEqual(formatted.Photo, [
+    '/api/assets/plots/11111111-1111-4111-8111-111111111111/photo/a.jpg',
+  ]);
+  assert.deepStrictEqual(formatted.Photos, [
+    '/api/assets/plots/11111111-1111-4111-8111-111111111111/photos/b.jpg',
+  ]);
 });
 
 test('plotFieldsFromBody derives coordinates from Map Coordinates', () => {

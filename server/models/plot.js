@@ -62,6 +62,8 @@ export function formatPlot (plot) {
     "Seth's Notes": plot.sethsNotes ?? undefined,
     Alert: plot.alert ?? undefined,
     'Next Visit': plot.nextVisit ?? undefined,
+    Photo: plot.photo ?? undefined,
+    Photos: plot.photos ?? undefined,
   };
 }
 
