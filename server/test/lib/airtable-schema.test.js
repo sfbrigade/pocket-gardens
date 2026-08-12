@@ -10,6 +10,7 @@ import {
   decodeListOffset,
   encodeListOffset,
   formatPlot,
+  isUuid,
   plotFieldsFromBody,
 } from '#models/plot.js';
 
@@ -56,6 +57,24 @@ test('plotFieldsFromBody derives coordinates from Map Coordinates', () => {
   assert.strictEqual(data.status, 'Planted');
   assert.strictEqual(data.latitude, 37.5);
   assert.strictEqual(data.longitude, -122.5);
+});
+
+test('plotFieldsFromBody ignores unparseable Map Coordinates for lat/lng', () => {
+  const data = plotFieldsFromBody({
+    Status: 'Planted',
+    'Map Coordinates': 'not a coord',
+  });
+  assert.strictEqual(data.status, 'Planted');
+  assert.strictEqual(data.mapCoordinates, 'not a coord');
+  assert.strictEqual(data.latitude, undefined);
+  assert.strictEqual(data.longitude, undefined);
+});
+
+test('isUuid accepts only 8-4-4-4-12 UUIDs', () => {
+  assert.strictEqual(isUuid('11111111-1111-4111-8111-111111111111'), true);
+  assert.strictEqual(isUuid('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'), false);
+  assert.strictEqual(isUuid('recPlotAlpha'), false);
+  assert.strictEqual(isUuid('12345678-1234-1234-1234-12345678901g'), false);
 });
 
 test('viewport where and offset encoding round-trip', () => {

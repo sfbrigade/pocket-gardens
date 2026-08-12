@@ -36,6 +36,7 @@ export const PlotFieldsSchema = z.object({
 /**
  * Format a Prisma Plot row for the public API.
  * `id` remains the Airtable record id for transition compatibility.
+ * API-created plots use a synthetic `pg_<uuid>` airtableId.
  */
 export function formatPlot (plot) {
   if (!plot) return plot;
@@ -64,6 +65,26 @@ export function formatPlot (plot) {
   };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid (value) {
+  return typeof value === 'string' && UUID_RE.test(value);
+}
+
+/**
+ * Look up a Plot by public id (Airtable record id or internal UUID).
+ */
+export function findPlotByPublicId (prisma, id) {
+  return prisma.plot.findFirst({
+    where: {
+      OR: [
+        { airtableId: id },
+        ...(isUuid(id) ? [{ id }] : []),
+      ],
+    },
+  });
+}
+
 /**
  * Map Airtable-shaped request body fields onto Prisma Plot columns.
  */
@@ -88,8 +109,11 @@ export function plotFieldsFromBody (body = {}) {
   let longitude = body.Longitude;
   if ((latitude === undefined || longitude === undefined) && body['Map Coordinates']) {
     const parsed = parseMapCoordinates(body['Map Coordinates']);
-    if (latitude === undefined) latitude = parsed.latitude;
-    if (longitude === undefined) longitude = parsed.longitude;
+    // Only apply parsed coords when both parse successfully; never write null from a bad string.
+    if (parsed.latitude != null && parsed.longitude != null) {
+      if (latitude === undefined) latitude = parsed.latitude;
+      if (longitude === undefined) longitude = parsed.longitude;
+    }
   }
   if (latitude !== undefined) data.latitude = latitude;
   if (longitude !== undefined) data.longitude = longitude;
@@ -122,6 +146,8 @@ export default {
   PlotSchema,
   PlotFieldsSchema,
   formatPlot,
+  findPlotByPublicId,
+  isUuid,
   plotFieldsFromBody,
   buildViewportWhere,
   encodeListOffset,

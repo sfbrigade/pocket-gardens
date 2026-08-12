@@ -1,7 +1,13 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { formatPlot, plotFieldsFromBody, PlotFieldsSchema, PlotSchema } from '#models/plot.js';
+import {
+  findPlotByPublicId,
+  formatPlot,
+  plotFieldsFromBody,
+  PlotFieldsSchema,
+  PlotSchema,
+} from '#models/plot.js';
 
 export default async function (fastify, opts) {
   fastify.patch('/:id', {
@@ -18,15 +24,7 @@ export default async function (fastify, opts) {
       },
     },
   }, async function (request, reply) {
-    const { id } = request.params;
-    const existing = await fastify.prisma.plot.findFirst({
-      where: {
-        OR: [
-          { airtableId: id },
-          ...(id.match(/^[0-9a-f-]{36}$/i) ? [{ id }] : []),
-        ],
-      },
-    });
+    const existing = await findPlotByPublicId(fastify.prisma, request.params.id);
     if (!existing) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }

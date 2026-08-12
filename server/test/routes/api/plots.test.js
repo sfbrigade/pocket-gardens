@@ -75,6 +75,21 @@ test('/api/plots', async (t) => {
     assert.strictEqual(response.statusCode, StatusCodes.NOT_FOUND);
   });
 
+  await t.test('GET /:id returns 404 for non-UUID 36-char strings', async () => {
+    const response = await app.inject({
+      url: '/api/plots/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+    });
+    assert.strictEqual(response.statusCode, StatusCodes.NOT_FOUND);
+  });
+
+  await t.test('GET /:id returns a plot by internal UUID', async () => {
+    const row = await prisma.plot.findUnique({ where: { airtableId: 'recPlotAlpha' } });
+    const response = await app.inject({ url: `/api/plots/${row.id}` });
+    assert.strictEqual(response.statusCode, StatusCodes.OK);
+    const data = JSON.parse(response.payload);
+    assert.strictEqual(data.id, 'recPlotAlpha');
+  });
+
   await t.test('POST / creates a plot', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -115,5 +130,26 @@ test('/api/plots', async (t) => {
     const row = await prisma.plot.findUnique({ where: { airtableId: 'recPlotBeta' } });
     assert.strictEqual(row.status, 'Planted');
     assert.strictEqual(row.latitude, 37.761);
+  });
+
+  await t.test('PATCH /:id does not clear lat/lng on bad Map Coordinates', async () => {
+    const before = await prisma.plot.findUnique({ where: { airtableId: 'recPlotAlpha' } });
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/plots/recPlotAlpha',
+      payload: {
+        'Map Coordinates': 'garbage',
+      },
+    });
+    assert.strictEqual(response.statusCode, StatusCodes.OK);
+    const data = JSON.parse(response.payload);
+    assert.strictEqual(data['Map Coordinates'], 'garbage');
+    assert.strictEqual(data.Latitude, before.latitude);
+    assert.strictEqual(data.Longitude, before.longitude);
+
+    const after = await prisma.plot.findUnique({ where: { airtableId: 'recPlotAlpha' } });
+    assert.strictEqual(after.latitude, before.latitude);
+    assert.strictEqual(after.longitude, before.longitude);
+    assert.strictEqual(after.mapCoordinates, 'garbage');
   });
 });
