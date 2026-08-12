@@ -32,9 +32,8 @@ const report = {
   dryRun,
   startedAt: new Date().toISOString(),
   tables: {},
-  skippedFields: [],
+  fetchStatus: {},
   unresolvedLinks: [],
-  typeConversionFailures: [],
   errors: [],
 };
 
@@ -136,6 +135,8 @@ async function main () {
   };
 
   // ---------- Fetch ----------
+  // Status: 'ok' | 'skipped' | 'failed'. Relation writes only use maps that are 'ok'.
+  const fetchStatus = report.fetchStatus;
   const fetched = {};
   for (const [key, tableName] of [
     ['neighborhoods', 'Neighborhoods'],
@@ -148,16 +149,23 @@ async function main () {
   ]) {
     if (!tableEnabled(tableName)) {
       fetched[key] = [];
+      fetchStatus[key] = 'skipped';
       continue;
     }
     try {
       fetched[key] = await listAllRecords(apiKey, baseId, tableName);
+      fetchStatus[key] = 'ok';
       console.error(`Fetched ${fetched[key].length} from ${tableName}`);
     } catch (err) {
       report.errors.push({ table: tableName, message: err.message, status: err.status });
       console.error(`Failed to fetch ${tableName}: ${err.message}`);
       fetched[key] = [];
+      fetchStatus[key] = 'failed';
     }
+  }
+
+  function mapReady (key) {
+    return fetchStatus[key] === 'ok';
   }
 
   // ---------- Pass 1: scalars ----------
@@ -335,8 +343,26 @@ async function main () {
     idMaps.maintenanceRecord.set(rec.id, row.id);
   }, idMaps.maintenanceRecord);
 
-  function resolve (map, airtableId, context) {
-    if (!airtableId) return null;
+  /**
+   * Resolve an Airtable link for FK writes.
+   * - absent link → write null (Airtable cleared it)
+   * - target map not ready (skipped/failed fetch) → skip write (preserve existing)
+   * - link present but unknown in a ready map → report + skip write
+   * - resolved → write UUID
+   */
+  function resolveFk (mapKey, map, airtableId, context) {
+    if (!airtableId) return { write: true, value: null };
+    if (!mapReady(mapKey)) return { write: false, value: undefined };
+    const id = map.get(airtableId);
+    if (!id) {
+      report.unresolvedLinks.push(context);
+      return { write: false, value: undefined };
+    }
+    return { write: true, value: id };
+  }
+
+  function resolveJoinId (mapKey, map, airtableId, context) {
+    if (!airtableId || !mapReady(mapKey)) return null;
     const id = map.get(airtableId);
     if (!id) {
       report.unresolvedLinks.push(context);
@@ -345,124 +371,219 @@ async function main () {
     return id;
   }
 
-  // ---------- Pass 2: relations (resolve always; write unless dry-run) ----------
-  for (const rec of fetched.neighborhoods) {
-    const neighborhoodId = idMaps.neighborhood.get(rec.id);
-    if (!neighborhoodId) continue;
-    for (const zipAirtableId of linkIds(rec.fields['Zip Codes'])) {
-      const zipCodeId = resolve(idMaps.zipCode, zipAirtableId, {
-        from: 'Neighborhoods', fromId: rec.id, field: 'Zip Codes', toId: zipAirtableId,
-      });
-      if (!zipCodeId || dryRun) continue;
-      await prisma.neighborhoodZipCode.upsert({
-        where: { neighborhoodId_zipCodeId: { neighborhoodId, zipCodeId } },
-        create: { neighborhoodId, zipCodeId },
-        update: {},
-      });
+  /** Upsert desired join rows and delete membership no longer present in Airtable. */
+  async function syncJoinSet ({ desiredIds, upsertOne, deleteMissing }) {
+    const desired = [...new Set(desiredIds.filter(Boolean))];
+    if (dryRun) return;
+    for (const targetId of desired) {
+      await upsertOne(targetId);
     }
+    await deleteMissing(desired);
   }
 
-  for (const rec of fetched.people) {
-    const personId = idMaps.person.get(rec.id);
-    if (!personId) continue;
-    const homeZipId = resolve(idMaps.zipCode, firstLink(rec.fields.Zip), {
-      from: 'People', fromId: rec.id, field: 'Zip', toId: firstLink(rec.fields.Zip),
-    });
-    if (dryRun) continue;
-    await prisma.person.update({
-      where: { id: personId },
-      data: { homeZipId },
-    });
-  }
-
-  for (const rec of fetched.zipCodes) {
-    const zipCodeId = idMaps.zipCode.get(rec.id);
-    if (!zipCodeId) continue;
-    for (const personAirtableId of linkIds(rec.fields['Local Volunteers'])) {
-      const personId = resolve(idMaps.person, personAirtableId, {
-        from: 'Zip Codes', fromId: rec.id, field: 'Local Volunteers', toId: personAirtableId,
-      });
-      if (!personId || dryRun) continue;
-      await prisma.personZipCode.upsert({
-        where: { personId_zipCodeId: { personId, zipCodeId } },
-        create: { personId, zipCodeId },
-        update: {},
-      });
-    }
-  }
-
-  for (const rec of fetched.plots) {
-    const plotId = idMaps.plot.get(rec.id);
-    if (!plotId) continue;
-    const zipCodeId = resolve(idMaps.zipCode, firstLink(rec.fields['Zip Code']), {
-      from: 'Plots', fromId: rec.id, field: 'Zip Code', toId: firstLink(rec.fields['Zip Code']),
-    });
-    const lastVolunteerId = resolve(idMaps.person, firstLink(rec.fields['Last Volunteer']), {
-      from: 'Plots', fromId: rec.id, field: 'Last Volunteer', toId: firstLink(rec.fields['Last Volunteer']),
-    });
-    if (!dryRun) {
-      await prisma.plot.update({
-        where: { id: plotId },
-        data: { zipCodeId, lastVolunteerId },
-      });
-    }
-    for (const neighborhoodAirtableId of linkIds(rec.fields.Neighborhood)) {
-      const neighborhoodId = resolve(idMaps.neighborhood, neighborhoodAirtableId, {
-        from: 'Plots', fromId: rec.id, field: 'Neighborhood', toId: neighborhoodAirtableId,
-      });
-      if (!neighborhoodId || dryRun) continue;
-      await prisma.plotNeighborhood.upsert({
-        where: { plotId_neighborhoodId: { plotId, neighborhoodId } },
-        create: { plotId, neighborhoodId },
-        update: {},
-      });
-    }
-    for (const personAirtableId of linkIds(rec.fields['Assigned Volunteer/s'])) {
-      const personId = resolve(idMaps.person, personAirtableId, {
-        from: 'Plots', fromId: rec.id, field: 'Assigned Volunteer/s', toId: personAirtableId,
-      });
-      if (!personId || dryRun) continue;
-      await prisma.plotAssignedVolunteer.upsert({
-        where: { plotId_personId: { plotId, personId } },
-        create: { plotId, personId },
-        update: {},
-      });
-    }
-  }
-
-  for (const rec of fetched.maintenance) {
-    const maintenanceRecordId = idMaps.maintenanceRecord.get(rec.id);
-    if (!maintenanceRecordId) continue;
-    const plotId = resolve(idMaps.plot, firstLink(rec.fields.Plot), {
-      from: 'Maintenance Records', fromId: rec.id, field: 'Plot', toId: firstLink(rec.fields.Plot),
-    });
-    const volunteerId = resolve(idMaps.person, firstLink(rec.fields.Volunteer), {
-      from: 'Maintenance Records', fromId: rec.id, field: 'Volunteer', toId: firstLink(rec.fields.Volunteer),
-    });
-    if (!dryRun) {
-      await prisma.maintenanceRecord.update({
-        where: { id: maintenanceRecordId },
-        data: { plotId, volunteerId },
-      });
-    }
-
-    for (let slot = 1; slot <= 8; slot += 1) {
-      const plantAirtableId = firstLink(rec.fields[`Plant ${slot}`]);
-      if (!plantAirtableId) continue;
-      const plantId = resolve(idMaps.plant, plantAirtableId, {
-        from: 'Maintenance Records', fromId: rec.id, field: `Plant ${slot}`, toId: plantAirtableId,
-      });
-      if (!plantId || dryRun) continue;
-      const quantity = typeof rec.fields[`# Plant ${slot}`] === 'number'
-        ? rec.fields[`# Plant ${slot}`]
-        : null;
-      await prisma.maintenanceRecordPlant.upsert({
-        where: {
-          maintenanceRecordId_slot: { maintenanceRecordId, slot },
+  // ---------- Pass 2: relations (only write when dependency maps are ready) ----------
+  if (mapReady('neighborhoods') && mapReady('zipCodes')) {
+    for (const rec of fetched.neighborhoods) {
+      const neighborhoodId = idMaps.neighborhood.get(rec.id);
+      if (!neighborhoodId) continue;
+      const desiredZipIds = linkIds(rec.fields['Zip Codes']).map((zipAirtableId) => (
+        resolveJoinId('zipCodes', idMaps.zipCode, zipAirtableId, {
+          from: 'Neighborhoods', fromId: rec.id, field: 'Zip Codes', toId: zipAirtableId,
+        })
+      ));
+      await syncJoinSet({
+        desiredIds: desiredZipIds,
+        upsertOne: async (zipCodeId) => {
+          await prisma.neighborhoodZipCode.upsert({
+            where: { neighborhoodId_zipCodeId: { neighborhoodId, zipCodeId } },
+            create: { neighborhoodId, zipCodeId },
+            update: {},
+          });
         },
-        create: { maintenanceRecordId, plantId, slot, quantity },
-        update: { plantId, quantity },
+        deleteMissing: async (desired) => {
+          await prisma.neighborhoodZipCode.deleteMany({
+            where: {
+              neighborhoodId,
+              ...(desired.length ? { zipCodeId: { notIn: desired } } : {}),
+            },
+          });
+        },
       });
+    }
+  }
+
+  if (mapReady('people')) {
+    for (const rec of fetched.people) {
+      const personId = idMaps.person.get(rec.id);
+      if (!personId) continue;
+      const homeZip = resolveFk('zipCodes', idMaps.zipCode, firstLink(rec.fields.Zip), {
+        from: 'People', fromId: rec.id, field: 'Zip', toId: firstLink(rec.fields.Zip),
+      });
+      if (!homeZip.write || dryRun) continue;
+      await prisma.person.update({
+        where: { id: personId },
+        data: { homeZipId: homeZip.value },
+      });
+    }
+  }
+
+  if (mapReady('zipCodes') && mapReady('people')) {
+    for (const rec of fetched.zipCodes) {
+      const zipCodeId = idMaps.zipCode.get(rec.id);
+      if (!zipCodeId) continue;
+      const desiredPersonIds = linkIds(rec.fields['Local Volunteers']).map((personAirtableId) => (
+        resolveJoinId('people', idMaps.person, personAirtableId, {
+          from: 'Zip Codes', fromId: rec.id, field: 'Local Volunteers', toId: personAirtableId,
+        })
+      ));
+      await syncJoinSet({
+        desiredIds: desiredPersonIds,
+        upsertOne: async (personId) => {
+          await prisma.personZipCode.upsert({
+            where: { personId_zipCodeId: { personId, zipCodeId } },
+            create: { personId, zipCodeId },
+            update: {},
+          });
+        },
+        deleteMissing: async (desired) => {
+          await prisma.personZipCode.deleteMany({
+            where: {
+              zipCodeId,
+              ...(desired.length ? { personId: { notIn: desired } } : {}),
+            },
+          });
+        },
+      });
+    }
+  }
+
+  if (mapReady('plots')) {
+    for (const rec of fetched.plots) {
+      const plotId = idMaps.plot.get(rec.id);
+      if (!plotId) continue;
+
+      const zipCode = resolveFk('zipCodes', idMaps.zipCode, firstLink(rec.fields['Zip Code']), {
+        from: 'Plots', fromId: rec.id, field: 'Zip Code', toId: firstLink(rec.fields['Zip Code']),
+      });
+      const lastVolunteer = resolveFk('people', idMaps.person, firstLink(rec.fields['Last Volunteer']), {
+        from: 'Plots', fromId: rec.id, field: 'Last Volunteer', toId: firstLink(rec.fields['Last Volunteer']),
+      });
+      const plotFkData = {};
+      if (zipCode.write) plotFkData.zipCodeId = zipCode.value;
+      if (lastVolunteer.write) plotFkData.lastVolunteerId = lastVolunteer.value;
+      if (!dryRun && Object.keys(plotFkData).length) {
+        await prisma.plot.update({
+          where: { id: plotId },
+          data: plotFkData,
+        });
+      }
+
+      if (mapReady('neighborhoods')) {
+        const desiredNeighborhoodIds = linkIds(rec.fields.Neighborhood).map((neighborhoodAirtableId) => (
+          resolveJoinId('neighborhoods', idMaps.neighborhood, neighborhoodAirtableId, {
+            from: 'Plots', fromId: rec.id, field: 'Neighborhood', toId: neighborhoodAirtableId,
+          })
+        ));
+        await syncJoinSet({
+          desiredIds: desiredNeighborhoodIds,
+          upsertOne: async (neighborhoodId) => {
+            await prisma.plotNeighborhood.upsert({
+              where: { plotId_neighborhoodId: { plotId, neighborhoodId } },
+              create: { plotId, neighborhoodId },
+              update: {},
+            });
+          },
+          deleteMissing: async (desired) => {
+            await prisma.plotNeighborhood.deleteMany({
+              where: {
+                plotId,
+                ...(desired.length ? { neighborhoodId: { notIn: desired } } : {}),
+              },
+            });
+          },
+        });
+      }
+
+      if (mapReady('people')) {
+        const desiredPersonIds = linkIds(rec.fields['Assigned Volunteer/s']).map((personAirtableId) => (
+          resolveJoinId('people', idMaps.person, personAirtableId, {
+            from: 'Plots', fromId: rec.id, field: 'Assigned Volunteer/s', toId: personAirtableId,
+          })
+        ));
+        await syncJoinSet({
+          desiredIds: desiredPersonIds,
+          upsertOne: async (personId) => {
+            await prisma.plotAssignedVolunteer.upsert({
+              where: { plotId_personId: { plotId, personId } },
+              create: { plotId, personId },
+              update: {},
+            });
+          },
+          deleteMissing: async (desired) => {
+            await prisma.plotAssignedVolunteer.deleteMany({
+              where: {
+                plotId,
+                ...(desired.length ? { personId: { notIn: desired } } : {}),
+              },
+            });
+          },
+        });
+      }
+    }
+  }
+
+  if (mapReady('maintenance')) {
+    for (const rec of fetched.maintenance) {
+      const maintenanceRecordId = idMaps.maintenanceRecord.get(rec.id);
+      if (!maintenanceRecordId) continue;
+
+      const plot = resolveFk('plots', idMaps.plot, firstLink(rec.fields.Plot), {
+        from: 'Maintenance Records', fromId: rec.id, field: 'Plot', toId: firstLink(rec.fields.Plot),
+      });
+      const volunteer = resolveFk('people', idMaps.person, firstLink(rec.fields.Volunteer), {
+        from: 'Maintenance Records', fromId: rec.id, field: 'Volunteer', toId: firstLink(rec.fields.Volunteer),
+      });
+      const maintenanceFkData = {};
+      if (plot.write) maintenanceFkData.plotId = plot.value;
+      if (volunteer.write) maintenanceFkData.volunteerId = volunteer.value;
+      if (!dryRun && Object.keys(maintenanceFkData).length) {
+        await prisma.maintenanceRecord.update({
+          where: { id: maintenanceRecordId },
+          data: maintenanceFkData,
+        });
+      }
+
+      if (mapReady('plants')) {
+        const keptSlots = [];
+        for (let slot = 1; slot <= 8; slot += 1) {
+          const plantAirtableId = firstLink(rec.fields[`Plant ${slot}`]);
+          if (!plantAirtableId) continue;
+          const plantId = resolveJoinId('plants', idMaps.plant, plantAirtableId, {
+            from: 'Maintenance Records', fromId: rec.id, field: `Plant ${slot}`, toId: plantAirtableId,
+          });
+          if (!plantId) continue;
+          keptSlots.push(slot);
+          if (dryRun) continue;
+          const quantity = typeof rec.fields[`# Plant ${slot}`] === 'number'
+            ? rec.fields[`# Plant ${slot}`]
+            : null;
+          await prisma.maintenanceRecordPlant.upsert({
+            where: {
+              maintenanceRecordId_slot: { maintenanceRecordId, slot },
+            },
+            create: { maintenanceRecordId, plantId, slot, quantity },
+            update: { plantId, quantity },
+          });
+        }
+        if (!dryRun) {
+          await prisma.maintenanceRecordPlant.deleteMany({
+            where: {
+              maintenanceRecordId,
+              ...(keptSlots.length ? { slot: { notIn: keptSlots } } : {}),
+            },
+          });
+        }
+      }
     }
   }
 
