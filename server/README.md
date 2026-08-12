@@ -33,11 +33,11 @@ When importing Plots (default), also requires S3 credentials so Photo / Photos a
 
 ```bash
 npx prisma migrate deploy
-npm run airtable:import:dry   # report only
+npm run airtable:import:dry   # report only (Plot photo estimates work without DATABASE_URL; set it to refine skip counts)
 npm run airtable:import       # upsert into Postgres; Plot photos → S3
 ```
 
-Plot `photo` / `photos` columns store JSON arrays of asset paths such as `/api/assets/plots/{uuid}/photos/{file}.jpg` (served via `GET /api/assets/*`). Re-running import skips plots whose photo fields are already migrated.
+Plot `photo` / `photos` columns store JSON arrays of asset paths such as `/api/assets/plots/{uuid}/photos/{file}.jpg`. These are returned on Plot API responses as `Photo` / `Photos` and served via `GET /api/assets/*`. Re-running import skips plots whose photo fields are already migrated.
 
 Plot↔Neighborhood is many-to-many (`PlotNeighborhood`) because some Airtable plots link to multiple neighborhoods.
 API plot `id` is the Airtable record id when present; plots created via the API use a synthetic `pg_<uuid>` id. Internal UUIDs are also accepted on GET/PATCH.
@@ -55,7 +55,7 @@ npm run plots:migrate-photos -- --force   # re-upload even if already migrated
 
 Same Airtable + S3 env vars as above. `DATABASE_URL` is always required (including `--dry-run`, so skip counts are accurate). S3 is not required for `--dry-run`.
 
-Re-running import or migrate skips columns that already store `/api/assets/...` path arrays. Use `--force` on the migrator to re-upload.
+Re-running import or migrate skips columns that already store `/api/assets/...` path arrays. Use `--force` on the migrator to re-upload; previous asset objects for that attribute are removed after a successful rewrite or clear.
 
 ## Learn More
 

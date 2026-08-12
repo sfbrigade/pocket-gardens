@@ -14,9 +14,10 @@
  */
 
 import '../config.js';
+import { listAllRecords } from '#lib/airtable-fetch.js';
 import {
-  isMigratedAssetPaths,
-  uploadAirtableAttachments,
+  deleteAssetPaths,
+  migratePlotPhotoAttribute,
 } from '#lib/airtable-photos.js';
 
 const args = process.argv.slice(2);
@@ -46,7 +47,7 @@ function requireEnv () {
       'AWS_S3_ACCESS_KEY_ID',
       'AWS_S3_SECRET_ACCESS_KEY',
       'AWS_S3_BUCKET',
-      'AWS_S3_REGION',
+      'AWS_S3_REGION'
     );
   }
   for (const key of required) {
@@ -58,49 +59,30 @@ function requireEnv () {
   };
 }
 
-async function listAllRecords (apiKey, baseId, tableName) {
-  const records = [];
-  let offset;
-  do {
-    const url = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`);
-    url.searchParams.set('pageSize', '100');
-    if (offset) url.searchParams.set('offset', offset);
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const err = new Error(data.error?.message || response.statusText);
-      err.status = response.status;
-      throw err;
-    }
-    records.push(...(data.records || []));
-    offset = data.offset;
-  } while (offset);
-  return records;
-}
-
 /**
  * @param {'photo'|'photos'} attribute
  * @param {string} plotId
  * @param {unknown} existing
  * @param {unknown} attachments
+ * @returns {Promise<{ paths: string[]|null, stalePaths: string[] }|undefined>}
  */
 async function migrateAttribute (attribute, plotId, existing, attachments) {
   const stats = report[attribute];
-  if (!force && isMigratedAssetPaths(existing)) {
+  const result = await migratePlotPhotoAttribute({
+    plotId,
+    attribute,
+    existing,
+    attachments,
+    dryRun,
+    force,
+  });
+
+  if (result.action === 'skipped') {
     stats.skipped += 1;
     return undefined;
   }
 
-  const result = await uploadAirtableAttachments({
-    plotId,
-    attribute,
-    attachments,
-    dryRun,
-  });
-
-  for (const err of result.errors) {
+  for (const err of result.errors || []) {
     report.errors.push({
       plotId,
       attribute,
@@ -109,8 +91,7 @@ async function migrateAttribute (attribute, plotId, existing, attachments) {
     });
   }
 
-  if (result.errors.length) {
-    // Leave existing DB value alone if any download/upload failed
+  if (result.action !== 'updated') {
     return undefined;
   }
 
@@ -120,7 +101,7 @@ async function migrateAttribute (attribute, plotId, existing, attachments) {
     stats.cleared += 1;
   }
 
-  return result.paths;
+  return { paths: result.paths, stalePaths: result.stalePaths || [] };
 }
 
 async function main () {
@@ -155,19 +136,27 @@ async function main () {
 
     report.plotsProcessed += 1;
     const f = rec.fields;
-    const photoPaths = await migrateAttribute('photo', plot.id, plot.photo, f.Photo);
-    const photosPaths = await migrateAttribute('photos', plot.id, plot.photos, f.Photos);
+    const photoResult = await migrateAttribute('photo', plot.id, plot.photo, f.Photo);
+    const photosResult = await migrateAttribute('photos', plot.id, plot.photos, f.Photos);
 
     if (dryRun) continue;
 
     const data = {};
-    if (photoPaths !== undefined) data.photo = photoPaths;
-    if (photosPaths !== undefined) data.photos = photosPaths;
+    const staleToDelete = [];
+    if (photoResult !== undefined) {
+      data.photo = photoResult.paths;
+      staleToDelete.push(...photoResult.stalePaths);
+    }
+    if (photosResult !== undefined) {
+      data.photos = photosResult.paths;
+      staleToDelete.push(...photosResult.stalePaths);
+    }
     if (Object.keys(data).length) {
       await prisma.plot.update({
         where: { id: plot.id },
         data,
       });
+      await deleteAssetPaths(staleToDelete);
     }
   }
 
