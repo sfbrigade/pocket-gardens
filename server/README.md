@@ -40,6 +40,7 @@ npm run airtable:import       # upsert into Postgres; Plot photos → S3
 Plot `photo` / `photos` columns store JSON arrays of asset paths such as `/api/assets/plots/{uuid}/photos/{file}.jpg` (served via `GET /api/assets/*`). Re-running import skips plots whose photo fields are already migrated.
 
 Plot↔Neighborhood is many-to-many (`PlotNeighborhood`) because some Airtable plots link to multiple neighborhoods.
+API plot `id` is the Airtable record id when present; plots created via the API use a synthetic `pg_<uuid>` id. Internal UUIDs are also accepted on GET/PATCH.
 
 ### Migrate existing Plot photos to S3
 
