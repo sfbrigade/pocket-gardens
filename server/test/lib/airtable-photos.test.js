@@ -7,11 +7,11 @@ import {
   buildPlantSlotSyncPlan,
 } from '#lib/airtable-import-joins.js';
 import {
-  assetPathToKey,
-  isMigratedAssetPaths,
-  migratePlotPhotoAttribute,
+  concatAttachments,
+  migrateParentPhotos,
   uploadAirtableAttachments,
 } from '#lib/airtable-photos.js';
+import PlotPhoto from '#models/plot-photo.js';
 
 test('buildJoinSyncPlan upserts resolved ids and skips deletes when unresolved', () => {
   const map = new Map([
@@ -46,21 +46,17 @@ test('buildPlantSlotSyncPlan preserves unresolved slots and drops cleared ones',
   ]);
 });
 
-test('isMigratedAssetPaths and assetPathToKey', () => {
-  assert.strictEqual(
-    isMigratedAssetPaths(['/api/assets/plots/x/photo/a.jpg']),
-    true
+test('concatAttachments flattens Photo and Photos attachment groups', () => {
+  const merged = concatAttachments(
+    [{ url: 'https://example.test/a.jpg', filename: 'a.jpg' }],
+    [{ url: 'https://example.test/b.jpg', filename: 'b.jpg' }, { filename: 'skip-me' }],
+    null
   );
-  assert.strictEqual(isMigratedAssetPaths([]), false);
-  assert.strictEqual(isMigratedAssetPaths([{ url: 'https://airtable.com/x' }]), false);
-  assert.strictEqual(
-    assetPathToKey('/api/assets/plots/x/photo/a.jpg'),
-    'plots/x/photo/a.jpg'
-  );
-  assert.strictEqual(assetPathToKey('plots/x/photo/a.jpg'), null);
+  assert.deepStrictEqual(merged.map((a) => a.filename), ['a.jpg', 'b.jpg']);
+  assert.deepStrictEqual(concatAttachments(null, undefined, []), []);
 });
 
-test('uploadAirtableAttachments cleans up partial uploads on failure', async () => {
+test('uploadAirtableAttachments stages files in _uploads and cleans up partial uploads on failure', async () => {
   const putKeys = [];
   const deletedKeys = [];
   const s3Client = {
@@ -84,8 +80,6 @@ test('uploadAirtableAttachments cleans up partial uploads on failure', async () 
   });
 
   const result = await uploadAirtableAttachments({
-    plotId: '11111111-1111-4111-8111-111111111111',
-    attribute: 'photos',
     attachments: [
       { url: 'https://example.test/a.jpg', filename: 'a.jpg', type: 'image/jpeg' },
       { url: 'https://example.test/b.jpg', filename: 'b.jpg', type: 'image/jpeg' },
@@ -96,69 +90,54 @@ test('uploadAirtableAttachments cleans up partial uploads on failure', async () 
     s3Client,
   });
 
-  assert.strictEqual(result.paths, null);
+  assert.deepStrictEqual(result.filenames, []);
   assert.strictEqual(result.uploaded, 0);
   assert.strictEqual(result.errors.length, 1);
   // Mock pushes before throwing on the 2nd put; the 3rd still runs and succeeds.
   assert.strictEqual(putKeys.length, 3);
+  assert.ok(putKeys.every((key) => key.startsWith('_uploads/')));
   // Only keys that completed putObject are cleaned up (1st and 3rd).
   assert.deepStrictEqual(deletedKeys, [putKeys[0], putKeys[2]]);
 });
 
-test('migratePlotPhotoAttribute skips migrated paths and reports stale assets on force', async () => {
-  const deletedKeys = [];
-  const s3Client = {
-    async putObject () {},
-    async deleteObject (key) {
-      deletedKeys.push(key);
-    },
-  };
-  const existing = [
-    '/api/assets/plots/p1/photo/old.jpg',
-  ];
-
-  const skipped = await migratePlotPhotoAttribute({
-    plotId: 'p1',
-    attribute: 'photo',
-    existing,
+test('migrateParentPhotos skips when photo rows already exist', async () => {
+  const skipped = await migrateParentPhotos({
+    delegateName: 'plotPhoto',
+    PhotoClass: PlotPhoto,
+    parentFk: 'plotId',
+    parentId: 'p1',
     attachments: [{ url: 'https://example.test/n.jpg', filename: 'n.jpg' }],
+    existingCount: 1,
     dryRun: true,
     force: false,
-    s3Client,
   });
   assert.strictEqual(skipped.action, 'skipped');
 
-  const forced = await migratePlotPhotoAttribute({
-    plotId: 'p1',
-    attribute: 'photo',
-    existing,
+  const forced = await migrateParentPhotos({
+    delegateName: 'plotPhoto',
+    PhotoClass: PlotPhoto,
+    parentFk: 'plotId',
+    parentId: 'p1',
     attachments: [{ url: 'https://example.test/n.jpg', filename: 'n.jpg', type: 'image/jpeg' }],
-    dryRun: false,
+    existingCount: 1,
+    dryRun: true,
     force: true,
-    fetchImpl: async () => ({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      arrayBuffer: async () => Buffer.from('img'),
-    }),
-    s3Client,
   });
   assert.strictEqual(forced.action, 'updated');
   assert.strictEqual(forced.uploaded, 1);
-  assert.deepStrictEqual(forced.stalePaths, existing);
-  // Deletion is deferred to callers after DB update
-  assert.deepStrictEqual(deletedKeys, []);
 });
 
-test('migratePlotPhotoAttribute dry-run counts uploads without DATABASE_URL', async () => {
-  const result = await migratePlotPhotoAttribute({
-    plotId: 'p1',
-    attribute: 'photos',
-    existing: null,
+test('migrateParentPhotos dry-run counts uploads without DATABASE_URL', async () => {
+  const result = await migrateParentPhotos({
+    delegateName: 'plotPhoto',
+    PhotoClass: PlotPhoto,
+    parentFk: 'plotId',
+    parentId: 'p1',
     attachments: [
       { url: 'https://example.test/a.jpg', filename: 'a.jpg' },
       { url: 'https://example.test/b.jpg', filename: 'b.jpg' },
     ],
+    existingCount: 0,
     dryRun: true,
   });
   assert.strictEqual(result.action, 'updated');

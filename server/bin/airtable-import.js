@@ -11,7 +11,7 @@
  *
  * Env: AIRTABLE_API_KEY, AIRTABLE_BASE_ID
  *      DATABASE_URL (required unless --dry-run)
- *      AWS_S3_* (required unless --dry-run when importing Plots; used for Photo/Photos)
+ *      AWS_S3_* (required unless --dry-run when importing Plots, Plants, or Maintenance Records)
  */
 
 import crypto from 'node:crypto';
@@ -23,8 +23,8 @@ import {
   buildPlantSlotSyncPlan,
 } from '#lib/airtable-import-joins.js';
 import {
-  deleteAssetPaths,
-  migratePlotPhotoAttribute,
+  migrateParentPhotos,
+  PHOTO_TARGETS,
 } from '#lib/airtable-photos.js';
 import {
   parseAirtableDate,
@@ -42,7 +42,11 @@ const report = {
   dryRun,
   startedAt: new Date().toISOString(),
   tables: {},
-  plotPhotos: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
+  photos: {
+    Plot: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
+    Plant: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
+    MaintenanceRecord: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
+  },
   fetchStatus: {},
   unresolvedLinks: [],
   errors: [],
@@ -54,7 +58,8 @@ function requireEnv () {
   const required = ['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'];
   if (!dryRun) {
     required.push('DATABASE_URL');
-    if (!onlyTables || onlyTables.includes('Plots')) {
+    const photoTables = ['Plots', 'Plants', 'Maintenance Records'];
+    if (!onlyTables || onlyTables.some((name) => photoTables.includes(name))) {
       required.push(
         'AWS_S3_ACCESS_KEY_ID',
         'AWS_S3_SECRET_ACCESS_KEY',
@@ -72,32 +77,60 @@ function requireEnv () {
   };
 }
 
-function recordPlotPhotoResult (attribute, plotId, airtableId, result) {
+function photoStats (label) {
+  return report.photos[label];
+}
+
+function recordPhotoResult (label, parentId, airtableId, result) {
+  const stats = photoStats(label);
   if (result.action === 'skipped') {
-    report.plotPhotos.skipped += 1;
-    return undefined;
+    stats.skipped += 1;
+    return;
   }
   for (const err of result.errors || []) {
-    report.plotPhotos.errors.push({
-      plotId,
+    stats.errors.push({
+      parentId,
       airtableId,
-      attribute,
       filename: err.filename,
       message: err.message,
     });
     report.errors.push({
-      table: 'Plot',
+      table: label,
       airtableId,
-      message: `${attribute}: ${err.message}`,
+      message: `photos: ${err.message}`,
     });
   }
-  if (result.action !== 'updated') return undefined;
+  if (result.action !== 'updated') return;
   if (result.uploaded) {
-    report.plotPhotos.uploaded += result.uploaded;
+    stats.uploaded += result.uploaded;
   } else {
-    report.plotPhotos.cleared += 1;
+    stats.cleared += 1;
   }
-  return { paths: result.paths, stalePaths: result.stalePaths || [] };
+}
+
+const PHOTO_TARGET_BY_LABEL = Object.fromEntries(PHOTO_TARGETS.map((t) => [t.label, t]));
+
+async function importParentPhotos ({
+  label,
+  parentId,
+  airtableId,
+  attachments,
+  existingCount,
+  prismaClient,
+  dryRun: isDryRun,
+}) {
+  const target = PHOTO_TARGET_BY_LABEL[label];
+  const result = await migrateParentPhotos({
+    prisma: prismaClient,
+    delegateName: target.delegateName,
+    PhotoClass: target.PhotoClass,
+    parentFk: target.parentFk,
+    parentId,
+    attachments,
+    existingCount,
+    dryRun: isDryRun,
+  });
+  recordPhotoResult(label, parentId, airtableId, result);
 }
 
 function firstLink (value) {
@@ -264,7 +297,6 @@ async function main () {
       commonName: stringifyMaybe(rec.fields['Common Name']),
       locations: stringifyMaybe(rec.fields.Locations),
       numberPlanted: typeof rec.fields['Number Planted'] === 'number' ? rec.fields['Number Planted'] : null,
-      photo: rec.fields.Photo ?? null,
       createdAt: new Date(rec.createdTime),
     };
     const row = await prisma.plant.upsert({
@@ -276,10 +308,19 @@ async function main () {
         commonName: data.commonName,
         locations: data.locations,
         numberPlanted: data.numberPlanted,
-        photo: data.photo,
       },
     });
     idMaps.plant.set(rec.id, row.id);
+    const existingCount = await prisma.plantPhoto.count({ where: { plantId: row.id } });
+    await importParentPhotos({
+      label: 'Plant',
+      parentId: row.id,
+      airtableId: rec.id,
+      attachments: PHOTO_TARGET_BY_LABEL.Plant.attachmentsFrom(rec.fields),
+      existingCount,
+      prismaClient: prisma,
+      dryRun: false,
+    });
   }, idMaps.plant);
 
   await upsertMany('Partner', fetched.partners, async (rec) => {
@@ -345,73 +386,17 @@ async function main () {
       update: { ...data, createdAt: undefined },
     });
     idMaps.plot.set(rec.id, row.id);
-
-    const photoUpdate = {};
-    const staleToDelete = [];
-    for (const [attribute, attachments, existing] of [
-      ['photo', f.Photo, row.photo],
-      ['photos', f.Photos, row.photos],
-    ]) {
-      const result = await migratePlotPhotoAttribute({
-        plotId: row.id,
-        attribute,
-        existing,
-        attachments,
-        dryRun: false,
-      });
-      const update = recordPlotPhotoResult(attribute, row.id, rec.id, result);
-      if (update !== undefined) {
-        photoUpdate[attribute] = update.paths;
-        staleToDelete.push(...update.stalePaths);
-      }
-    }
-    if (Object.keys(photoUpdate).length) {
-      await prisma.plot.update({
-        where: { id: row.id },
-        data: photoUpdate,
-      });
-      await deleteAssetPaths(staleToDelete);
-    }
+    const existingCount = await prisma.plotPhoto.count({ where: { plotId: row.id } });
+    await importParentPhotos({
+      label: 'Plot',
+      parentId: row.id,
+      airtableId: rec.id,
+      attachments: PHOTO_TARGET_BY_LABEL.Plot.attachmentsFrom(f),
+      existingCount,
+      prismaClient: prisma,
+      dryRun: false,
+    });
   }, idMaps.plot);
-
-  // Dry-run: estimate Plot photo uploads (DB optional — improves skip accuracy when present)
-  if (dryRun && fetched.plots.length) {
-    let existingByAirtableId = new Map();
-    let prismaDry;
-    if (process.env.DATABASE_URL) {
-      ({ default: prismaDry } = await import('#prisma/client.js'));
-      try {
-        const existingRows = await prismaDry.plot.findMany({
-          select: { airtableId: true, photo: true, photos: true },
-        });
-        existingByAirtableId = new Map(existingRows.map((r) => [r.airtableId, r]));
-      } catch (err) {
-        report.errors.push({ table: 'Plot', message: `dry-run skip lookup: ${err.message}` });
-      }
-    }
-    try {
-      for (const rec of fetched.plots) {
-        const plotId = idMaps.plot.get(rec.id);
-        if (!plotId) continue;
-        const existing = existingByAirtableId.get(rec.id);
-        for (const [attribute, attachments, existingVal] of [
-          ['photo', rec.fields.Photo, existing?.photo],
-          ['photos', rec.fields.Photos, existing?.photos],
-        ]) {
-          const result = await migratePlotPhotoAttribute({
-            plotId,
-            attribute,
-            existing: existingVal,
-            attachments,
-            dryRun: true,
-          });
-          recordPlotPhotoResult(attribute, plotId, rec.id, result);
-        }
-      }
-    } finally {
-      if (prismaDry) await prismaDry.$disconnect();
-    }
-  }
 
   await upsertMany('MaintenanceRecord', fetched.maintenance, async (rec) => {
     const f = rec.fields;
@@ -423,7 +408,6 @@ async function main () {
       notes: stringifyMaybe(f.Notes),
       planting: stringifyMaybe(f.Planting),
       estNextVisit: parseAirtableDate(f['Est. Next Visit']),
-      volunteerPhotos: f['Volunteer Photos'] ?? null,
       createdAt: new Date(rec.createdTime),
     };
     const row = await prisma.maintenanceRecord.upsert({
@@ -432,7 +416,65 @@ async function main () {
       update: { ...data, createdAt: undefined },
     });
     idMaps.maintenanceRecord.set(rec.id, row.id);
+    const existingCount = await prisma.maintenanceRecordPhoto.count({
+      where: { maintenanceRecordId: row.id },
+    });
+    await importParentPhotos({
+      label: 'MaintenanceRecord',
+      parentId: row.id,
+      airtableId: rec.id,
+      attachments: PHOTO_TARGET_BY_LABEL.MaintenanceRecord.attachmentsFrom(f),
+      existingCount,
+      prismaClient: prisma,
+      dryRun: false,
+    });
   }, idMaps.maintenanceRecord);
+
+  // Dry-run: estimate photo uploads (DB optional — improves skip counts when present)
+  if (dryRun) {
+    let prismaDry;
+    if (process.env.DATABASE_URL) {
+      ({ default: prismaDry } = await import('#prisma/client.js'));
+    }
+    try {
+      for (const [label, records, idMap] of [
+        ['Plant', fetched.plants, idMaps.plant],
+        ['Plot', fetched.plots, idMaps.plot],
+        ['MaintenanceRecord', fetched.maintenance, idMaps.maintenanceRecord],
+      ]) {
+        if (!records.length) continue;
+        const target = PHOTO_TARGET_BY_LABEL[label];
+        const existingCountByAirtableId = new Map();
+        if (prismaDry) {
+          try {
+            const existingRows = await prismaDry[target.prismaModel].findMany({
+              select: { airtableId: true, _count: { select: { photos: true } } },
+            });
+            for (const row of existingRows) {
+              existingCountByAirtableId.set(row.airtableId, row._count.photos);
+            }
+          } catch (err) {
+            report.errors.push({ table: label, message: `dry-run skip lookup: ${err.message}` });
+          }
+        }
+        for (const rec of records) {
+          const parentId = idMap.get(rec.id);
+          if (!parentId) continue;
+          await importParentPhotos({
+            label,
+            parentId,
+            airtableId: rec.id,
+            attachments: target.attachmentsFrom(rec.fields),
+            existingCount: existingCountByAirtableId.get(rec.id) ?? 0,
+            prismaClient: prismaDry,
+            dryRun: true,
+          });
+        }
+      }
+    } finally {
+      if (prismaDry) await prismaDry.$disconnect();
+    }
+  }
 
   /**
    * Resolve an Airtable link for FK writes.

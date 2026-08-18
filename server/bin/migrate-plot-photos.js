@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Download Plot Photo/Photos from Airtable and upload to S3.
- * Replaces Plot.photo / Plot.photos JSONB with `/api/assets/...` path arrays.
+ * Download Plot / Plant / Maintenance photos from Airtable, stage them in
+ * `_uploads/`, and attach via setAsset onto the photo tables.
  *
  * Usage:
  *   bin/migrate-plot-photos.js [--dry-run] [--limit=N] [--force]
@@ -15,10 +15,7 @@
 
 import '../config.js';
 import { listAllRecords } from '#lib/airtable-fetch.js';
-import {
-  deleteAssetPaths,
-  migratePlotPhotoAttribute,
-} from '#lib/airtable-photos.js';
+import { migrateParentPhotos, PHOTO_TARGETS } from '#lib/airtable-photos.js';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -31,10 +28,11 @@ const report = {
   force,
   limit,
   startedAt: new Date().toISOString(),
-  plotsFetched: 0,
-  plotsProcessed: 0,
-  photo: { uploaded: 0, skipped: 0, cleared: 0 },
-  photos: { uploaded: 0, skipped: 0, cleared: 0 },
+  photos: {
+    Plot: { fetched: 0, processed: 0, uploaded: 0, skipped: 0, cleared: 0 },
+    Plant: { fetched: 0, processed: 0, uploaded: 0, skipped: 0, cleared: 0 },
+    MaintenanceRecord: { fetched: 0, processed: 0, uploaded: 0, skipped: 0, cleared: 0 },
+  },
   errors: [],
 };
 
@@ -59,105 +57,83 @@ function requireEnv () {
   };
 }
 
-/**
- * @param {'photo'|'photos'} attribute
- * @param {string} plotId
- * @param {unknown} existing
- * @param {unknown} attachments
- * @returns {Promise<{ paths: string[]|null, stalePaths: string[] }|undefined>}
- */
-async function migrateAttribute (attribute, plotId, existing, attachments) {
-  const stats = report[attribute];
-  const result = await migratePlotPhotoAttribute({
-    plotId,
-    attribute,
-    existing,
-    attachments,
-    dryRun,
-    force,
-  });
-
+function recordResult (label, parentId, airtableId, result) {
+  const stats = report.photos[label];
   if (result.action === 'skipped') {
     stats.skipped += 1;
-    return undefined;
+    return;
   }
-
   for (const err of result.errors || []) {
     report.errors.push({
-      plotId,
-      attribute,
+      table: label,
+      parentId,
+      airtableId,
       filename: err.filename,
       message: err.message,
     });
   }
-
-  if (result.action !== 'updated') {
-    return undefined;
-  }
-
+  if (result.action !== 'updated') return;
   if (result.uploaded) {
     stats.uploaded += result.uploaded;
   } else {
     stats.cleared += 1;
   }
+}
 
-  return { paths: result.paths, stalePaths: result.stalePaths || [] };
+async function migrateTarget (target, apiKey, baseId) {
+  const stats = report.photos[target.label];
+  console.error(`Fetching ${target.airtableTable} from Airtable…`);
+  const airtableRecords = await listAllRecords(apiKey, baseId, target.airtableTable);
+  stats.fetched = airtableRecords.length;
+  const byAirtableId = new Map(airtableRecords.map((r) => [r.id, r]));
+
+  let dbRows = await prisma[target.prismaModel].findMany({
+    select: {
+      id: true,
+      airtableId: true,
+      _count: { select: { photos: true } },
+    },
+    orderBy: { airtableId: 'asc' },
+  });
+
+  if (limit != null && Number.isFinite(limit)) {
+    dbRows = dbRows.slice(0, limit);
+  }
+
+  for (const row of dbRows) {
+    const rec = byAirtableId.get(row.airtableId);
+    if (!rec) {
+      report.errors.push({
+        table: target.label,
+        parentId: row.id,
+        airtableId: row.airtableId,
+        message: `no matching Airtable ${target.airtableTable} record`,
+      });
+      continue;
+    }
+
+    stats.processed += 1;
+    const result = await migrateParentPhotos({
+      prisma,
+      delegateName: target.delegateName,
+      PhotoClass: target.PhotoClass,
+      parentFk: target.parentFk,
+      parentId: row.id,
+      attachments: target.attachmentsFrom(rec.fields),
+      existingCount: row._count.photos,
+      dryRun,
+      force,
+    });
+    recordResult(target.label, row.id, rec.id, result);
+  }
 }
 
 async function main () {
   const { apiKey, baseId } = requireEnv();
   ({ default: prisma } = await import('#prisma/client.js'));
 
-  console.error('Fetching Plots from Airtable…');
-  const airtablePlots = await listAllRecords(apiKey, baseId, 'Plots');
-  report.plotsFetched = airtablePlots.length;
-
-  const byAirtableId = new Map(airtablePlots.map((r) => [r.id, r]));
-
-  let dbPlots = await prisma.plot.findMany({
-    select: { id: true, airtableId: true, photo: true, photos: true },
-    orderBy: { airtableId: 'asc' },
-  });
-
-  if (limit != null && Number.isFinite(limit)) {
-    dbPlots = dbPlots.slice(0, limit);
-  }
-
-  for (const plot of dbPlots) {
-    const rec = byAirtableId.get(plot.airtableId);
-    if (!rec) {
-      report.errors.push({
-        plotId: plot.id,
-        airtableId: plot.airtableId,
-        message: 'no matching Airtable Plots record',
-      });
-      continue;
-    }
-
-    report.plotsProcessed += 1;
-    const f = rec.fields;
-    const photoResult = await migrateAttribute('photo', plot.id, plot.photo, f.Photo);
-    const photosResult = await migrateAttribute('photos', plot.id, plot.photos, f.Photos);
-
-    if (dryRun) continue;
-
-    const data = {};
-    const staleToDelete = [];
-    if (photoResult !== undefined) {
-      data.photo = photoResult.paths;
-      staleToDelete.push(...photoResult.stalePaths);
-    }
-    if (photosResult !== undefined) {
-      data.photos = photosResult.paths;
-      staleToDelete.push(...photosResult.stalePaths);
-    }
-    if (Object.keys(data).length) {
-      await prisma.plot.update({
-        where: { id: plot.id },
-        data,
-      });
-      await deleteAssetPaths(staleToDelete);
-    }
+  for (const target of PHOTO_TARGETS) {
+    await migrateTarget(target, apiKey, baseId);
   }
 
   report.finishedAt = new Date().toISOString();
