@@ -127,10 +127,10 @@ model Plant {
   commonName    String?
   locations     String?
   numberPlanted Int?
-  photo         Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  photos                  PlantPhoto[]
   maintenanceRecordPlants MaintenanceRecordPlant[]
 }
 
@@ -166,8 +166,6 @@ model Plot {
   locationDescription  String?
   sethsNotes           String?
   geocodeCache         String?
-  photo                Json?
-  photos               Json?
   originalPlantDate    DateTime?
   lastPlant            DateTime?
   lastWater            DateTime?
@@ -183,6 +181,7 @@ model Plot {
 
   zipCode              ZipCode?                  @relation(fields: [zipCodeId], references: [id], onDelete: SetNull)
   lastVolunteer        Person?                   @relation("PlotLastVolunteer", fields: [lastVolunteerId], references: [id], onDelete: SetNull)
+  photos               PlotPhoto[]
   neighborhoods        PlotNeighborhood[]
   assignedVolunteers   PlotAssignedVolunteer[]
   maintenanceRecords   MaintenanceRecord[]
@@ -222,7 +221,6 @@ model MaintenanceRecord {
   notes            String?
   planting         String?
   estNextVisit     DateTime?
-  volunteerPhotos  Json?
   plotId           String?   @db.Uuid
   volunteerId      String?   @db.Uuid
   createdAt        DateTime  @default(now())
@@ -230,6 +228,7 @@ model MaintenanceRecord {
 
   plot      Plot?                     @relation(fields: [plotId], references: [id], onDelete: SetNull)
   volunteer Person?                   @relation(fields: [volunteerId], references: [id], onDelete: SetNull)
+  photos    MaintenanceRecordPhoto[]
   plants    MaintenanceRecordPlant[]
 
   @@index([plotId])
@@ -249,4 +248,43 @@ model MaintenanceRecordPlant {
 
   @@unique([maintenanceRecordId, slot])
   @@index([plantId])
+}
+
+model PlotPhoto {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plotId    String   @db.Uuid
+  file      String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plot Plot @relation(fields: [plotId], references: [id], onDelete: Cascade)
+
+  @@index([plotId])
+}
+
+model PlantPhoto {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plantId   String   @db.Uuid
+  file      String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plant Plant @relation(fields: [plantId], references: [id], onDelete: Cascade)
+
+  @@index([plantId])
+}
+
+model MaintenanceRecordPhoto {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  maintenanceRecordId  String   @db.Uuid
+  file                 String?
+  position             Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  maintenanceRecord MaintenanceRecord @relation(fields: [maintenanceRecordId], references: [id], onDelete: Cascade)
+
+  @@index([maintenanceRecordId])
 }
