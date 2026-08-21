@@ -1,0 +1,101 @@
+import { test } from 'node:test';
+import * as assert from 'node:assert';
+
+import {
+  parseAirtableDate,
+  parseMapCoordinates,
+} from '#lib/airtable-schema.js';
+import {
+  buildViewportWhere,
+  decodeListOffset,
+  encodeListOffset,
+  formatPlot,
+  isUuid,
+  plotFieldsFromBody,
+} from '#models/plot.js';
+
+test('parseMapCoordinates extracts lat/lng', () => {
+  assert.deepStrictEqual(parseMapCoordinates('37.77872, -122.46517'), {
+    latitude: 37.77872,
+    longitude: -122.46517,
+  });
+  assert.deepStrictEqual(parseMapCoordinates('not a coord'), {
+    latitude: null,
+    longitude: null,
+  });
+});
+
+test('parseAirtableDate handles ISO and US formats', () => {
+  assert.strictEqual(parseAirtableDate('2025-03-21')?.toISOString().startsWith('2025-03-21'), true);
+  assert.strictEqual(parseAirtableDate('3/07/2025')?.toISOString().startsWith('2025-03-07'), true);
+  assert.strictEqual(parseAirtableDate(null), null);
+});
+
+test('formatPlot exposes Airtable id, coords, and Photos from related rows', () => {
+  const formatted = formatPlot({
+    id: '11111111-1111-4111-8111-111111111111',
+    airtableId: 'recPlotAlpha',
+    createdAt: new Date('2023-01-01T12:00:00.000Z'),
+    latitude: 37.78,
+    longitude: -122.42,
+    status: 'Planted',
+    bedType: 'Tree Well',
+    name: 'Alpha',
+    photos: [
+      { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', file: 'a.jpg', position: 0 },
+      { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', file: 'b.jpg', position: 1 },
+    ],
+  });
+  assert.strictEqual(formatted.id, 'recPlotAlpha');
+  assert.strictEqual(formatted.Latitude, 37.78);
+  assert.strictEqual(formatted.Longitude, -122.42);
+  assert.strictEqual(formatted.Status, 'Planted');
+  assert.strictEqual(formatted['Bed Type'], 'Tree Well');
+  assert.strictEqual(formatted.Photo, undefined);
+  assert.deepStrictEqual(formatted.Photos, [
+    '/api/assets/plot_photos/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/file/a.jpg',
+    '/api/assets/plot_photos/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/file/b.jpg',
+  ]);
+});
+
+test('plotFieldsFromBody derives coordinates from Map Coordinates', () => {
+  const data = plotFieldsFromBody({
+    Status: 'Planted',
+    'Map Coordinates': '37.5, -122.5',
+  });
+  assert.strictEqual(data.status, 'Planted');
+  assert.strictEqual(data.latitude, 37.5);
+  assert.strictEqual(data.longitude, -122.5);
+});
+
+test('plotFieldsFromBody ignores unparseable Map Coordinates for lat/lng', () => {
+  const data = plotFieldsFromBody({
+    Status: 'Planted',
+    'Map Coordinates': 'not a coord',
+  });
+  assert.strictEqual(data.status, 'Planted');
+  assert.strictEqual(data.mapCoordinates, 'not a coord');
+  assert.strictEqual(data.latitude, undefined);
+  assert.strictEqual(data.longitude, undefined);
+});
+
+test('isUuid accepts only 8-4-4-4-12 UUIDs', () => {
+  assert.strictEqual(isUuid('11111111-1111-4111-8111-111111111111'), true);
+  assert.strictEqual(isUuid('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'), false);
+  assert.strictEqual(isUuid('recPlotAlpha'), false);
+  assert.strictEqual(isUuid('12345678-1234-1234-1234-12345678901g'), false);
+});
+
+test('viewport where and offset encoding round-trip', () => {
+  assert.deepStrictEqual(
+    buildViewportWhere({ north: 37.82, south: 37.75, east: -122.38, west: -122.45 }),
+    {
+      latitude: { gte: 37.75, lte: 37.82 },
+      longitude: { gte: -122.45, lte: -122.38 },
+    }
+  );
+  assert.strictEqual(encodeListOffset(25), '25');
+  assert.strictEqual(decodeListOffset('25'), 25);
+  assert.strictEqual(decodeListOffset('50'), 50);
+  assert.strictEqual(decodeListOffset('not-a-number'), 0);
+});
