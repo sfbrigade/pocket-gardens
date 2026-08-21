@@ -63,7 +63,6 @@ CREATE TABLE "Plant" (
     "commonName" TEXT,
     "locations" TEXT,
     "numberPlanted" INTEGER,
-    "photo" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -105,8 +104,6 @@ CREATE TABLE "Plot" (
     "locationDescription" TEXT,
     "sethsNotes" TEXT,
     "geocodeCache" TEXT,
-    "photo" JSONB,
-    "photos" JSONB,
     "originalPlantDate" TIMESTAMP(3),
     "lastPlant" TIMESTAMP(3),
     "lastWater" TIMESTAMP(3),
@@ -149,7 +146,6 @@ CREATE TABLE "MaintenanceRecord" (
     "notes" TEXT,
     "planting" TEXT,
     "estNextVisit" TIMESTAMP(3),
-    "volunteerPhotos" JSONB,
     "plotId" UUID,
     "volunteerId" UUID,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -167,6 +163,42 @@ CREATE TABLE "MaintenanceRecordPlant" (
     "quantity" INTEGER,
 
     CONSTRAINT "MaintenanceRecordPlant_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PlotPhoto" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "plotId" UUID NOT NULL,
+    "file" TEXT,
+    "position" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PlotPhoto_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PlantPhoto" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "plantId" UUID NOT NULL,
+    "file" TEXT,
+    "position" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PlantPhoto_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "MaintenanceRecordPhoto" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "maintenanceRecordId" UUID NOT NULL,
+    "file" TEXT,
+    "position" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "MaintenanceRecordPhoto_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -232,6 +264,15 @@ CREATE INDEX "MaintenanceRecordPlant_plantId_idx" ON "MaintenanceRecordPlant"("p
 -- CreateIndex
 CREATE UNIQUE INDEX "MaintenanceRecordPlant_maintenanceRecordId_slot_key" ON "MaintenanceRecordPlant"("maintenanceRecordId", "slot");
 
+-- CreateIndex
+CREATE INDEX "PlotPhoto_plotId_idx" ON "PlotPhoto"("plotId");
+
+-- CreateIndex
+CREATE INDEX "PlantPhoto_plantId_idx" ON "PlantPhoto"("plantId");
+
+-- CreateIndex
+CREATE INDEX "MaintenanceRecordPhoto_maintenanceRecordId_idx" ON "MaintenanceRecordPhoto"("maintenanceRecordId");
+
 -- AddForeignKey
 ALTER TABLE "NeighborhoodZipCode" ADD CONSTRAINT "NeighborhoodZipCode_neighborhoodId_fkey" FOREIGN KEY ("neighborhoodId") REFERENCES "Neighborhood"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -276,3 +317,12 @@ ALTER TABLE "MaintenanceRecordPlant" ADD CONSTRAINT "MaintenanceRecordPlant_main
 
 -- AddForeignKey
 ALTER TABLE "MaintenanceRecordPlant" ADD CONSTRAINT "MaintenanceRecordPlant_plantId_fkey" FOREIGN KEY ("plantId") REFERENCES "Plant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PlotPhoto" ADD CONSTRAINT "PlotPhoto_plotId_fkey" FOREIGN KEY ("plotId") REFERENCES "Plot"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PlantPhoto" ADD CONSTRAINT "PlantPhoto_plantId_fkey" FOREIGN KEY ("plantId") REFERENCES "Plant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MaintenanceRecordPhoto" ADD CONSTRAINT "MaintenanceRecordPhoto_maintenanceRecordId_fkey" FOREIGN KEY ("maintenanceRecordId") REFERENCES "MaintenanceRecord"("id") ON DELETE CASCADE ON UPDATE CASCADE;

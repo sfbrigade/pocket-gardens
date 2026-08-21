@@ -31,7 +31,7 @@ test('parseAirtableDate handles ISO and US formats', () => {
   assert.strictEqual(parseAirtableDate(null), null);
 });
 
-test('formatPlot exposes Airtable id and Latitude/Longitude', () => {
+test('formatPlot exposes Airtable id, coords, and Photos from related rows', () => {
   const formatted = formatPlot({
     id: '11111111-1111-4111-8111-111111111111',
     airtableId: 'recPlotAlpha',
@@ -41,12 +41,21 @@ test('formatPlot exposes Airtable id and Latitude/Longitude', () => {
     status: 'Planted',
     bedType: 'Tree Well',
     name: 'Alpha',
+    photos: [
+      { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', file: 'a.jpg', position: 0 },
+      { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', file: 'b.jpg', position: 1 },
+    ],
   });
   assert.strictEqual(formatted.id, 'recPlotAlpha');
   assert.strictEqual(formatted.Latitude, 37.78);
   assert.strictEqual(formatted.Longitude, -122.42);
   assert.strictEqual(formatted.Status, 'Planted');
   assert.strictEqual(formatted['Bed Type'], 'Tree Well');
+  assert.strictEqual(formatted.Photo, undefined);
+  assert.deepStrictEqual(formatted.Photos, [
+    '/api/assets/plot_photos/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/file/a.jpg',
+    '/api/assets/plot_photos/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/file/b.jpg',
+  ]);
 });
 
 test('plotFieldsFromBody derives coordinates from Map Coordinates', () => {

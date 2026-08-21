@@ -2,7 +2,14 @@ import crypto from 'node:crypto';
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { formatPlot, plotFieldsFromBody, PlotFieldsSchema, PlotSchema } from '#models/plot.js';
+import {
+  formatPlot,
+  plotFieldsFromBody,
+  PlotFieldsSchema,
+  PlotSchema,
+  reloadPlotWithPhotos,
+  syncPlotPhotos,
+} from '#models/plot.js';
 
 export default async function (fastify, opts) {
   fastify.post('/', {
@@ -16,11 +23,18 @@ export default async function (fastify, opts) {
     },
   }, async function (request, reply) {
     const fields = plotFieldsFromBody(request.body);
-    const record = await fastify.prisma.plot.create({
-      data: {
-        airtableId: `pg_${crypto.randomUUID()}`,
-        ...fields,
-      },
+    const { Photos } = request.body;
+    const record = await fastify.prisma.$transaction(async (tx) => {
+      const created = await tx.plot.create({
+        data: {
+          airtableId: `pg_${crypto.randomUUID()}`,
+          ...fields,
+        },
+      });
+      if (Photos !== undefined) {
+        await syncPlotPhotos(tx, created.id, Photos);
+      }
+      return reloadPlotWithPhotos(tx, created.id);
     });
     reply.code(StatusCodes.CREATED).send(formatPlot(record));
   });

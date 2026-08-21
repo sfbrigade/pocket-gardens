@@ -7,6 +7,7 @@ import {
   DEFAULT_PAGE_SIZE,
   encodeListOffset,
   formatPlot,
+  PLOT_PHOTOS_INCLUDE,
   PlotSchema,
 } from '#models/plot.js';
 
@@ -63,6 +64,7 @@ export default async function (fastify, opts) {
 
     const records = await fastify.prisma.plot.findMany({
       where,
+      include: PLOT_PHOTOS_INCLUDE,
       orderBy: { airtableId: 'asc' },
       skip,
       take: pageSize + 1,

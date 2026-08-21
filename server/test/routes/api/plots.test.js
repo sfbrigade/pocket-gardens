@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
 import { StatusCodes } from 'http-status-codes';
+import path from 'path';
 
-import { build } from '#test/helper.js';
+import { assetExists, build, upload } from '#test/helper.js';
 import { DEFAULT_PAGE_SIZE } from '#models/plot.js';
 
 test('/api/plots', async (t) => {
@@ -62,12 +63,24 @@ test('/api/plots', async (t) => {
   });
 
   await t.test('GET /:id returns a plot by airtable id', async () => {
+    const plot = await prisma.plot.findUnique({ where: { airtableId: 'recPlotAlpha' } });
+    const photo = await prisma.plotPhoto.create({
+      data: {
+        plotId: plot.id,
+        file: 'a.jpg',
+        position: 0,
+      },
+    });
     const response = await app.inject({ url: '/api/plots/recPlotAlpha' });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.id, 'recPlotAlpha');
     assert.strictEqual(data.Status, 'Planted');
     assert.strictEqual(data.Latitude, 37.78);
+    assert.strictEqual(data.Photo, undefined);
+    assert.deepStrictEqual(data.Photos, [
+      `/api/assets/plot_photos/${photo.id}/file/a.jpg`,
+    ]);
   });
 
   await t.test('GET /:id returns 404 when missing', async () => {
@@ -151,5 +164,55 @@ test('/api/plots', async (t) => {
     assert.strictEqual(after.latitude, before.latitude);
     assert.strictEqual(after.longitude, before.longitude);
     assert.strictEqual(after.mapCoordinates, 'garbage');
+  });
+
+  await t.test('POST / attaches uploaded photos via setAsset', async () => {
+    const filename = '56826175-033e-4a89-8d51-8d7f602e01d9.jpg';
+    await upload([['640x480.jpg', filename]]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/plots',
+      payload: {
+        Status: 'Planted',
+        Photos: [filename],
+      },
+    });
+    assert.strictEqual(response.statusCode, StatusCodes.CREATED);
+    const data = JSON.parse(response.payload);
+    assert.strictEqual(data.Photos.length, 1);
+    assert.match(data.Photos[0], /^\/api\/assets\/plot_photos\/.+\/file\/56826175-033e-4a89-8d51-8d7f602e01d9\.jpg$/);
+
+    const row = await prisma.plot.findUnique({
+      where: { airtableId: data.id },
+      include: { photos: true },
+    });
+    assert.strictEqual(row.photos.length, 1);
+    assert.strictEqual(row.photos[0].file, filename);
+    assert.ok(await assetExists(path.join('plot_photos', row.photos[0].id, 'file', filename)));
+  });
+
+  await t.test('PATCH /:id attaches uploaded photos via setAsset', async () => {
+    const filename = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg';
+    await upload([['640x480.jpg', filename]]);
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/plots/recPlotAlpha',
+      payload: {
+        Photos: [filename],
+      },
+    });
+    assert.strictEqual(response.statusCode, StatusCodes.OK);
+    const data = JSON.parse(response.payload);
+    assert.strictEqual(data.id, 'recPlotAlpha');
+    assert.strictEqual(data.Photos.length, 1);
+    assert.match(data.Photos[0], new RegExp(`/file/${filename}$`));
+
+    const row = await prisma.plot.findUnique({
+      where: { airtableId: 'recPlotAlpha' },
+      include: { photos: true },
+    });
+    assert.strictEqual(row.photos.length, 1);
+    assert.strictEqual(row.photos[0].file, filename);
+    assert.ok(await assetExists(path.join('plot_photos', row.photos[0].id, 'file', filename)));
   });
 });

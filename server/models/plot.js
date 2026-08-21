@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 import { parseMapCoordinates } from '#lib/airtable-schema.js';
+import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
+import PlotPhoto from '#models/plot-photo.js';
 
 export const DEFAULT_PAGE_SIZE = 25;
 
@@ -14,6 +16,7 @@ export const PlotSchema = z.object({
   'Pocket Garden Name': z.string().optional().nullable(),
   'Street Address': z.string().optional().nullable(),
   'Map Coordinates': z.string().optional().nullable(),
+  Photos: z.array(z.string()).optional(),
 }).passthrough();
 
 export const PlotFieldsSchema = z.object({
@@ -31,6 +34,7 @@ export const PlotFieldsSchema = z.object({
   'Est. Area (Sq. Ft)': z.number().optional(),
   'Location Description': z.string().optional(),
   "Seth's Notes": z.string().optional(),
+  Photos: z.array(z.string()).optional(),
 }).passthrough();
 
 /**
@@ -62,7 +66,39 @@ export function formatPlot (plot) {
     "Seth's Notes": plot.sethsNotes ?? undefined,
     Alert: plot.alert ?? undefined,
     'Next Visit': plot.nextVisit ?? undefined,
+    Photos: formatPlotPhotos(plot.photos),
   };
+}
+
+export const PLOT_PHOTOS_INCLUDE = {
+  photos: { orderBy: { position: 'asc' } },
+};
+
+function formatPlotPhotos (photos) {
+  if (!Array.isArray(photos) || photos.length === 0) return undefined;
+  const urls = photos.map((row) => new PlotPhoto(row).fileUrl).filter(Boolean);
+  return urls.length ? urls : undefined;
+}
+
+/**
+ * Persist a Photos filename list with setAsset, then reload the plot with photos.
+ */
+export async function syncPlotPhotos (tx, plotId, filenames) {
+  const handlers = await syncPhotos({
+    delegate: tx.plotPhoto,
+    PhotoClass: PlotPhoto,
+    parentFk: 'plotId',
+    parentId: plotId,
+    filenames,
+  });
+  await runPhotoHandlers(handlers);
+}
+
+export function reloadPlotWithPhotos (tx, id) {
+  return tx.plot.findUnique({
+    where: { id },
+    include: PLOT_PHOTOS_INCLUDE,
+  });
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -82,6 +118,7 @@ export function findPlotByPublicId (prisma, id) {
         ...(isUuid(id) ? [{ id }] : []),
       ],
     },
+    include: PLOT_PHOTOS_INCLUDE,
   });
 }
 
@@ -152,5 +189,8 @@ export default {
   buildViewportWhere,
   encodeListOffset,
   decodeListOffset,
+  PLOT_PHOTOS_INCLUDE,
+  syncPlotPhotos,
+  reloadPlotWithPhotos,
   DEFAULT_PAGE_SIZE,
 };

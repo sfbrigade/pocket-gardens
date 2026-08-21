@@ -11,11 +11,21 @@
  *
  * Env: AIRTABLE_API_KEY, AIRTABLE_BASE_ID
  *      DATABASE_URL (required unless --dry-run)
+ *      AWS_S3_* (required unless --dry-run when importing Plots, Plants, or Maintenance Records)
  */
 
 import crypto from 'node:crypto';
 
 import '../config.js';
+import { listAllRecords } from '#lib/airtable-fetch.js';
+import {
+  buildJoinSyncPlan,
+  buildPlantSlotSyncPlan,
+} from '#lib/airtable-import-joins.js';
+import {
+  migrateParentPhotos,
+  PHOTO_TARGETS,
+} from '#lib/airtable-photos.js';
 import {
   parseAirtableDate,
   parseMapCoordinates,
@@ -32,6 +42,11 @@ const report = {
   dryRun,
   startedAt: new Date().toISOString(),
   tables: {},
+  photos: {
+    Plot: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
+    Plant: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
+    MaintenanceRecord: { uploaded: 0, skipped: 0, cleared: 0, errors: [] },
+  },
   fetchStatus: {},
   unresolvedLinks: [],
   errors: [],
@@ -41,7 +56,18 @@ let prisma;
 
 function requireEnv () {
   const required = ['AIRTABLE_API_KEY', 'AIRTABLE_BASE_ID'];
-  if (!dryRun) required.push('DATABASE_URL');
+  if (!dryRun) {
+    required.push('DATABASE_URL');
+    const photoTables = ['Plots', 'Plants', 'Maintenance Records'];
+    if (!onlyTables || onlyTables.some((name) => photoTables.includes(name))) {
+      required.push(
+        'AWS_S3_ACCESS_KEY_ID',
+        'AWS_S3_SECRET_ACCESS_KEY',
+        'AWS_S3_BUCKET',
+        'AWS_S3_REGION'
+      );
+    }
+  }
   for (const key of required) {
     if (!process.env[key]) throw new Error(`${key} must be set`);
   }
@@ -51,26 +77,60 @@ function requireEnv () {
   };
 }
 
-async function listAllRecords (apiKey, baseId, tableName) {
-  const records = [];
-  let offset;
-  do {
-    const url = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`);
-    url.searchParams.set('pageSize', '100');
-    if (offset) url.searchParams.set('offset', offset);
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+function photoStats (label) {
+  return report.photos[label];
+}
+
+function recordPhotoResult (label, parentId, airtableId, result) {
+  const stats = photoStats(label);
+  if (result.action === 'skipped') {
+    stats.skipped += 1;
+    return;
+  }
+  for (const err of result.errors || []) {
+    stats.errors.push({
+      parentId,
+      airtableId,
+      filename: err.filename,
+      message: err.message,
     });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const err = new Error(data.error?.message || response.statusText);
-      err.status = response.status;
-      throw err;
-    }
-    records.push(...(data.records || []));
-    offset = data.offset;
-  } while (offset);
-  return records;
+    report.errors.push({
+      table: label,
+      airtableId,
+      message: `photos: ${err.message}`,
+    });
+  }
+  if (result.action !== 'updated') return;
+  if (result.uploaded) {
+    stats.uploaded += result.uploaded;
+  } else {
+    stats.cleared += 1;
+  }
+}
+
+const PHOTO_TARGET_BY_LABEL = Object.fromEntries(PHOTO_TARGETS.map((t) => [t.label, t]));
+
+async function importParentPhotos ({
+  label,
+  parentId,
+  airtableId,
+  attachments,
+  existingCount,
+  prismaClient,
+  dryRun: isDryRun,
+}) {
+  const target = PHOTO_TARGET_BY_LABEL[label];
+  const result = await migrateParentPhotos({
+    prisma: prismaClient,
+    delegateName: target.delegateName,
+    PhotoClass: target.PhotoClass,
+    parentFk: target.parentFk,
+    parentId,
+    attachments,
+    existingCount,
+    dryRun: isDryRun,
+  });
+  recordPhotoResult(label, parentId, airtableId, result);
 }
 
 function firstLink (value) {
@@ -237,7 +297,6 @@ async function main () {
       commonName: stringifyMaybe(rec.fields['Common Name']),
       locations: stringifyMaybe(rec.fields.Locations),
       numberPlanted: typeof rec.fields['Number Planted'] === 'number' ? rec.fields['Number Planted'] : null,
-      photo: rec.fields.Photo ?? null,
       createdAt: new Date(rec.createdTime),
     };
     const row = await prisma.plant.upsert({
@@ -249,10 +308,19 @@ async function main () {
         commonName: data.commonName,
         locations: data.locations,
         numberPlanted: data.numberPlanted,
-        photo: data.photo,
       },
     });
     idMaps.plant.set(rec.id, row.id);
+    const existingCount = await prisma.plantPhoto.count({ where: { plantId: row.id } });
+    await importParentPhotos({
+      label: 'Plant',
+      parentId: row.id,
+      airtableId: rec.id,
+      attachments: PHOTO_TARGET_BY_LABEL.Plant.attachmentsFrom(rec.fields),
+      existingCount,
+      prismaClient: prisma,
+      dryRun: false,
+    });
   }, idMaps.plant);
 
   await upsertMany('Partner', fetched.partners, async (rec) => {
@@ -302,8 +370,6 @@ async function main () {
       locationDescription: stringifyMaybe(f['Location Description']),
       sethsNotes: stringifyMaybe(f["Seth's Notes"]),
       geocodeCache: stringifyMaybe(f['Geocode Cache (for Maps)']),
-      photo: f.Photo ?? null,
-      photos: f.Photos ?? null,
       originalPlantDate: parseAirtableDate(f['Original Plant Date']),
       lastPlant: parseAirtableDate(f['Last Plant']),
       lastWater: parseAirtableDate(f['Last Water']),
@@ -320,6 +386,16 @@ async function main () {
       update: { ...data, createdAt: undefined },
     });
     idMaps.plot.set(rec.id, row.id);
+    const existingCount = await prisma.plotPhoto.count({ where: { plotId: row.id } });
+    await importParentPhotos({
+      label: 'Plot',
+      parentId: row.id,
+      airtableId: rec.id,
+      attachments: PHOTO_TARGET_BY_LABEL.Plot.attachmentsFrom(f),
+      existingCount,
+      prismaClient: prisma,
+      dryRun: false,
+    });
   }, idMaps.plot);
 
   await upsertMany('MaintenanceRecord', fetched.maintenance, async (rec) => {
@@ -332,7 +408,6 @@ async function main () {
       notes: stringifyMaybe(f.Notes),
       planting: stringifyMaybe(f.Planting),
       estNextVisit: parseAirtableDate(f['Est. Next Visit']),
-      volunteerPhotos: f['Volunteer Photos'] ?? null,
       createdAt: new Date(rec.createdTime),
     };
     const row = await prisma.maintenanceRecord.upsert({
@@ -341,7 +416,65 @@ async function main () {
       update: { ...data, createdAt: undefined },
     });
     idMaps.maintenanceRecord.set(rec.id, row.id);
+    const existingCount = await prisma.maintenanceRecordPhoto.count({
+      where: { maintenanceRecordId: row.id },
+    });
+    await importParentPhotos({
+      label: 'MaintenanceRecord',
+      parentId: row.id,
+      airtableId: rec.id,
+      attachments: PHOTO_TARGET_BY_LABEL.MaintenanceRecord.attachmentsFrom(f),
+      existingCount,
+      prismaClient: prisma,
+      dryRun: false,
+    });
   }, idMaps.maintenanceRecord);
+
+  // Dry-run: estimate photo uploads (DB optional — improves skip counts when present)
+  if (dryRun) {
+    let prismaDry;
+    if (process.env.DATABASE_URL) {
+      ({ default: prismaDry } = await import('#prisma/client.js'));
+    }
+    try {
+      for (const [label, records, idMap] of [
+        ['Plant', fetched.plants, idMaps.plant],
+        ['Plot', fetched.plots, idMaps.plot],
+        ['MaintenanceRecord', fetched.maintenance, idMaps.maintenanceRecord],
+      ]) {
+        if (!records.length) continue;
+        const target = PHOTO_TARGET_BY_LABEL[label];
+        const existingCountByAirtableId = new Map();
+        if (prismaDry) {
+          try {
+            const existingRows = await prismaDry[target.prismaModel].findMany({
+              select: { airtableId: true, _count: { select: { photos: true } } },
+            });
+            for (const row of existingRows) {
+              existingCountByAirtableId.set(row.airtableId, row._count.photos);
+            }
+          } catch (err) {
+            report.errors.push({ table: label, message: `dry-run skip lookup: ${err.message}` });
+          }
+        }
+        for (const rec of records) {
+          const parentId = idMap.get(rec.id);
+          if (!parentId) continue;
+          await importParentPhotos({
+            label,
+            parentId,
+            airtableId: rec.id,
+            attachments: target.attachmentsFrom(rec.fields),
+            existingCount: existingCountByAirtableId.get(rec.id) ?? 0,
+            prismaClient: prismaDry,
+            dryRun: true,
+          });
+        }
+      }
+    } finally {
+      if (prismaDry) await prismaDry.$disconnect();
+    }
+  }
 
   /**
    * Resolve an Airtable link for FK writes.
@@ -371,14 +504,20 @@ async function main () {
     return id;
   }
 
-  /** Upsert desired join rows and delete membership no longer present in Airtable. */
-  async function syncJoinSet ({ desiredIds, upsertOne, deleteMissing }) {
-    const desired = [...new Set(desiredIds.filter(Boolean))];
-    if (dryRun) return;
-    for (const targetId of desired) {
+  /**
+   * Upsert resolved join rows. Only delete membership no longer in Airtable when
+   * every link resolved — unresolved links preserve existing membership.
+   */
+  async function syncJoinSet ({ linkAirtableIds, resolveOne, upsertOne, deleteMissing }) {
+    const plan = buildJoinSyncPlan(linkAirtableIds, resolveOne);
+    if (dryRun) return plan;
+    for (const targetId of plan.desiredIds) {
       await upsertOne(targetId);
     }
-    await deleteMissing(desired);
+    if (plan.shouldDeleteMissing) {
+      await deleteMissing(plan.desiredIds);
+    }
+    return plan;
   }
 
   // ---------- Pass 2: relations (only write when dependency maps are ready) ----------
@@ -386,13 +525,11 @@ async function main () {
     for (const rec of fetched.neighborhoods) {
       const neighborhoodId = idMaps.neighborhood.get(rec.id);
       if (!neighborhoodId) continue;
-      const desiredZipIds = linkIds(rec.fields['Zip Codes']).map((zipAirtableId) => (
-        resolveJoinId('zipCodes', idMaps.zipCode, zipAirtableId, {
-          from: 'Neighborhoods', fromId: rec.id, field: 'Zip Codes', toId: zipAirtableId,
-        })
-      ));
       await syncJoinSet({
-        desiredIds: desiredZipIds,
+        linkAirtableIds: linkIds(rec.fields['Zip Codes']),
+        resolveOne: (zipAirtableId) => resolveJoinId('zipCodes', idMaps.zipCode, zipAirtableId, {
+          from: 'Neighborhoods', fromId: rec.id, field: 'Zip Codes', toId: zipAirtableId,
+        }),
         upsertOne: async (zipCodeId) => {
           await prisma.neighborhoodZipCode.upsert({
             where: { neighborhoodId_zipCodeId: { neighborhoodId, zipCodeId } },
@@ -431,13 +568,11 @@ async function main () {
     for (const rec of fetched.zipCodes) {
       const zipCodeId = idMaps.zipCode.get(rec.id);
       if (!zipCodeId) continue;
-      const desiredPersonIds = linkIds(rec.fields['Local Volunteers']).map((personAirtableId) => (
-        resolveJoinId('people', idMaps.person, personAirtableId, {
-          from: 'Zip Codes', fromId: rec.id, field: 'Local Volunteers', toId: personAirtableId,
-        })
-      ));
       await syncJoinSet({
-        desiredIds: desiredPersonIds,
+        linkAirtableIds: linkIds(rec.fields['Local Volunteers']),
+        resolveOne: (personAirtableId) => resolveJoinId('people', idMaps.person, personAirtableId, {
+          from: 'Zip Codes', fromId: rec.id, field: 'Local Volunteers', toId: personAirtableId,
+        }),
         upsertOne: async (personId) => {
           await prisma.personZipCode.upsert({
             where: { personId_zipCodeId: { personId, zipCodeId } },
@@ -479,13 +614,16 @@ async function main () {
       }
 
       if (mapReady('neighborhoods')) {
-        const desiredNeighborhoodIds = linkIds(rec.fields.Neighborhood).map((neighborhoodAirtableId) => (
-          resolveJoinId('neighborhoods', idMaps.neighborhood, neighborhoodAirtableId, {
-            from: 'Plots', fromId: rec.id, field: 'Neighborhood', toId: neighborhoodAirtableId,
-          })
-        ));
         await syncJoinSet({
-          desiredIds: desiredNeighborhoodIds,
+          linkAirtableIds: linkIds(rec.fields.Neighborhood),
+          resolveOne: (neighborhoodAirtableId) => resolveJoinId(
+            'neighborhoods',
+            idMaps.neighborhood,
+            neighborhoodAirtableId,
+            {
+              from: 'Plots', fromId: rec.id, field: 'Neighborhood', toId: neighborhoodAirtableId,
+            }
+          ),
           upsertOne: async (neighborhoodId) => {
             await prisma.plotNeighborhood.upsert({
               where: { plotId_neighborhoodId: { plotId, neighborhoodId } },
@@ -505,13 +643,11 @@ async function main () {
       }
 
       if (mapReady('people')) {
-        const desiredPersonIds = linkIds(rec.fields['Assigned Volunteer/s']).map((personAirtableId) => (
-          resolveJoinId('people', idMaps.person, personAirtableId, {
-            from: 'Plots', fromId: rec.id, field: 'Assigned Volunteer/s', toId: personAirtableId,
-          })
-        ));
         await syncJoinSet({
-          desiredIds: desiredPersonIds,
+          linkAirtableIds: linkIds(rec.fields['Assigned Volunteer/s']),
+          resolveOne: (personAirtableId) => resolveJoinId('people', idMaps.person, personAirtableId, {
+            from: 'Plots', fromId: rec.id, field: 'Assigned Volunteer/s', toId: personAirtableId,
+          }),
           upsertOne: async (personId) => {
             await prisma.plotAssignedVolunteer.upsert({
               where: { plotId_personId: { plotId, personId } },
@@ -554,28 +690,31 @@ async function main () {
       }
 
       if (mapReady('plants')) {
-        const keptSlots = [];
+        const slotInputs = [];
         for (let slot = 1; slot <= 8; slot += 1) {
           const plantAirtableId = firstLink(rec.fields[`Plant ${slot}`]);
-          if (!plantAirtableId) continue;
-          const plantId = resolveJoinId('plants', idMaps.plant, plantAirtableId, {
-            from: 'Maintenance Records', fromId: rec.id, field: `Plant ${slot}`, toId: plantAirtableId,
-          });
-          if (!plantId) continue;
-          keptSlots.push(slot);
-          if (dryRun) continue;
-          const quantity = typeof rec.fields[`# Plant ${slot}`] === 'number'
-            ? rec.fields[`# Plant ${slot}`]
-            : null;
-          await prisma.maintenanceRecordPlant.upsert({
-            where: {
-              maintenanceRecordId_slot: { maintenanceRecordId, slot },
-            },
-            create: { maintenanceRecordId, plantId, slot, quantity },
-            update: { plantId, quantity },
-          });
+          let plantId = null;
+          if (plantAirtableId) {
+            plantId = resolveJoinId('plants', idMaps.plant, plantAirtableId, {
+              from: 'Maintenance Records', fromId: rec.id, field: `Plant ${slot}`, toId: plantAirtableId,
+            });
+          }
+          slotInputs.push({ slot, plantAirtableId, plantId });
         }
+        const { keptSlots, upserts } = buildPlantSlotSyncPlan(slotInputs);
         if (!dryRun) {
+          for (const { slot, plantId } of upserts) {
+            const quantity = typeof rec.fields[`# Plant ${slot}`] === 'number'
+              ? rec.fields[`# Plant ${slot}`]
+              : null;
+            await prisma.maintenanceRecordPlant.upsert({
+              where: {
+                maintenanceRecordId_slot: { maintenanceRecordId, slot },
+              },
+              create: { maintenanceRecordId, plantId, slot, quantity },
+              update: { plantId, quantity },
+            });
+          }
           await prisma.maintenanceRecordPlant.deleteMany({
             where: {
               maintenanceRecordId,

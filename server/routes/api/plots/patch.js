@@ -7,6 +7,8 @@ import {
   plotFieldsFromBody,
   PlotFieldsSchema,
   PlotSchema,
+  reloadPlotWithPhotos,
+  syncPlotPhotos,
 } from '#models/plot.js';
 
 export default async function (fastify, opts) {
@@ -28,9 +30,19 @@ export default async function (fastify, opts) {
     if (!existing) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }
-    const record = await fastify.prisma.plot.update({
-      where: { id: existing.id },
-      data: plotFieldsFromBody(request.body),
+    const data = plotFieldsFromBody(request.body);
+    const { Photos } = request.body;
+    const record = await fastify.prisma.$transaction(async (tx) => {
+      if (Object.keys(data).length) {
+        await tx.plot.update({
+          where: { id: existing.id },
+          data,
+        });
+      }
+      if (Photos !== undefined) {
+        await syncPlotPhotos(tx, existing.id, Photos);
+      }
+      return reloadPlotWithPhotos(tx, existing.id);
     });
     reply.send(formatPlot(record));
   });
