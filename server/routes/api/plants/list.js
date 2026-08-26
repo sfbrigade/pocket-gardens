@@ -30,7 +30,7 @@ export default async function (fastify, opts) {
 
     const records = await fastify.prisma.plant.findMany({
       include: PLANT_PHOTOS_INCLUDE,
-      orderBy: { airtableId: 'asc' },
+      orderBy: { id: 'asc' },
       skip,
       take: pageSize + 1,
     });

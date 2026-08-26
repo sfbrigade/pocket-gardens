@@ -2,7 +2,7 @@ import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
 import {
-  findPlantByPublicId,
+  findPlantById,
   formatPlant,
   plantFieldsFromBody,
   PlantFieldsSchema,
@@ -14,9 +14,9 @@ import {
 export default async function (fastify, opts) {
   fastify.patch('/:id', {
     schema: {
-      description: 'Updates a Plant by Airtable record id (or internal UUID).',
+      description: 'Updates a Plant by id.',
       params: z.object({
-        id: z.string().min(1),
+        id: z.string().uuid(),
       }),
       body: PlantFieldsSchema,
       response: {
@@ -26,7 +26,7 @@ export default async function (fastify, opts) {
       },
     },
   }, async function (request, reply) {
-    const existing = await findPlantByPublicId(fastify.prisma, request.params.id);
+    const existing = await findPlantById(fastify.prisma, request.params.id);
     if (!existing) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }
