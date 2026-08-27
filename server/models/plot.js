@@ -7,66 +7,95 @@ import PlotPhoto from '#models/plot-photo.js';
 export const DEFAULT_PAGE_SIZE = 25;
 
 export const PlotSchema = z.object({
-  id: z.string(),
-  createdTime: z.string(),
-  Latitude: z.number().optional().nullable(),
-  Longitude: z.number().optional().nullable(),
-  Status: z.string().optional().nullable(),
-  'Bed Type': z.string().optional().nullable(),
-  'Pocket Garden Name': z.string().optional().nullable(),
-  'Street Address': z.string().optional().nullable(),
-  'Map Coordinates': z.string().optional().nullable(),
-  Photos: z.array(z.string()).optional(),
-}).passthrough();
+  id: z.string().uuid(),
+  airtableId: z.string(),
+  createdAt: z.string(),
+  name: z.string().optional().nullable(),
+  status: z.string().optional().nullable(),
+  streetAddress: z.string().optional().nullable(),
+  streetCityAddress: z.string().optional().nullable(),
+  mapCoordinates: z.string().optional().nullable(),
+  latitude: z.number().optional().nullable(),
+  longitude: z.number().optional().nullable(),
+  bedType: z.string().optional().nullable(),
+  bedId: z.string().optional().nullable(),
+  soilType: z.string().optional().nullable(),
+  visitIntervalDays: z.number().int().optional().nullable(),
+  estAreaSqFt: z.number().optional().nullable(),
+  locationDescription: z.string().optional().nullable(),
+  sethsNotes: z.string().optional().nullable(),
+  alert: z.string().optional().nullable(),
+  nextVisit: z.string().optional().nullable(),
+  photos: z.array(z.string()).optional(),
+});
 
 export const PlotFieldsSchema = z.object({
-  Latitude: z.number().min(-90).max(90).optional(),
-  Longitude: z.number().min(-180).max(180).optional(),
-  Status: z.string().optional(),
-  'Bed Type': z.string().optional(),
-  'Pocket Garden Name': z.string().optional(),
-  'Street Address': z.string().optional(),
-  'Street City Address (for Maps)': z.string().optional(),
-  'Map Coordinates': z.string().optional(),
-  'Soil Type': z.string().optional(),
-  'Bed ID': z.string().optional(),
-  'Visit Interval (Days)': z.number().int().optional(),
-  'Est. Area (Sq. Ft)': z.number().optional(),
-  'Location Description': z.string().optional(),
-  "Seth's Notes": z.string().optional(),
-  Photos: z.array(z.string()).optional(),
-}).passthrough();
+  name: z.string().optional(),
+  status: z.string().optional(),
+  streetAddress: z.string().optional(),
+  streetCityAddress: z.string().optional(),
+  mapCoordinates: z.string().optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  bedType: z.string().optional(),
+  bedId: z.string().optional(),
+  soilType: z.string().optional(),
+  visitIntervalDays: z.number().int().optional(),
+  estAreaSqFt: z.number().optional(),
+  locationDescription: z.string().optional(),
+  sethsNotes: z.string().optional(),
+  photos: z.array(z.string()).optional(),
+});
+
+const PLOT_BODY_FIELDS = [
+  'name',
+  'status',
+  'streetAddress',
+  'streetCityAddress',
+  'mapCoordinates',
+  'latitude',
+  'longitude',
+  'bedType',
+  'bedId',
+  'soilType',
+  'visitIntervalDays',
+  'estAreaSqFt',
+  'locationDescription',
+  'sethsNotes',
+];
+
+function isoDate (value) {
+  if (value instanceof Date) return value.toISOString();
+  return value ?? undefined;
+}
 
 /**
  * Format a Prisma Plot row for the public API.
- * `id` remains the Airtable record id for transition compatibility.
- * API-created plots use a synthetic `pg_<uuid>` airtableId.
+ * Omits internal FKs/cache fields and turns photo rows into asset URLs.
  */
 export function formatPlot (plot) {
   if (!plot) return plot;
-  const createdTime = plot.createdAt instanceof Date
-    ? plot.createdAt.toISOString()
-    : (plot.createdTime || plot.createdAt);
   return {
-    id: plot.airtableId || plot.id,
-    createdTime,
-    Latitude: plot.latitude ?? undefined,
-    Longitude: plot.longitude ?? undefined,
-    Status: plot.status ?? undefined,
-    'Bed Type': plot.bedType ?? undefined,
-    'Pocket Garden Name': plot.name ?? undefined,
-    'Street Address': plot.streetAddress ?? undefined,
-    'Street City Address (for Maps)': plot.streetCityAddress ?? undefined,
-    'Map Coordinates': plot.mapCoordinates ?? undefined,
-    'Soil Type': plot.soilType ?? undefined,
-    'Bed ID': plot.bedId ?? undefined,
-    'Visit Interval (Days)': plot.visitIntervalDays ?? undefined,
-    'Est. Area (Sq. Ft)': plot.estAreaSqFt ?? undefined,
-    'Location Description': plot.locationDescription ?? undefined,
-    "Seth's Notes": plot.sethsNotes ?? undefined,
-    Alert: plot.alert ?? undefined,
-    'Next Visit': plot.nextVisit ?? undefined,
-    Photos: formatPlotPhotos(plot.photos),
+    id: plot.id,
+    airtableId: plot.airtableId,
+    createdAt: isoDate(plot.createdAt),
+    name: plot.name,
+    status: plot.status,
+    streetAddress: plot.streetAddress,
+    streetCityAddress: plot.streetCityAddress,
+    mapCoordinates: plot.mapCoordinates,
+    latitude: plot.latitude,
+    longitude: plot.longitude,
+    bedType: plot.bedType,
+    bedId: plot.bedId,
+    soilType: plot.soilType,
+    visitIntervalDays: plot.visitIntervalDays,
+    estAreaSqFt: plot.estAreaSqFt,
+    locationDescription: plot.locationDescription,
+    sethsNotes: plot.sethsNotes,
+    alert: plot.alert,
+    nextVisit: plot.nextVisit,
+    photos: formatPlotPhotos(plot.photos),
   };
 }
 
@@ -108,7 +137,7 @@ export function isUuid (value) {
 }
 
 /**
- * Look up a Plot by public id (Airtable record id or internal UUID).
+ * Look up a Plot by public id (UUID or legacy Airtable record id).
  */
 export function findPlotByPublicId (prisma, id) {
   return prisma.plot.findFirst({
@@ -123,29 +152,19 @@ export function findPlotByPublicId (prisma, id) {
 }
 
 /**
- * Map Airtable-shaped request body fields onto Prisma Plot columns.
+ * Pick writable Plot columns from a request body.
+ * Derives lat/lng from mapCoordinates (and the reverse) when only one side is sent.
  */
 export function plotFieldsFromBody (body = {}) {
   const data = {};
-  if (body.Status !== undefined) data.status = body.Status;
-  if (body['Bed Type'] !== undefined) data.bedType = body['Bed Type'];
-  if (body['Pocket Garden Name'] !== undefined) data.name = body['Pocket Garden Name'];
-  if (body['Street Address'] !== undefined) data.streetAddress = body['Street Address'];
-  if (body['Street City Address (for Maps)'] !== undefined) {
-    data.streetCityAddress = body['Street City Address (for Maps)'];
+  for (const key of PLOT_BODY_FIELDS) {
+    if (body[key] !== undefined) data[key] = body[key];
   }
-  if (body['Map Coordinates'] !== undefined) data.mapCoordinates = body['Map Coordinates'];
-  if (body['Soil Type'] !== undefined) data.soilType = body['Soil Type'];
-  if (body['Bed ID'] !== undefined) data.bedId = body['Bed ID'];
-  if (body['Visit Interval (Days)'] !== undefined) data.visitIntervalDays = body['Visit Interval (Days)'];
-  if (body['Est. Area (Sq. Ft)'] !== undefined) data.estAreaSqFt = body['Est. Area (Sq. Ft)'];
-  if (body['Location Description'] !== undefined) data.locationDescription = body['Location Description'];
-  if (body["Seth's Notes"] !== undefined) data.sethsNotes = body["Seth's Notes"];
 
-  let latitude = body.Latitude;
-  let longitude = body.Longitude;
-  if ((latitude === undefined || longitude === undefined) && body['Map Coordinates']) {
-    const parsed = parseMapCoordinates(body['Map Coordinates']);
+  let latitude = data.latitude;
+  let longitude = data.longitude;
+  if ((latitude === undefined || longitude === undefined) && data.mapCoordinates) {
+    const parsed = parseMapCoordinates(data.mapCoordinates);
     // Only apply parsed coords when both parse successfully; never write null from a bad string.
     if (parsed.latitude != null && parsed.longitude != null) {
       if (latitude === undefined) latitude = parsed.latitude;

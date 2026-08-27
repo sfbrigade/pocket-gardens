@@ -6,7 +6,7 @@ import { findPlotByPublicId, formatPlot, PlotSchema } from '#models/plot.js';
 export default async function (fastify, opts) {
   fastify.get('/:id', {
     schema: {
-      description: 'Returns a Plot by Airtable record id (or internal UUID).',
+      description: 'Returns a Plot by UUID (or legacy Airtable record id).',
       params: z.object({
         id: z.string().min(1),
       }),

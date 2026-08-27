@@ -14,7 +14,7 @@ import {
 export default async function (fastify, opts) {
   fastify.patch('/:id', {
     schema: {
-      description: 'Updates a Plot by Airtable record id (or internal UUID).',
+      description: 'Updates a Plot by UUID (or legacy Airtable record id).',
       params: z.object({
         id: z.string().min(1),
       }),
@@ -31,7 +31,7 @@ export default async function (fastify, opts) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }
     const data = plotFieldsFromBody(request.body);
-    const { Photos } = request.body;
+    const { photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
       if (Object.keys(data).length) {
         await tx.plot.update({
@@ -39,8 +39,8 @@ export default async function (fastify, opts) {
           data,
         });
       }
-      if (Photos !== undefined) {
-        await syncPlotPhotos(tx, existing.id, Photos);
+      if (photos !== undefined) {
+        await syncPlotPhotos(tx, existing.id, photos);
       }
       return reloadPlotWithPhotos(tx, existing.id);
     });
