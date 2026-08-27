@@ -31,7 +31,7 @@ test('parseAirtableDate handles ISO and US formats', () => {
   assert.strictEqual(parseAirtableDate(null), null);
 });
 
-test('formatPlot exposes Airtable id, coords, and Photos from related rows', () => {
+test('formatPlot uses prisma fields and photo URLs', () => {
   const formatted = formatPlot({
     id: '11111111-1111-4111-8111-111111111111',
     airtableId: 'recPlotAlpha',
@@ -46,32 +46,33 @@ test('formatPlot exposes Airtable id, coords, and Photos from related rows', () 
       { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', file: 'b.jpg', position: 1 },
     ],
   });
-  assert.strictEqual(formatted.id, 'recPlotAlpha');
-  assert.strictEqual(formatted.Latitude, 37.78);
-  assert.strictEqual(formatted.Longitude, -122.42);
-  assert.strictEqual(formatted.Status, 'Planted');
-  assert.strictEqual(formatted['Bed Type'], 'Tree Well');
-  assert.strictEqual(formatted.Photo, undefined);
-  assert.deepStrictEqual(formatted.Photos, [
+  assert.strictEqual(formatted.id, '11111111-1111-4111-8111-111111111111');
+  assert.strictEqual(formatted.airtableId, 'recPlotAlpha');
+  assert.strictEqual(formatted.createdAt, '2023-01-01T12:00:00.000Z');
+  assert.strictEqual(formatted.latitude, 37.78);
+  assert.strictEqual(formatted.longitude, -122.42);
+  assert.strictEqual(formatted.status, 'Planted');
+  assert.strictEqual(formatted.bedType, 'Tree Well');
+  assert.deepStrictEqual(formatted.photos, [
     '/api/assets/plot_photos/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/file/a.jpg',
     '/api/assets/plot_photos/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/file/b.jpg',
   ]);
 });
 
-test('plotFieldsFromBody derives coordinates from Map Coordinates', () => {
+test('plotFieldsFromBody derives coordinates from mapCoordinates', () => {
   const data = plotFieldsFromBody({
-    Status: 'Planted',
-    'Map Coordinates': '37.5, -122.5',
+    status: 'Planted',
+    mapCoordinates: '37.5, -122.5',
   });
   assert.strictEqual(data.status, 'Planted');
   assert.strictEqual(data.latitude, 37.5);
   assert.strictEqual(data.longitude, -122.5);
 });
 
-test('plotFieldsFromBody ignores unparseable Map Coordinates for lat/lng', () => {
+test('plotFieldsFromBody ignores unparseable mapCoordinates for lat/lng', () => {
   const data = plotFieldsFromBody({
-    Status: 'Planted',
-    'Map Coordinates': 'not a coord',
+    status: 'Planted',
+    mapCoordinates: 'not a coord',
   });
   assert.strictEqual(data.status, 'Planted');
   assert.strictEqual(data.mapCoordinates, 'not a coord');
