@@ -8,13 +8,12 @@ const LeafletContainer = lazy(() => import('./Components/LeafletContainer'));
 
 function Home () {
   const { isPending, error, data } = useQuery({
+    queryKey: ['plots'],
     queryFn: () => fetch('/api/plots').then((res) => res.json())
   })
 
   if (isPending) return 'Loading...'
-  console.log("hello")
   if (error) return 'An error has occurred: ' + error.message
-
   console.log(data)
 
   return (
@@ -27,7 +26,8 @@ function Home () {
         <div style={{ height: 'calc(100dvh - 60px)', minHeight: 400, width: '100%', overflow: 'hidden', position: 'relative', zIndex: 0 }}>
           <Suspense fallback={<div>Loading map...</div>}>
             <LeafletContainer 
-            center={{ coord: [37.7749, -122.4194] }} />
+            center={{ coord: [37.7749, -122.4194] }}
+            coordinateArray={data} />
           </Suspense>
         </div>
       </Container>
