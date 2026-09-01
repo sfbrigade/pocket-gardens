@@ -62,7 +62,7 @@ test('/api/plants', async (t) => {
 
   await t.test('GET /:id returns 404 when missing', async () => {
     const response = await app.inject({
-      url: '/api/plants/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+      url: '/api/plants/00000000-0000-4000-8000-000000000000',
     });
     assert.strictEqual(response.statusCode, StatusCodes.NOT_FOUND);
   });
