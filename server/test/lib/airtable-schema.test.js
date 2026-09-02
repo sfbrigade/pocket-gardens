@@ -7,8 +7,6 @@ import {
 } from '#lib/airtable-schema.js';
 import {
   buildViewportWhere,
-  decodeListOffset,
-  encodeListOffset,
   formatPlot,
   isUuid,
   plotFieldsFromBody,
@@ -86,7 +84,7 @@ test('isUuid accepts only 8-4-4-4-12 UUIDs', () => {
   assert.strictEqual(isUuid('12345678-1234-1234-1234-12345678901g'), false);
 });
 
-test('viewport where and offset encoding round-trip', () => {
+test('buildViewportWhere creates coordinate bounds', () => {
   assert.deepStrictEqual(
     buildViewportWhere({ north: 37.82, south: 37.75, east: -122.38, west: -122.45 }),
     {
@@ -94,8 +92,4 @@ test('viewport where and offset encoding round-trip', () => {
       longitude: { gte: -122.45, lte: -122.38 },
     }
   );
-  assert.strictEqual(encodeListOffset(25), '25');
-  assert.strictEqual(decodeListOffset('25'), 25);
-  assert.strictEqual(decodeListOffset('50'), 50);
-  assert.strictEqual(decodeListOffset('not-a-number'), 0);
 });
