@@ -22,7 +22,7 @@ export default async function (fastify, opts) {
     },
   }, async function (request, reply) {
     const fields = plantFieldsFromBody(request.body);
-    const { Photos } = request.body;
+    const { photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
       const created = await tx.plant.create({
         data: {
@@ -30,8 +30,8 @@ export default async function (fastify, opts) {
           ...fields,
         },
       });
-      if (Photos !== undefined) {
-        await syncPlantPhotos(tx, created.id, Photos);
+      if (photos !== undefined) {
+        await syncPlantPhotos(tx, created.id, photos);
       }
       return findPlantById(tx, created.id);
     });

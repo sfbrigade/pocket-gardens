@@ -18,7 +18,7 @@ test('/api/plants', async (t) => {
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.length, 3);
     assert.strictEqual(data[0].id, PLANT_ALPHA_ID);
-    assert.strictEqual(data[0]['Plant Name'], 'California Poppy');
+    assert.strictEqual(data[0].plantName, 'California Poppy');
   });
 
   await t.test('GET / paginates with X-Next-Offset', async () => {
@@ -58,10 +58,10 @@ test('/api/plants', async (t) => {
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.id, PLANT_ALPHA_ID);
-    assert.strictEqual(data['Plant Name'], 'California Poppy');
-    assert.strictEqual(data.Locations, 'Bed A');
-    assert.strictEqual(data['Number Planted'], 12);
-    assert.deepStrictEqual(data.Photos, [{
+    assert.strictEqual(data.plantName, 'California Poppy');
+    assert.strictEqual(data.locations, 'Bed A');
+    assert.strictEqual(data.numberPlanted, 12);
+    assert.deepStrictEqual(data.photos, [{
       id: photo.id,
       url: `/api/assets/plant_photos/${photo.id}/file/a.jpg`,
     }]);
@@ -84,18 +84,18 @@ test('/api/plants', async (t) => {
       method: 'POST',
       url: '/api/plants',
       payload: {
-        'Plant Name': 'Rosemary',
-        'Latin Name': 'Salvia rosmarinus',
-        Locations: 'Bed D',
-        'Number Planted': 3,
+        plantName: 'Rosemary',
+        latinName: 'Salvia rosmarinus',
+        locations: 'Bed D',
+        numberPlanted: 3,
       },
     });
     assert.strictEqual(response.statusCode, StatusCodes.CREATED);
     const data = JSON.parse(response.payload);
-    assert.strictEqual(data['Plant Name'], 'Rosemary');
-    assert.strictEqual(data.Locations, 'Bed D');
-    assert.strictEqual(data['Number Planted'], 3);
-    assert.deepStrictEqual(data.Photos, []);
+    assert.strictEqual(data.plantName, 'Rosemary');
+    assert.strictEqual(data.locations, 'Bed D');
+    assert.strictEqual(data.numberPlanted, 3);
+    assert.deepStrictEqual(data.photos, []);
 
     const row = await prisma.plant.findUnique({ where: { id: data.id } });
     assert.ok(row);
@@ -106,14 +106,14 @@ test('/api/plants', async (t) => {
   await t.test('POST / rejects invalid plant bodies', async () => {
     const invalidPayloads = [
       {},
-      { 'Plant Name': '   ' },
-      { 'Plant Name': 'Rosemary', 'Number Planted': -1 },
-      { 'Plant Name': 'Rosemary', Unknown: true },
-      { 'Plant Name': 'Rosemary', Photos: [{ id: PLANT_ALPHA_ID }] },
-      { 'Plant Name': 'Rosemary', Photos: [{ upload: '../photo.jpg' }] },
+      { plantName: '   ' },
+      { plantName: 'Rosemary', numberPlanted: -1 },
+      { plantName: 'Rosemary', Unknown: true },
+      { plantName: 'Rosemary', photos: [{ id: PLANT_ALPHA_ID }] },
+      { plantName: 'Rosemary', photos: [{ upload: '../photo.jpg' }] },
       {
-        'Plant Name': 'Rosemary',
-        Photos: [
+        plantName: 'Rosemary',
+        photos: [
           { upload: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg' },
           { upload: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg' },
         ],
@@ -126,20 +126,20 @@ test('/api/plants', async (t) => {
     }
   });
 
-  await t.test('PATCH /:id updates Locations and other fields', async () => {
+  await t.test('PATCH /:id updates locations and other fields', async () => {
     const response = await app.inject({
       method: 'PATCH',
       url: `/api/plants/${PLANT_BETA_ID}`,
       payload: {
-        Locations: 'Bed A, Bed B',
-        'Common Name': 'True Lavender',
+        locations: 'Bed A, Bed B',
+        commonName: 'True Lavender',
       },
     });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.id, PLANT_BETA_ID);
-    assert.strictEqual(data.Locations, 'Bed A, Bed B');
-    assert.strictEqual(data['Common Name'], 'True Lavender');
+    assert.strictEqual(data.locations, 'Bed A, Bed B');
+    assert.strictEqual(data.commonName, 'True Lavender');
 
     const row = await prisma.plant.findUnique({ where: { id: PLANT_BETA_ID } });
     assert.strictEqual(row.locations, 'Bed A, Bed B');
@@ -150,7 +150,7 @@ test('/api/plants', async (t) => {
     const cleared = await app.inject({
       method: 'PATCH',
       url: `/api/plants/${PLANT_BETA_ID}`,
-      payload: { 'Common Name': null, 'Number Planted': null },
+      payload: { commonName: null, numberPlanted: null },
     });
     assert.strictEqual(cleared.statusCode, StatusCodes.OK);
     const row = await prisma.plant.findUnique({ where: { id: PLANT_BETA_ID } });
@@ -160,8 +160,8 @@ test('/api/plants', async (t) => {
     for (const payload of [
       {},
       { Unknown: true },
-      { 'Number Planted': -1 },
-      { Photos: [{ id: PLANT_ALPHA_ID }, { id: PLANT_ALPHA_ID }] },
+      { numberPlanted: -1 },
+      { photos: [{ id: PLANT_ALPHA_ID }, { id: PLANT_ALPHA_ID }] },
     ]) {
       const response = await app.inject({
         method: 'PATCH',
@@ -180,14 +180,14 @@ test('/api/plants', async (t) => {
       method: 'POST',
       url: '/api/plants',
       payload: {
-        'Plant Name': 'Photo Plant',
-        Photos: [{ upload: filename }],
+        plantName: 'Photo Plant',
+        photos: [{ upload: filename }],
       },
     });
     assert.strictEqual(response.statusCode, StatusCodes.CREATED);
     const data = JSON.parse(response.payload);
-    assert.strictEqual(data.Photos.length, 1);
-    assert.match(data.Photos[0].url, /^\/api\/assets\/plant_photos\/.+\/file\/56826175-033e-4a89-8d51-8d7f602e01d9\.jpg$/);
+    assert.strictEqual(data.photos.length, 1);
+    assert.match(data.photos[0].url, /^\/api\/assets\/plant_photos\/.+\/file\/56826175-033e-4a89-8d51-8d7f602e01d9\.jpg$/);
 
     const row = await prisma.plant.findUnique({
       where: { id: data.id },
@@ -205,14 +205,14 @@ test('/api/plants', async (t) => {
       method: 'PATCH',
       url: `/api/plants/${PLANT_ALPHA_ID}`,
       payload: {
-        Photos: [{ upload: filename }],
+        photos: [{ upload: filename }],
       },
     });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.id, PLANT_ALPHA_ID);
-    assert.strictEqual(data.Photos.length, 1);
-    assert.match(data.Photos[0].url, new RegExp(`/file/${filename}$`));
+    assert.strictEqual(data.photos.length, 1);
+    assert.match(data.photos[0].url, new RegExp(`/file/${filename}$`));
 
     const row = await prisma.plant.findUnique({
       where: { id: PLANT_ALPHA_ID },
@@ -236,8 +236,8 @@ test('/api/plants', async (t) => {
       method: 'POST',
       url: '/api/plants',
       payload: {
-        'Plant Name': 'Gallery Plant',
-        Photos: [{ upload: first }, { upload: second }],
+        plantName: 'Gallery Plant',
+        photos: [{ upload: first }, { upload: second }],
       },
     });
     assert.strictEqual(created.statusCode, StatusCodes.CREATED);
@@ -247,29 +247,29 @@ test('/api/plants', async (t) => {
       method: 'PATCH',
       url: `/api/plants/${original.id}`,
       payload: {
-        Photos: [{ id: original.Photos[1].id }, { upload: third }],
+        photos: [{ id: original.photos[1].id }, { upload: third }],
       },
     });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
-    assert.strictEqual(data.Photos[0].id, original.Photos[1].id);
-    assert.notStrictEqual(data.Photos[1].id, original.Photos[0].id);
-    assert.notStrictEqual(data.Photos[1].id, original.Photos[1].id);
-    assert.match(data.Photos[1].url, new RegExp(`/file/${third}$`));
+    assert.strictEqual(data.photos[0].id, original.photos[1].id);
+    assert.notStrictEqual(data.photos[1].id, original.photos[0].id);
+    assert.notStrictEqual(data.photos[1].id, original.photos[1].id);
+    assert.match(data.photos[1].url, new RegExp(`/file/${third}$`));
     assert.strictEqual(await assetExists(path.join(
-      'plant_photos', original.Photos[0].id, 'file', first
+      'plant_photos', original.photos[0].id, 'file', first
     )), false);
     assert.ok(await assetExists(path.join(
-      'plant_photos', original.Photos[1].id, 'file', second
+      'plant_photos', original.photos[1].id, 'file', second
     )));
 
     const cleared = await app.inject({
       method: 'PATCH',
       url: `/api/plants/${original.id}`,
-      payload: { Photos: [] },
+      payload: { photos: [] },
     });
     assert.strictEqual(cleared.statusCode, StatusCodes.OK);
-    assert.deepStrictEqual(JSON.parse(cleared.payload).Photos, []);
+    assert.deepStrictEqual(JSON.parse(cleared.payload).photos, []);
   });
 
   await t.test('PATCH /:id rejects a photo owned by another plant', async () => {
@@ -279,11 +279,11 @@ test('/api/plants', async (t) => {
     const response = await app.inject({
       method: 'PATCH',
       url: `/api/plants/${PLANT_BETA_ID}`,
-      payload: { Photos: [{ id: photo.id }] },
+      payload: { photos: [{ id: photo.id }] },
     });
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
     assert.deepStrictEqual(JSON.parse(response.payload).errors, [{
-      path: 'Photos',
+      path: 'photos',
       message: 'Photo does not belong to this plant',
     }]);
   });

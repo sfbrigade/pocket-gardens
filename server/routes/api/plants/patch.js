@@ -14,7 +14,7 @@ import {
 function invalidPhotosError () {
   const error = errorCodes.FST_ERR_VALIDATION();
   error.validation = [{
-    params: { issue: { path: ['Photos'], message: 'Photo does not belong to this plant' } },
+    params: { issue: { path: ['photos'], message: 'Photo does not belong to this plant' } },
   }];
   return error;
 }
@@ -39,9 +39,9 @@ export default async function (fastify, opts) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }
     const data = plantFieldsFromBody(request.body);
-    const { Photos } = request.body;
+    const { photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
-      const photoIds = Photos?.flatMap((photo) => photo.id ? [photo.id] : []) ?? [];
+      const photoIds = photos?.flatMap((photo) => photo.id ? [photo.id] : []) ?? [];
       if (photoIds.length && await tx.plantPhoto.count({
         where: { plantId: existing.id, id: { in: photoIds } },
       }) !== photoIds.length) {
@@ -53,8 +53,8 @@ export default async function (fastify, opts) {
           data,
         });
       }
-      if (Photos !== undefined) {
-        await syncPlantPhotos(tx, existing.id, Photos);
+      if (photos !== undefined) {
+        await syncPlantPhotos(tx, existing.id, photos);
       }
       return findPlantById(tx, existing.id);
     });

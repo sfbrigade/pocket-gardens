@@ -31,54 +31,66 @@ export const PlantPhotoSchema = z.strictObject({
 
 export const PlantSchema = z.object({
   id: z.string().uuid(),
-  createdTime: z.string(),
-  'Plant Name': z.string().optional().nullable(),
-  'Latin Name': z.string().optional().nullable(),
-  'Common Name': z.string().optional().nullable(),
-  Locations: z.string().optional().nullable(),
-  'Number Planted': z.number().int().optional().nullable(),
-  Photos: z.array(PlantPhotoSchema),
+  airtableId: z.string(),
+  createdAt: z.string(),
+  plantName: z.string().optional().nullable(),
+  latinName: z.string().optional().nullable(),
+  commonName: z.string().optional().nullable(),
+  locations: z.string().optional().nullable(),
+  numberPlanted: z.number().int().optional().nullable(),
+  photos: z.array(PlantPhotoSchema),
 });
 
 export const PlantCreateFieldsSchema = z.strictObject({
-  'Plant Name': NameSchema,
-  'Latin Name': NameSchema.optional(),
-  'Common Name': NameSchema.optional(),
-  Locations: NameSchema.optional(),
-  'Number Planted': z.number().int().nonnegative().optional(),
-  Photos: uniquePhotos(NewPhotoSchema).optional(),
+  plantName: NameSchema,
+  latinName: NameSchema.optional(),
+  commonName: NameSchema.optional(),
+  locations: NameSchema.optional(),
+  numberPlanted: z.number().int().nonnegative().optional(),
+  photos: uniquePhotos(NewPhotoSchema).optional(),
 });
 
 export const PlantUpdateFieldsSchema = z.strictObject({
-  'Plant Name': NameSchema.nullable().optional(),
-  'Latin Name': NameSchema.nullable().optional(),
-  'Common Name': NameSchema.nullable().optional(),
-  Locations: NameSchema.nullable().optional(),
-  'Number Planted': z.number().int().nonnegative().nullable().optional(),
-  Photos: uniquePhotos(z.union([ExistingPhotoSchema, NewPhotoSchema])).optional(),
+  plantName: NameSchema.nullable().optional(),
+  latinName: NameSchema.nullable().optional(),
+  commonName: NameSchema.nullable().optional(),
+  locations: NameSchema.nullable().optional(),
+  numberPlanted: z.number().int().nonnegative().nullable().optional(),
+  photos: uniquePhotos(z.union([ExistingPhotoSchema, NewPhotoSchema])).optional(),
 }).refine((body) => Object.keys(body).length > 0, {
   message: 'At least one field is required',
   path: ['body'],
 });
 
+const PLANT_BODY_FIELDS = [
+  'plantName',
+  'latinName',
+  'commonName',
+  'locations',
+  'numberPlanted',
+];
+
+function isoDate (value) {
+  if (value instanceof Date) return value.toISOString();
+  return value ?? undefined;
+}
+
 /**
  * Format a Prisma Plant row for the public API.
- * Public `id` is the Postgres UUID.
+ * Omits internal FKs/cache fields and turns photo rows into asset URLs.
  */
 export function formatPlant (plant) {
   if (!plant) return plant;
-  const createdTime = plant.createdAt instanceof Date
-    ? plant.createdAt.toISOString()
-    : (plant.createdTime || plant.createdAt);
   return {
     id: plant.id,
-    createdTime,
-    'Plant Name': plant.plantName ?? undefined,
-    'Latin Name': plant.latinName ?? undefined,
-    'Common Name': plant.commonName ?? undefined,
-    Locations: plant.locations ?? undefined,
-    'Number Planted': plant.numberPlanted ?? undefined,
-    Photos: formatPlantPhotos(plant.photos),
+    airtableId: plant.airtableId,
+    createdAt: isoDate(plant.createdAt),
+    plantName: plant.plantName,
+    latinName: plant.latinName,
+    commonName: plant.commonName,
+    locations: plant.locations,
+    numberPlanted: plant.numberPlanted,
+    photos: formatPlantPhotos(plant.photos),
   };
 }
 
@@ -119,14 +131,12 @@ export function findPlantById (prisma, id) {
 }
 
 /**
- * Map request body fields onto Prisma Plant columns.
+ * Pick writable Plant columns from a request body.
  */
 export function plantFieldsFromBody (body = {}) {
   const data = {};
-  if (body['Plant Name'] !== undefined) data.plantName = body['Plant Name'];
-  if (body['Latin Name'] !== undefined) data.latinName = body['Latin Name'];
-  if (body['Common Name'] !== undefined) data.commonName = body['Common Name'];
-  if (body.Locations !== undefined) data.locations = body.Locations;
-  if (body['Number Planted'] !== undefined) data.numberPlanted = body['Number Planted'];
+  for (const key of PLANT_BODY_FIELDS) {
+    if (body[key] !== undefined) data[key] = body[key];
+  }
   return data;
 }
