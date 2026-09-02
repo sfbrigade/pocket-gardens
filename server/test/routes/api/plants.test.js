@@ -4,7 +4,6 @@ import { StatusCodes } from 'http-status-codes';
 import path from 'path';
 
 import { assetExists, build, upload } from '#test/helper.js';
-import { DEFAULT_PAGE_SIZE, isUuid } from '#models/plant.js';
 
 const PLANT_ALPHA_ID = 'a1111111-1111-4111-8111-111111111111';
 const PLANT_BETA_ID = 'a2222222-2222-4222-8222-222222222222';
@@ -37,7 +36,14 @@ test('/api/plants', async (t) => {
     const data2 = JSON.parse(page2.payload);
     assert.strictEqual(data2.length, 1);
     assert.notStrictEqual(data2[0].id, data[0].id);
-    assert.ok(DEFAULT_PAGE_SIZE >= 1);
+  });
+
+  await t.test('GET / rejects invalid pagination', async () => {
+    for (const query of ['pageSize=1.5', 'pageSize=-1', 'offset=-1', 'offset=nope']) {
+      const response = await app.inject({ url: `/api/plants?${query}` });
+      assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+      assert.ok(JSON.parse(response.payload).errors.length);
+    }
   });
 
   await t.test('GET /:id returns a plant by id', async () => {
