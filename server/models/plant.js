@@ -2,14 +2,32 @@ import { z } from 'zod';
 
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import PlantPhoto from '#models/plant-photo.js';
-import {
-  decodeListOffset,
-  DEFAULT_PAGE_SIZE,
-  encodeListOffset,
-  isUuid,
-} from '#models/plot.js';
 
-export { decodeListOffset, DEFAULT_PAGE_SIZE, encodeListOffset, isUuid };
+const NameSchema = z.string().trim().min(1);
+const UploadSchema = z.string().regex(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i,
+  'Invalid upload filename'
+);
+const NewPhotoSchema = z.strictObject({ upload: UploadSchema });
+const ExistingPhotoSchema = z.strictObject({ id: z.string().uuid() });
+
+function uniquePhotos (schema) {
+  return z.array(schema).superRefine((photos, ctx) => {
+    const seen = new Set();
+    photos.forEach((photo, index) => {
+      const key = photo.id ?? photo.upload;
+      if (seen.has(key)) {
+        ctx.addIssue({ code: 'custom', message: 'Duplicate photo', path: [index] });
+      }
+      seen.add(key);
+    });
+  });
+}
+
+export const PlantPhotoSchema = z.strictObject({
+  id: z.string().uuid(),
+  url: z.string(),
+});
 
 export const PlantSchema = z.object({
   id: z.string().uuid(),
@@ -19,17 +37,29 @@ export const PlantSchema = z.object({
   'Common Name': z.string().optional().nullable(),
   Locations: z.string().optional().nullable(),
   'Number Planted': z.number().int().optional().nullable(),
-  Photos: z.array(z.string()).optional(),
-}).passthrough();
+  Photos: z.array(PlantPhotoSchema),
+});
 
-export const PlantFieldsSchema = z.object({
-  'Plant Name': z.string().optional(),
-  'Latin Name': z.string().optional(),
-  'Common Name': z.string().optional(),
-  Locations: z.string().optional(),
-  'Number Planted': z.number().int().optional(),
-  Photos: z.array(z.string()).optional(),
-}).passthrough();
+export const PlantCreateFieldsSchema = z.strictObject({
+  'Plant Name': NameSchema,
+  'Latin Name': NameSchema.optional(),
+  'Common Name': NameSchema.optional(),
+  Locations: NameSchema.optional(),
+  'Number Planted': z.number().int().nonnegative().optional(),
+  Photos: uniquePhotos(NewPhotoSchema).optional(),
+});
+
+export const PlantUpdateFieldsSchema = z.strictObject({
+  'Plant Name': NameSchema.nullable().optional(),
+  'Latin Name': NameSchema.nullable().optional(),
+  'Common Name': NameSchema.nullable().optional(),
+  Locations: NameSchema.nullable().optional(),
+  'Number Planted': z.number().int().nonnegative().nullable().optional(),
+  Photos: uniquePhotos(z.union([ExistingPhotoSchema, NewPhotoSchema])).optional(),
+}).refine((body) => Object.keys(body).length > 0, {
+  message: 'At least one field is required',
+  path: ['body'],
+});
 
 /**
  * Format a Prisma Plant row for the public API.
@@ -57,37 +87,31 @@ export const PLANT_PHOTOS_INCLUDE = {
 };
 
 function formatPlantPhotos (photos) {
-  if (!Array.isArray(photos) || photos.length === 0) return undefined;
-  const urls = photos.map((row) => new PlantPhoto(row).fileUrl).filter(Boolean);
-  return urls.length ? urls : undefined;
+  if (!Array.isArray(photos)) return [];
+  return photos.flatMap((row) => {
+    const url = new PlantPhoto(row).fileUrl;
+    return url ? [{ id: row.id, url }] : [];
+  });
 }
 
 /**
- * Persist a Photos filename list with setAsset, then reload the plant with photos.
+ * Persist an ordered list of retained photo ids and new upload tokens.
  */
-export async function syncPlantPhotos (tx, plantId, filenames) {
+export async function syncPlantPhotos (tx, plantId, photos) {
   const handlers = await syncPhotos({
     delegate: tx.plantPhoto,
     PhotoClass: PlantPhoto,
     parentFk: 'plantId',
     parentId: plantId,
-    filenames,
+    photos,
   });
   await runPhotoHandlers(handlers);
-}
-
-export function reloadPlantWithPhotos (tx, id) {
-  return tx.plant.findUnique({
-    where: { id },
-    include: PLANT_PHOTOS_INCLUDE,
-  });
 }
 
 /**
  * Look up a Plant by Postgres UUID.
  */
 export function findPlantById (prisma, id) {
-  if (!isUuid(id)) return null;
   return prisma.plant.findUnique({
     where: { id },
     include: PLANT_PHOTOS_INCLUDE,
@@ -106,18 +130,3 @@ export function plantFieldsFromBody (body = {}) {
   if (body['Number Planted'] !== undefined) data.numberPlanted = body['Number Planted'];
   return data;
 }
-
-export default {
-  PlantSchema,
-  PlantFieldsSchema,
-  formatPlant,
-  findPlantById,
-  plantFieldsFromBody,
-  PLANT_PHOTOS_INCLUDE,
-  syncPlantPhotos,
-  reloadPlantWithPhotos,
-  DEFAULT_PAGE_SIZE,
-  encodeListOffset,
-  decodeListOffset,
-  isUuid,
-};

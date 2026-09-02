@@ -1,3 +1,4 @@
+import { errorCodes } from 'fastify';
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
@@ -5,11 +6,18 @@ import {
   findPlantById,
   formatPlant,
   plantFieldsFromBody,
-  PlantFieldsSchema,
+  PlantUpdateFieldsSchema,
   PlantSchema,
-  reloadPlantWithPhotos,
   syncPlantPhotos,
 } from '#models/plant.js';
+
+function invalidPhotosError () {
+  const error = errorCodes.FST_ERR_VALIDATION();
+  error.validation = [{
+    params: { issue: { path: ['Photos'], message: 'Photo does not belong to this plant' } },
+  }];
+  return error;
+}
 
 export default async function (fastify, opts) {
   fastify.patch('/:id', {
@@ -18,11 +26,11 @@ export default async function (fastify, opts) {
       params: z.object({
         id: z.string().uuid(),
       }),
-      body: PlantFieldsSchema,
+      body: PlantUpdateFieldsSchema,
       response: {
         [StatusCodes.OK]: PlantSchema,
         [StatusCodes.NOT_FOUND]: z.null(),
-        [StatusCodes.UNPROCESSABLE_ENTITY]: z.null(),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: fastify.ValidationErrorSchema,
       },
     },
   }, async function (request, reply) {
@@ -33,6 +41,12 @@ export default async function (fastify, opts) {
     const data = plantFieldsFromBody(request.body);
     const { Photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
+      const photoIds = Photos?.flatMap((photo) => photo.id ? [photo.id] : []) ?? [];
+      if (photoIds.length && await tx.plantPhoto.count({
+        where: { plantId: existing.id, id: { in: photoIds } },
+      }) !== photoIds.length) {
+        throw invalidPhotosError();
+      }
       if (Object.keys(data).length) {
         await tx.plant.update({
           where: { id: existing.id },
@@ -42,7 +56,7 @@ export default async function (fastify, opts) {
       if (Photos !== undefined) {
         await syncPlantPhotos(tx, existing.id, Photos);
       }
-      return reloadPlantWithPhotos(tx, existing.id);
+      return findPlantById(tx, existing.id);
     });
     reply.send(formatPlant(record));
   });

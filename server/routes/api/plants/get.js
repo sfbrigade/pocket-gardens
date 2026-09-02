@@ -13,6 +13,7 @@ export default async function (fastify, opts) {
       response: {
         [StatusCodes.OK]: PlantSchema,
         [StatusCodes.NOT_FOUND]: z.null(),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: fastify.ValidationErrorSchema,
       },
     },
   }, async function (request, reply) {

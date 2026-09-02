@@ -1,13 +1,12 @@
 import crypto from 'node:crypto';
 import { StatusCodes } from 'http-status-codes';
-import { z } from 'zod';
 
 import {
+  findPlantById,
   formatPlant,
   plantFieldsFromBody,
-  PlantFieldsSchema,
+  PlantCreateFieldsSchema,
   PlantSchema,
-  reloadPlantWithPhotos,
   syncPlantPhotos,
 } from '#models/plant.js';
 
@@ -15,10 +14,10 @@ export default async function (fastify, opts) {
   fastify.post('/', {
     schema: {
       description: 'Creates a new Plant.',
-      body: PlantFieldsSchema,
+      body: PlantCreateFieldsSchema,
       response: {
         [StatusCodes.CREATED]: PlantSchema,
-        [StatusCodes.UNPROCESSABLE_ENTITY]: z.null(),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: fastify.ValidationErrorSchema,
       },
     },
   }, async function (request, reply) {
@@ -34,7 +33,7 @@ export default async function (fastify, opts) {
       if (Photos !== undefined) {
         await syncPlantPhotos(tx, created.id, Photos);
       }
-      return reloadPlantWithPhotos(tx, created.id);
+      return findPlantById(tx, created.id);
     });
     reply.code(StatusCodes.CREATED).send(formatPlant(record));
   });
