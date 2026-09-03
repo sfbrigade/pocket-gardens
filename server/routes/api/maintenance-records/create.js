@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { StatusCodes } from 'http-status-codes';
 
 import {
@@ -25,7 +26,11 @@ export default async function (fastify, opts) {
     const record = await fastify.prisma.$transaction(async (tx) => {
       await validateMaintenanceRecordLinks(tx, request.body);
       const created = await tx.maintenanceRecord.create({
-        data: maintenanceRecordFieldsFromBody(request.body),
+        data: {
+          // ponytail: remove when airtableId becomes nullable.
+          airtableId: `pg_${crypto.randomUUID()}`,
+          ...maintenanceRecordFieldsFromBody(request.body),
+        },
       });
       if (request.body.plants !== undefined) {
         await syncMaintenanceRecordPlants(tx, created.id, request.body.plants);
