@@ -76,6 +76,38 @@ test('syncPhotos with an empty list clears the gallery', async () => {
   assert.strictEqual(handlers.length, 1);
 });
 
+test('syncPhotos accepts explicit retained ids and upload tokens', async () => {
+  const delegate = mockDelegate([
+    { id: 'keep', plotId: 'plot-1', file: 'keep.jpg', position: 1 },
+    { id: 'gone', plotId: 'plot-1', file: 'gone.jpg', position: 0 },
+  ]);
+
+  const handlers = await syncPhotos({
+    delegate,
+    PhotoClass: PlotPhoto,
+    parentFk: 'plotId',
+    parentId: 'plot-1',
+    photos: [{ id: 'keep' }, { upload: 'fresh.jpg' }],
+  });
+
+  assert.strictEqual(delegate.rows[0].position, 0);
+  assert.strictEqual(delegate.rows[1].file, 'fresh.jpg');
+  assert.deepStrictEqual(delegate.ops.deleted, ['gone']);
+  assert.ok(handlers.every((handler) => typeof handler === 'function'));
+});
+
+test('syncPhotos rejects an unknown retained id before changing rows', async () => {
+  const delegate = mockDelegate([]);
+  await assert.rejects(syncPhotos({
+    delegate,
+    PhotoClass: PlotPhoto,
+    parentFk: 'plotId',
+    parentId: 'plot-1',
+    photos: [{ id: 'missing' }],
+  }), /Photo missing not found/);
+  assert.strictEqual(delegate.ops.created.length, 0);
+});
+
 test('runPhotoHandlers invokes deferred setAsset callbacks', async () => {
   const calls = [];
   await runPhotoHandlers([

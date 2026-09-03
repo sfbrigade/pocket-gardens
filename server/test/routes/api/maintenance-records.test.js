@@ -115,7 +115,7 @@ test('/api/maintenance-records', async (t) => {
     assert.strictEqual(invalid.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
   });
 
-  await t.test('POST / creates scalar and related data without an Airtable id', async () => {
+  await t.test('POST / creates scalar and related data', async () => {
     const filename = '11111111-aaaa-4111-8111-111111111111.jpg';
     await upload([['640x480.jpg', filename]]);
     const response = await app.inject({
@@ -148,7 +148,7 @@ test('/api/maintenance-records', async (t) => {
       where: { id: data.id },
       include: { plants: { orderBy: { slot: 'asc' } }, photos: true },
     });
-    assert.strictEqual(row.airtableId, null);
+    assert.match(row.airtableId, /^pg_[0-9a-f-]{36}$/);
     assert.deepStrictEqual(row.plants.map(({ slot }) => slot), [1, 2]);
     assert.ok(await assetExists(path.join(
       'maintenance_record_photos', row.photos[0].id, 'file', filename
