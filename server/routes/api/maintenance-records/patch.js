@@ -25,15 +25,21 @@ export default async function (fastify, opts) {
       },
     },
   }, async function (request, reply) {
-    const existing = await findMaintenanceRecordById(fastify.prisma, request.params.id);
-    if (!existing) return reply.code(StatusCodes.NOT_FOUND).send(null);
-
     const record = await fastify.prisma.$transaction(async (tx) => {
+      const existing = await tx.maintenanceRecord.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (!existing) return null;
+
       await validateMaintenanceRecordLinks(tx, request.body, existing.id);
-      const data = maintenanceRecordFieldsFromBody(request.body);
-      if (Object.keys(data).length) {
-        await tx.maintenanceRecord.update({ where: { id: existing.id }, data });
-      }
+      await tx.maintenanceRecord.update({
+        where: { id: existing.id },
+        data: {
+          ...maintenanceRecordFieldsFromBody(request.body),
+          updatedAt: new Date(),
+        },
+      });
       if (request.body.plants !== undefined) {
         await syncMaintenanceRecordPlants(tx, existing.id, request.body.plants);
       }
@@ -42,6 +48,7 @@ export default async function (fastify, opts) {
       }
       return findMaintenanceRecordById(tx, existing.id);
     });
+    if (!record) return reply.code(StatusCodes.NOT_FOUND).send(null);
     reply.send(formatMaintenanceRecord(record));
   });
 }

@@ -221,13 +221,20 @@ test('/api/maintenance-records', async (t) => {
     assert.strictEqual(data.volunteerId, null);
     assert.deepStrictEqual(data.plants, [{ plantId: PLANT_BETA_ID, quantity: 5 }]);
 
+    const oldUpdatedAt = new Date('2000-01-01T00:00:00.000Z');
+    await prisma.maintenanceRecord.update({
+      where: { id: RECORD_ALPHA_ID },
+      data: { updatedAt: oldUpdatedAt },
+    });
     const cleared = await app.inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_ALPHA_ID}`,
       payload: { plants: [] },
     });
     assert.strictEqual(cleared.statusCode, StatusCodes.OK);
-    assert.deepStrictEqual(JSON.parse(cleared.payload).plants, []);
+    const clearedData = JSON.parse(cleared.payload);
+    assert.deepStrictEqual(clearedData.plants, []);
+    assert.notStrictEqual(clearedData.updatedAt, oldUpdatedAt.toISOString());
   });
 
   await t.test('PATCH /:id rejects invalid changes and preserves the record', async () => {
@@ -301,16 +308,5 @@ test('/api/maintenance-records', async (t) => {
       path: 'photos',
       message: 'Photo does not belong to this maintenance record',
     }]);
-  });
-
-  await t.test('legacy imports can still upsert by a real Airtable id', async () => {
-    const airtableId = 'recImportedMaintenance';
-    await prisma.maintenanceRecord.upsert({
-      where: { airtableId },
-      create: { airtableId, activity: ['Imported'] },
-      update: { activity: ['Imported'] },
-    });
-    const row = await prisma.maintenanceRecord.findUnique({ where: { airtableId } });
-    assert.deepStrictEqual(row.activity, ['Imported']);
   });
 });

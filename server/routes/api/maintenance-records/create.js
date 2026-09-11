@@ -31,6 +31,7 @@ export default async function (fastify, opts) {
           airtableId: `pg_${crypto.randomUUID()}`,
           ...maintenanceRecordFieldsFromBody(request.body),
         },
+        select: { id: true },
       });
       if (request.body.plants !== undefined) {
         await syncMaintenanceRecordPlants(tx, created.id, request.body.plants);

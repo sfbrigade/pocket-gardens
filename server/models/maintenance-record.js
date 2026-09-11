@@ -4,10 +4,7 @@ import { z } from 'zod';
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import MaintenanceRecordPhoto from '#models/maintenance-record-photo.js';
 
-const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date').refine((value) => {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}, 'Invalid date');
+const DateSchema = z.iso.date({ error: 'Invalid date' });
 
 const UploadSchema = z.string().regex(
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i,
@@ -66,17 +63,17 @@ export const MaintenanceRecordPlantSchema = z.strictObject({
 
 export const MaintenanceRecordSchema = z.strictObject({
   id: z.string().uuid(),
-  date: z.string().nullable(),
+  date: DateSchema.nullable(),
   activity: z.array(z.string()),
   notes: z.string().nullable(),
   planting: z.string().nullable(),
-  estNextVisit: z.string().nullable(),
+  estNextVisit: DateSchema.nullable(),
   plotId: z.string().uuid().nullable(),
   volunteerId: z.string().uuid().nullable(),
   plants: z.array(MaintenanceRecordPlantSchema),
   photos: z.array(MaintenanceRecordPhotoSchema),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
 });
 
 const OptionalFields = {
@@ -119,9 +116,25 @@ export const MaintenanceRecordListQuerySchema = z.strictObject({
   path: ['from'],
 });
 
-export const MAINTENANCE_RECORD_INCLUDE = {
-  photos: { orderBy: { position: 'asc' } },
-  plants: { orderBy: { slot: 'asc' } },
+export const MAINTENANCE_RECORD_SELECT = {
+  id: true,
+  date: true,
+  activity: true,
+  notes: true,
+  planting: true,
+  estNextVisit: true,
+  plotId: true,
+  volunteerId: true,
+  createdAt: true,
+  updatedAt: true,
+  photos: {
+    orderBy: { position: 'asc' },
+    select: { id: true, file: true },
+  },
+  plants: {
+    orderBy: { slot: 'asc' },
+    select: { plantId: true, quantity: true },
+  },
 };
 
 function formatDate (date) {
@@ -156,7 +169,7 @@ export function formatMaintenanceRecord (record) {
 export function findMaintenanceRecordById (prisma, id) {
   return prisma.maintenanceRecord.findUnique({
     where: { id },
-    include: MAINTENANCE_RECORD_INCLUDE,
+    select: MAINTENANCE_RECORD_SELECT,
   });
 }
 
@@ -181,10 +194,16 @@ function invalidLink (path, message) {
 }
 
 export async function validateMaintenanceRecordLinks (tx, body, recordId) {
-  if (body.plotId !== undefined && !await tx.plot.findUnique({ where: { id: body.plotId } })) {
+  if (body.plotId !== undefined && !await tx.plot.findUnique({
+    where: { id: body.plotId },
+    select: { id: true },
+  })) {
     throw invalidLink('plotId', 'Plot not found');
   }
-  if (body.volunteerId && !await tx.person.findUnique({ where: { id: body.volunteerId } })) {
+  if (body.volunteerId && !await tx.person.findUnique({
+    where: { id: body.volunteerId },
+    select: { id: true },
+  })) {
     throw invalidLink('volunteerId', 'Volunteer not found');
   }
   if (body.plants?.length && await tx.plant.count({

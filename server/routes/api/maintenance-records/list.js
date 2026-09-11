@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import {
   formatMaintenanceRecord,
-  MAINTENANCE_RECORD_INCLUDE,
+  MAINTENANCE_RECORD_SELECT,
   MaintenanceRecordListQuerySchema,
   MaintenanceRecordSchema,
 } from '#models/maintenance-record.js';
@@ -38,7 +38,7 @@ export default async function (fastify, opts) {
     };
     const records = await fastify.prisma.maintenanceRecord.findMany({
       where,
-      include: MAINTENANCE_RECORD_INCLUDE,
+      select: MAINTENANCE_RECORD_SELECT,
       orderBy: [
         { date: { sort: 'desc', nulls: 'last' } },
         { id: 'asc' },
