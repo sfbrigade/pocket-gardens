@@ -1,7 +1,7 @@
-import { z } from "zod";
+import { z } from 'zod';
 
-import Base from "./base.js";
-import { Prisma } from "#prisma/client.js";
+import Base from './base.js';
+import { Prisma } from '#prisma/client.js';
 
 const PersonResponseSchema = z.object({
   id: z.string().uuid(),
@@ -15,7 +15,7 @@ const PersonResponseSchema = z.object({
 class Person extends Base {
   static ResponseSchema = PersonResponseSchema;
 
-  constructor(data) {
+  constructor (data) {
     super(Prisma.PersonScalarFieldEnum, data);
   }
 }
