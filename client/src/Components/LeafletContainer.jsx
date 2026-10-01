@@ -15,7 +15,6 @@ import { plotsQueryOptions } from '../plots';
 
 const SAN_FRANCISCO_BOUNDS = [[37.708, -122.515], [37.833, -122.355]];
 
-// Explicit imports let Vite resolve the marker images in development and production.
 const gardenIcon = new Icon({
   iconUrl: markerIcon,
   iconRetinaUrl: markerIconRetina,
@@ -32,7 +31,6 @@ function PlotMarkers () {
 
   function updateBounds () {
     const visible = map.getBounds();
-    // ponytail: query one world; split bounds if antimeridian coverage is needed.
     setBounds({
       north: Math.min(90, visible.getNorth()),
       south: Math.max(-90, visible.getSouth()),
