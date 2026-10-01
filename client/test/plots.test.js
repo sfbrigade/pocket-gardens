@@ -50,6 +50,26 @@ test('viewport plot queries', async (t) => {
     assert.equal(requests.length, 1);
   });
 
+  await t.test('keeps markers mounted during a bounds refresh, then replaces them with current results', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const observer = new QueryObserver(client, plotsQueryOptions(bounds));
+    respond = async () => ({ data: [garden] });
+    const unsubscribe = observer.subscribe(() => {});
+    t.after(() => { unsubscribe(); client.clear(); });
+    await setImmediate();
+
+    const nextPage = Promise.withResolvers();
+    respond = async () => nextPage.promise;
+    observer.setOptions(plotsQueryOptions({ ...bounds, west: -122.44 }));
+    assert.strictEqual(observer.getCurrentResult().data[0], garden);
+    assert.equal(observer.getCurrentResult().isPlaceholderData, true);
+
+    nextPage.resolve({ data: [{ ...garden, id: 'current-area' }] });
+    await setImmediate();
+    assert.equal(observer.getCurrentResult().data[0].id, 'current-area');
+    assert.equal(observer.getCurrentResult().isPlaceholderData, false);
+  });
+
   await t.test('preserves HTTP and network errors instead of returning partial plots', async () => {
     for (const response of [undefined, { status: 503 }]) {
       const error = new axios.AxiosError('Unable to load gardens', 'ERR_NETWORK', undefined, undefined, response);

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { MapContainer } from 'react-leaflet/MapContainer';
 import { TileLayer } from 'react-leaflet/TileLayer';
 import { Marker } from 'react-leaflet/Marker';
+import { Popup } from 'react-leaflet/Popup';
 import { useMapEvents } from 'react-leaflet/hooks';
 import { Icon } from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -12,6 +13,8 @@ import 'leaflet/dist/leaflet.css';
 
 import { plotsQueryOptions } from '../plots';
 
+const SAN_FRANCISCO_BOUNDS = [[37.708, -122.515], [37.833, -122.355]];
+
 // Explicit imports let Vite resolve the marker images in development and production.
 const gardenIcon = new Icon({
   iconUrl: markerIcon,
@@ -19,6 +22,7 @@ const gardenIcon = new Icon({
   shadowUrl: markerShadow,
   iconSize: [25, 41],
   iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
   shadowSize: [41, 41],
 });
 
@@ -57,7 +61,13 @@ function PlotMarkers () {
           icon={gardenIcon}
           title={plot['Pocket Garden Name'] || 'Pocket garden'}
           alt={plot['Pocket Garden Name'] || 'Pocket garden'}
-        />
+        >
+          <Popup>
+            <strong>{plot['Pocket Garden Name'] || 'Pocket garden'}</strong>
+            <div>{plot['Street Address'] || 'Address unavailable'}</div>
+            {plot.Status && <div>Status: {plot.Status}</div>}
+          </Popup>
+        </Marker>
       ))}
       <div role='status' aria-live='polite' className='map-status' hidden={!status}>{status}</div>
     </>
@@ -66,7 +76,15 @@ function PlotMarkers () {
 
 function LeafletContainer () {
   return (
-    <MapContainer center={[37.7749, -122.4194]} zoom={13} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
+    <MapContainer
+      center={[37.7749, -122.4194]}
+      zoom={13}
+      minZoom={12}
+      maxBounds={SAN_FRANCISCO_BOUNDS}
+      maxBoundsViscosity={1}
+      scrollWheelZoom
+      style={{ height: '100%', width: '100%' }}
+    >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
