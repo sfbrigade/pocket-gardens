@@ -23,7 +23,7 @@ export default async function (fastify, opts) {
     },
   }, async function (request, reply) {
     const fields = plotFieldsFromBody(request.body);
-    const { photos } = request.body;
+    const { Photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
       const created = await tx.plot.create({
         data: {
@@ -31,8 +31,8 @@ export default async function (fastify, opts) {
           ...fields,
         },
       });
-      if (photos !== undefined) {
-        await syncPlotPhotos(tx, created.id, photos);
+      if (Photos !== undefined) {
+        await syncPlotPhotos(tx, created.id, Photos);
       }
       return reloadPlotWithPhotos(tx, created.id);
     });
