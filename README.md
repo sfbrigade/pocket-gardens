@@ -117,14 +117,14 @@ This project includes components with helpful developer tools, such as the follo
 
    http://localhost:3333/api/reference
 
-4. Minio
+4. RustFS
 
-   The Docker Compose configuration includes the Minio object storage server as a local development
+   The Docker Compose configuration includes the RustFS object storage server as a local development
    simulation of AWS S3. You can browse the contents of the storage server at:
 
    http://localhost:9001
 
-   Username and password are: minioadmin/minioadmin
+   Username and password are: storageadmin/storageadmin
 
 ## Testing
 
