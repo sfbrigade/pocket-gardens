@@ -77,8 +77,8 @@ function LeafletContainer () {
   return (
     <MapContainer
       center={[37.7749, -122.4194]}
-      zoom={5}
-      minZoom={10}
+      zoom={13}
+      minZoom={13}
       maxBounds={SAN_FRANCISCO_BOUNDS}
       maxBoundsViscosity={1}
       scrollWheelZoom
