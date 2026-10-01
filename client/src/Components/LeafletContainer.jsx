@@ -64,7 +64,6 @@ function PlotMarkers () {
         >
           <Popup>
             <strong>{plot['Pocket Garden Name'] || 'Pocket garden'}</strong>
-            <div>{plot['Street Address'] || 'Address unavailable'}</div>
             {plot.Status && <div>Status: {plot.Status}</div>}
           </Popup>
         </Marker>
@@ -78,8 +77,8 @@ function LeafletContainer () {
   return (
     <MapContainer
       center={[37.7749, -122.4194]}
-      zoom={13}
-      minZoom={12}
+      zoom={5}
+      minZoom={10}
       maxBounds={SAN_FRANCISCO_BOUNDS}
       maxBoundsViscosity={1}
       scrollWheelZoom
