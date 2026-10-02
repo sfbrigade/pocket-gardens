@@ -135,6 +135,11 @@ const Api = {
       return instance.patch(`/api/passwords/${token}`, { password }).catch(handleError);
     },
   },
+  people: {
+    index (page = 1, search) {
+      return instance.get('/api/people', { params: { page, search } });
+    },
+  },
   users: {
     index (page = 1) {
       return instance.get('/api/users', { params: { page } });

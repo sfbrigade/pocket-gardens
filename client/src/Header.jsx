@@ -54,6 +54,7 @@ function Header ({ opened, close, toggle }) {
                   </Menu.Target>
                   <Menu.Dropdown>
                     <Menu.Item><Anchor component={NavLink} to='/admin/invites'>Invites</Anchor></Menu.Item>
+                    <Menu.Item><Anchor component={NavLink} to='/admin/people'>People</Anchor></Menu.Item>
                     <Menu.Item><Anchor component={NavLink} to='/admin/users'>Users</Anchor></Menu.Item>
                   </Menu.Dropdown>
                 </Menu>
