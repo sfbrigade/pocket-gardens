@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useLocation } from 'react-router';
-import { Anchor, Container, Group, Loader, Table, Title } from '@mantine/core';
+import { useSearchParams } from 'react-router';
+import { Anchor, Button, Container, Group, Loader, Table, TextInput, Title } from '@mantine/core';
+import { useForm } from '@mantine/form';
 import { useQuery } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
@@ -8,15 +9,23 @@ import Api from 'src/Api';
 import Pagination from 'components/Pagination';
 
 function AdminPeopleList () {
-  const { search } = useLocation();
-  const params = new URLSearchParams(search);
-  const page = parseInt(params.get('page') ?? '1', 10);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = parseInt(searchParams.get('page') ?? '1', 10);
+  const search = searchParams.get('search') ?? '';
+
+  const form = useForm({
+    initialValues: {
+      search,
+    },
+  });
+
   const [lastPage, setLastPage] = useState(1);
 
   const { data: people, isLoading } = useQuery({
-    queryKey: ['people', page],
+    queryKey: ['people', page, search],
     queryFn: async () => {
-      const response = await Api.people.index(page);
+      const response = await Api.people.index(page, search);
       setLastPage(Api.calculateLastPage(response, page));
       return response.data;
     },
@@ -29,6 +38,22 @@ function AdminPeopleList () {
       </Head>
       <Container>
         <Title mb='md'>Manage People</Title>
+        <form
+          onSubmit={form.onSubmit((values) => {
+            setSearchParams({
+              search: values.search,
+              page: '1',
+            });
+          })}
+        >
+          <TextInput
+            {...form.getInputProps('search')}
+            label='Search people'
+          />
+          <Group>
+            <Button type='submit'>Search</Button>
+          </Group>
+        </form>
         <Table.ScrollContainer>
           <Table striped highlightOnHover>
             <Table.Thead>
@@ -40,31 +65,35 @@ function AdminPeopleList () {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {isLoading && (
-                <Table.Td colSpan={4}>
-                  <Group justify='center' py='lg'>
-                    <Loader />
-                  </Group>
-                </Table.Td>
-              )}
-              {!isLoading &&
-                people?.map((person) => (
-                  <Table.Tr key={person.id}>
-                    <Table.Td>{person.firstName}</Table.Td>
-                    <Table.Td>{person.lastName}</Table.Td>
-                    <Table.Td>
-                      {person.email && (
-                        <Anchor href={`mailto:${person.email}`}>
-                          {person.email}
-                        </Anchor>
-                      )}
-                    </Table.Td>
-                    <Table.Td>{person.phone}</Table.Td>
-                  </Table.Tr>
-                ))}
+              {isLoading &&
+                <Table.Tr>
+                  <Table.Td colSpan={4}>
+                    <Group justify='center' py='lg'><Loader /></Group>
+                  </Table.Td>
+                </Table.Tr>}
+              {!isLoading && people?.length === 0 &&
+                <Table.Tr>
+                  <Table.Td colSpan={4}>
+                    No people found.
+                  </Table.Td>
+                </Table.Tr>}
+              {!isLoading && people?.map((person) => (
+                <Table.Tr key={person.id}>
+                  <Table.Td>{person.firstName}</Table.Td>
+                  <Table.Td>{person.lastName}</Table.Td>
+                  <Table.Td>
+                    {person.email && (
+                      <Anchor href={`mailto:${person.email}`}>
+                        {person.email}
+                      </Anchor>
+                    )}
+                  </Table.Td>
+                  <Table.Td>{person.phone}</Table.Td>
+                </Table.Tr>
+              ))}
             </Table.Tbody>
           </Table>
-          <Pagination page={page} lastPage={lastPage} />
+          <Pagination page={page} lastPage={lastPage} otherParams={{ search }} />
         </Table.ScrollContainer>
       </Container>
     </>
