@@ -3,19 +3,17 @@ import { z } from 'zod';
 
 import {
   buildViewportWhere,
-  decodeListOffset,
-  DEFAULT_PAGE_SIZE,
-  encodeListOffset,
   formatPlot,
   PLOT_PHOTOS_INCLUDE,
   PlotSchema,
 } from '#models/plot.js';
 
+const DEFAULT_PAGE_SIZE = 25;
 const VIEWPORT_KEYS = ['north', 'south', 'east', 'west'];
 
-const ListQuerySchema = z.object({
-  pageSize: z.coerce.number().min(1).max(100).optional(),
-  offset: z.string().optional(),
+const ListQuerySchema = z.strictObject({
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
   north: z.coerce.number().min(-90).max(90).optional(),
   south: z.coerce.number().min(-90).max(90).optional(),
   east: z.coerce.number().min(-180).max(180).optional(),
@@ -48,11 +46,12 @@ export default async function (fastify, opts) {
       querystring: ListQuerySchema,
       response: {
         [StatusCodes.OK]: z.array(PlotSchema),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: fastify.ValidationErrorSchema,
       },
     },
   }, async function (request, reply) {
     const pageSize = request.query.pageSize ?? DEFAULT_PAGE_SIZE;
-    const skip = decodeListOffset(request.query.offset);
+    const skip = request.query.offset ?? 0;
     const where = hasViewport(request.query)
       ? buildViewportWhere({
         north: request.query.north,
@@ -73,7 +72,7 @@ export default async function (fastify, opts) {
     const hasMore = records.length > pageSize;
     const page = hasMore ? records.slice(0, pageSize) : records;
     if (hasMore) {
-      reply.header('X-Next-Offset', encodeListOffset(skip + pageSize));
+      reply.header('X-Next-Offset', String(skip + pageSize));
     }
     reply.send(page.map(formatPlot));
   });

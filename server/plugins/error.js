@@ -18,7 +18,10 @@ export default fp(async (fastify) => {
     if (error.validation) {
       return reply.status(StatusCodes.UNPROCESSABLE_ENTITY).send({
         statusCode: StatusCodes.UNPROCESSABLE_ENTITY,
-        errors: error.validation.map(({ params: { issue: { path, message } } }) => ({ path: path[0], message })),
+        errors: error.validation.map(({ params: { issue: { path, message } } }) => ({
+          path: path[0] ?? 'body',
+          message,
+        })),
       });
     }
     // re-throw error to be handled by Fastify

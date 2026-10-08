@@ -1,7 +1,6 @@
 /* eslint-disable no-throw-literal */
 
 import axios from 'axios';
-
 import { StatusCodes } from 'http-status-codes';
 import { capitalize } from 'inflection';
 
@@ -14,7 +13,7 @@ const instance = axios.create({
 instance.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response.status === StatusCodes.UNAUTHORIZED) {
+    if (error.response?.status === StatusCodes.UNAUTHORIZED) {
       window.location = '/login';
     }
     return Promise.reject(error);
@@ -138,6 +137,14 @@ const Api = {
   people: {
     index (page = 1, search) {
       return instance.get('/api/people', { params: { page, search } });
+    },
+  },
+  plots: {
+    index ({ north, south, east, west, offset, pageSize = 100 }, signal) {
+      return instance.get('/api/plots', {
+        params: { north, south, east, west, offset, pageSize },
+        signal,
+      });
     },
   },
   users: {
