@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Anchor, Button, Container, Group, Loader, Table, TextInput, Title } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useQuery } from '@tanstack/react-query';
@@ -62,18 +62,19 @@ function AdminPeopleList () {
                 <Table.Th>Last name</Table.Th>
                 <Table.Th>Email</Table.Th>
                 <Table.Th>Phone</Table.Th>
+                <Table.Th>Actions</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {isLoading &&
                 <Table.Tr>
-                  <Table.Td colSpan={4}>
+                  <Table.Td colSpan={5}>
                     <Group justify='center' py='lg'><Loader /></Group>
                   </Table.Td>
                 </Table.Tr>}
               {!isLoading && people?.length === 0 &&
                 <Table.Tr>
-                  <Table.Td colSpan={4}>
+                  <Table.Td colSpan={5}>
                     No people found.
                   </Table.Td>
                 </Table.Tr>}
@@ -89,6 +90,9 @@ function AdminPeopleList () {
                     )}
                   </Table.Td>
                   <Table.Td>{person.phone}</Table.Td>
+                  <Table.Td>
+                    <Anchor component={Link} to={`${person.id}`}>View Person</Anchor>
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
