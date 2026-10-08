@@ -27,7 +27,6 @@ export default async function (fastify, opts) {
       await validateMaintenanceRecordLinks(tx, request.body);
       const created = await tx.maintenanceRecord.create({
         data: {
-          // ponytail: remove when airtableId becomes nullable.
           airtableId: `pg_${crypto.randomUUID()}`,
           ...maintenanceRecordFieldsFromBody(request.body),
         },
