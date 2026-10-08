@@ -13,6 +13,7 @@ import { pick } from 'es-toolkit';
  * @param {string} options.parentFk 'plotId' | 'plantId' | 'maintenanceRecordId'
  * @param {string} options.parentId
  * @param {string[]} options.filenames desired filenames in gallery order
+ * @param {Array<{id: string}|{upload: string}>} options.photos desired explicit photo entries
  * @returns {Promise<Array<Function|undefined>>}
  */
 export async function syncPhotos ({
@@ -21,8 +22,11 @@ export async function syncPhotos ({
   parentFk,
   parentId,
   filenames,
+  photos,
 }) {
-  const desired = (filenames ?? []).filter((name) => typeof name === 'string' && name.length > 0);
+  const desired = (photos ?? filenames ?? []).filter((item) => (
+    (typeof item === 'object' && item !== null) || (typeof item === 'string' && item.length > 0)
+  ));
   const existing = await delegate.findMany({
     where: { [parentFk]: parentId },
     orderBy: { position: 'asc' },
@@ -32,8 +36,12 @@ export async function syncPhotos ({
   const keptIds = new Set();
 
   for (let i = 0; i < desired.length; i += 1) {
-    const filename = desired[i];
-    const match = existing.find((row) => row.file === filename && !keptIds.has(row.id));
+    const item = desired[i];
+    const id = typeof item === 'object' ? item.id : undefined;
+    const filename = typeof item === 'string' ? item : item.upload;
+    const match = existing.find((row) => (
+      !keptIds.has(row.id) && (id ? row.id === id : typeof item === 'string' && row.file === filename)
+    ));
     if (match) {
       keptIds.add(match.id);
       if (match.position !== i) {
@@ -43,6 +51,9 @@ export async function syncPhotos ({
         });
       }
       continue;
+    }
+    if (id) {
+      throw new Error(`Photo ${id} not found`);
     }
 
     const row = await delegate.create({
