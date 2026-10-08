@@ -1,7 +1,6 @@
 /* eslint-disable no-throw-literal */
 
 import axios from 'axios';
-
 import { StatusCodes } from 'http-status-codes';
 import { capitalize } from 'inflection';
 
@@ -133,6 +132,11 @@ const Api = {
     },
     update (token, password) {
       return instance.patch(`/api/passwords/${token}`, { password }).catch(handleError);
+    },
+  },
+  people: {
+    index (page = 1, search) {
+      return instance.get('/api/people', { params: { page, search } });
     },
   },
   plots: {
