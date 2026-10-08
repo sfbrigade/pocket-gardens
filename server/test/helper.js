@@ -72,14 +72,14 @@ async function build (t) {
 
   // set up a new storage container
   let storageContainer = new GenericContainer(compose.services.storage.image)
-    .withEntrypoint(['minio', 'server', '/data'])
+    .withEntrypoint(['rustfs', '/data'])
     .withExposedPorts(9000);
   if (!process.env.CI) {
     storageContainer = storageContainer.withNetworkMode('pocket-gardens');
   }
   const startedStorageContainer = await storageContainer.start();
-  process.env.AWS_S3_ACCESS_KEY_ID = 'minioadmin';
-  process.env.AWS_S3_SECRET_ACCESS_KEY = 'minioadmin';
+  process.env.AWS_S3_ACCESS_KEY_ID = 'rustfsadmin';
+  process.env.AWS_S3_SECRET_ACCESS_KEY = 'rustfsadmin';
   process.env.AWS_S3_BUCKET = 'app';
   process.env.AWS_S3_REGION = 'us-east-1';
   process.env.AWS_S3_ENDPOINT = `http://${startedStorageContainer.getHost()}:${startedStorageContainer.getMappedPort(9000)}`;
