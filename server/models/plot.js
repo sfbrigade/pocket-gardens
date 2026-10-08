@@ -4,8 +4,6 @@ import { parseMapCoordinates } from '#lib/airtable-schema.js';
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import PlotPhoto from '#models/plot-photo.js';
 
-export const DEFAULT_PAGE_SIZE = 25;
-
 export const PlotSchema = z.object({
   id: z.string(),
   createdTime: z.string(),
@@ -169,16 +167,6 @@ export function buildViewportWhere ({ north, south, east, west }) {
   };
 }
 
-export function encodeListOffset (skip) {
-  return String(skip);
-}
-
-export function decodeListOffset (offset) {
-  if (!offset) return 0;
-  if (!/^\d+$/.test(offset)) return 0;
-  return Number(offset);
-}
-
 export default {
   PlotSchema,
   PlotFieldsSchema,
@@ -187,10 +175,7 @@ export default {
   isUuid,
   plotFieldsFromBody,
   buildViewportWhere,
-  encodeListOffset,
-  decodeListOffset,
   PLOT_PHOTOS_INCLUDE,
   syncPlotPhotos,
   reloadPlotWithPhotos,
-  DEFAULT_PAGE_SIZE,
 };

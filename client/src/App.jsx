@@ -28,8 +28,10 @@ const queryClient = new QueryClient();
 function App () {
   const [opened, { close, toggle }] = useDisclosure();
   const staticContext = useStaticContext();
+  const siteTitle = staticContext?.env?.VITE_SITE_TITLE || 'Pocket Gardens';
   useHead({
-    titleTemplate: `%s - ${staticContext?.env?.VITE_SITE_TITLE ?? ''}`
+    title: siteTitle,
+    titleTemplate: (title) => title && title !== siteTitle ? `${title} - ${siteTitle}` : siteTitle
   });
 
   return (
