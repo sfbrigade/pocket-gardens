@@ -1,0 +1,21 @@
+entity: Person
+items:
+  person1:
+    id: 44444444-4444-4444-8444-444444444444
+    airtableId: recPersonA
+    firstName: Alice
+    lastName: Smith
+    name: Alice Smith
+    email: alice@example.com
+    phone: 555-111-1111
+  person2:
+    id: 55555555-5555-4555-8555-555555555555
+    airtableId: recPersonB
+    firstName: Bob
+    lastName: Jones
+    name: Bob Jones
+    email: bob@example.com
+  person3:
+    id: 66666666-6666-4666-8666-666666666666
+    airtableId: recPersonC
+    name: Community Volunteer
