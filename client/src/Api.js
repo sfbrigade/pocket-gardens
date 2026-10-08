@@ -14,7 +14,7 @@ const instance = axios.create({
 instance.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response.status === StatusCodes.UNAUTHORIZED) {
+    if (error.response?.status === StatusCodes.UNAUTHORIZED) {
       window.location = '/login';
     }
     return Promise.reject(error);
@@ -133,6 +133,14 @@ const Api = {
     },
     update (token, password) {
       return instance.patch(`/api/passwords/${token}`, { password }).catch(handleError);
+    },
+  },
+  plots: {
+    index ({ north, south, east, west, offset, pageSize = 100 }, signal) {
+      return instance.get('/api/plots', {
+        params: { north, south, east, west, offset, pageSize },
+        signal,
+      });
     },
   },
   users: {
