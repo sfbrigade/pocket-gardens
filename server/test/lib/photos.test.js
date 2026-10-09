@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
 
-import { syncPhotos } from '#lib/photos.js';
+import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import PlotPhoto from '#models/plot-photo.js';
 
 function mockDelegate (existing = []) {
@@ -106,4 +106,14 @@ test('syncPhotos rejects an unknown retained id before changing rows', async () 
     photos: [{ id: 'missing' }],
   }), /Photo missing not found/);
   assert.strictEqual(delegate.ops.created.length, 0);
+});
+
+test('runPhotoHandlers invokes deferred setAsset callbacks', async () => {
+  const calls = [];
+  await runPhotoHandlers([
+    undefined,
+    async () => { calls.push(1); },
+    async () => { calls.push(2); },
+  ]);
+  assert.deepStrictEqual(calls, [1, 2]);
 });
