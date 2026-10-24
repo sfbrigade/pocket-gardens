@@ -5,6 +5,7 @@ import { parseMapCoordinates } from '#lib/airtable-schema.js';
 import { firstPlantedIssue, PLOT_STAGES } from '#lib/plot-lifecycle.js';
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import PlotPhoto from '#models/plot-photo.js';
+import { PlotPlantsInputSchema, PlotPlantSchema } from '#models/plot-plant.js';
 
 export const PlotStageSchema = z.enum(PLOT_STAGES);
 export const PermissionStatusSchema = z.enum(['unknown', 'needed', 'progress', 'confirmed', 'not_required', 'not_granted']);
@@ -37,6 +38,7 @@ export const PlotDetailSchema = PlotSchema.extend({
   Alert: z.string().optional(),
   'Next Visit': z.string().optional(),
   assignedVolunteers: z.array(z.strictObject({ id: z.string().uuid(), displayName: z.string() })),
+  plants: z.array(PlotPlantSchema),
 });
 
 export const PlotFieldsSchema = z.strictObject({
@@ -62,6 +64,7 @@ export const PlotFieldsSchema = z.strictObject({
 });
 
 export const PlotCreateSchema = PlotFieldsSchema.extend({
+  plants: PlotPlantsInputSchema.optional(),
   stage: z.enum(['potential', 'preparing', 'active']).default('potential'),
   permissionStatus: PermissionStatusSchema.default('unknown'),
   'Location Description': z.string().trim().min(1, 'Describe exactly where the plot is'),
@@ -74,6 +77,9 @@ export const PlotCreateSchema = PlotFieldsSchema.extend({
   }
   if (!Number.isFinite(longitude) || Math.abs(longitude) > 180) {
     ctx.addIssue({ code: 'custom', path: ['Longitude'], message: 'Set a valid map longitude' });
+  }
+  if (body.stage === 'potential' && body.plants?.length) {
+    ctx.addIssue({ code: 'custom', path: ['plants'], message: 'Plants are recorded for preparing or active gardens' });
   }
   const issue = firstPlantedIssue(body.stage, body.firstPlanted);
   if (issue) ctx.addIssue(issue);
@@ -132,6 +138,15 @@ export function formatPlot (plot) {
       id: person.id,
       displayName: person.name || [person.firstName, person.lastName].filter(Boolean).join(' ') || 'Volunteer',
     })),
+    plants: (plot.plants ?? []).map(({ plant, quantity, notes, state }) => ({
+      plantId: plant.id,
+      plantName: plant.plantName,
+      commonName: plant.commonName,
+      latinName: plant.latinName,
+      quantity,
+      notes,
+      state,
+    })),
   };
 }
 
@@ -141,6 +156,7 @@ export const PLOT_PHOTOS_INCLUDE = {
 
 export const PLOT_DETAIL_INCLUDE = {
   ...PLOT_PHOTOS_INCLUDE,
+  plants: { orderBy: { id: 'asc' }, include: { plant: true } },
   assignedVolunteers: {
     orderBy: { personId: 'asc' },
     include: { person: { select: { id: true, name: true, firstName: true, lastName: true } } },
