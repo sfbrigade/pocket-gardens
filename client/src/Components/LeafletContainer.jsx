@@ -109,7 +109,7 @@ function MapSelection ({ position, onPositionChange, selectedPlot, mode, viewpor
       <Paper ref={controls} p='xs' shadow='sm' style={{ position: 'absolute', right: 12, top: 12, zIndex: 1000, maxWidth: 260 }}>
         <Stack gap='xs'>
           <Button size='compact-md' loading={locating} variant='light' onClick={() => { setLocating(true); setMessage('Finding your location…'); map.locate({ enableHighAccuracy: true, timeout: 10000 }); }}>Use my location</Button>
-          {mode === 'pick' && <Text size='sm'>Tap the map to place a pin. Drag the pin to adjust it.</Text>}
+          {mode === 'pick' && <><Button size='compact-md' variant='default' onClick={() => { const point = map.getCenter(); onPositionChange?.({ latitude: point.lat, longitude: point.lng }); }}>Place pin at map center</Button><Text size='sm'>Tap the map to place a pin. Drag the pin to adjust it.</Text></>}
           {message && <Text size='sm' role='status'>{message}</Text>}
         </Stack>
       </Paper>
