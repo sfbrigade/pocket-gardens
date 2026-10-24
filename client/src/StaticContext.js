@@ -9,6 +9,7 @@ export const defaultValue = {
   env: {
     VITE_SITE_TITLE: import.meta.env.VITE_SITE_TITLE,
     VITE_FEATURE_REGISTRATION: import.meta.env.VITE_FEATURE_REGISTRATION,
+    VITE_PHOTON_BASE_URL: import.meta.env.VITE_PHOTON_BASE_URL,
   },
 };
 
