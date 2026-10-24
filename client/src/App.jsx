@@ -15,6 +15,7 @@ import AppRedirects from './AppRedirects';
 import AppTheme from './AppTheme';
 import Header from './Header';
 import Home from './Home';
+import PlotForm from './Plots/PlotForm';
 import Login from './Login';
 import InvitesRoutes from './Invites/InvitesRoutes';
 import PasswordsRoutes from './Passwords/PasswordsRoutes';
@@ -56,6 +57,7 @@ function App () {
                       <AppRedirects>
                         <Routes>
                           <Route path='/' element={<Home />} />
+                          <Route path='/plots/new' element={<PlotForm />} />
                           <Route path='/plots/:plotId' element={<Home />} />
                           <Route path='/login' element={<Login />} />
                           <Route path='/passwords/*' element={<PasswordsRoutes />} />
