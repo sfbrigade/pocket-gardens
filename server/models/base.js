@@ -96,7 +96,7 @@ class Base {
     return filePath;
   }
 
-  setAsset (attribute, newValue) {
+  setAsset (attribute, newValue, { retainUpload = false, onCopyTarget } = {}) {
     const value = this[attribute];
     if (value === newValue) {
       return;
@@ -112,8 +112,9 @@ class Base {
       }
       if (newValue) {
         newPath = path.join(assetDirPath, newValue);
+        onCopyTarget?.(newPath);
         await s3.copyObject(path.join(process.env.AWS_S3_BUCKET, '_uploads', newValue), newPath);
-        await s3.deleteObject(path.join('_uploads', newValue));
+        if (!retainUpload) await s3.deleteObject(path.join('_uploads', newValue));
       }
       if (callback) {
         await callback(this.id, prevPath, newPath);

@@ -64,6 +64,7 @@ export const PlotFieldsSchema = z.strictObject({
 });
 
 export const PlotCreateSchema = PlotFieldsSchema.extend({
+  submissionId: z.string().uuid().optional(),
   plants: PlotPlantsInputSchema.optional(),
   stage: z.enum(['potential', 'preparing', 'active']).default('potential'),
   permissionStatus: PermissionStatusSchema.default('unknown'),
@@ -172,13 +173,14 @@ function formatPlotPhotos (photos) {
 /**
  * Persist a Photos filename list with setAsset, then reload the plot with photos.
  */
-export async function syncPlotPhotos (tx, plotId, filenames) {
+export async function syncPlotPhotos (tx, plotId, filenames, assetOptions) {
   const handlers = await syncPhotos({
     delegate: tx.plotPhoto,
     PhotoClass: PlotPhoto,
     parentFk: 'plotId',
     parentId: plotId,
     filenames,
+    assetOptions,
   });
   await runPhotoHandlers(handlers);
 }

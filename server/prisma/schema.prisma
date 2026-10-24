@@ -156,6 +156,8 @@ model Plot {
   permissionStatus     String?
   sunExposure          String?
   environmentalNotes   String?
+  submissionId         String?   @unique @db.Uuid
+  submissionFingerprint String?
   streetAddress        String?
   streetCityAddress    String?
   mapCoordinates       String?
