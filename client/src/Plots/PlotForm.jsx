@@ -85,7 +85,7 @@ export default function PlotForm () {
   const stageLabel = stages.find(({ value }) => value === values.stage)?.label;
   if (capability.isPending) return <Container py='xl'><Loader aria-label='Checking garden creation access' /></Container>;
   if (capability.isError) return <Container py='xl'><Alert color='red' title='Unable to check access'><Button variant='subtle' onClick={() => capability.refetch()}>Try again</Button></Alert></Container>;
-  if (!capability.data.canCreatePlot) return <Container py='xl'><Alert title='Garden creation is not available'>Please sign in as an administrator. Account-free creation is available only in an explicitly enabled development environment.</Alert><Button mt='md' onClick={() => navigate('/')}>Back to map</Button></Container>;
+  if (!capability.data.canCreatePlot) return <Container py='xl'><Alert title='A staff account is needed'>Please sign in with a staff account to create a garden.</Alert><Group mt='md'><Button onClick={() => navigate('/login', { state: { from: '/plots/new' } })}>Sign in</Button><Button variant='subtle' onClick={() => navigate('/')}>Back to map</Button></Group></Container>;
 
   return (
     <Container size='xl' py='md'>
@@ -123,7 +123,7 @@ export default function PlotForm () {
                   <TextInput label='Garden title' description={values.nameEdited ? 'Custom title. Other changes will keep it.' : 'Suggested from the address and exact location. You can edit it.'} {...form.getInputProps('name')} onChange={(event) => { form.setFieldValue('nameEdited', true); form.setFieldValue('name', event.currentTarget.value); }} />
                   {values.nameEdited && suggestions.title && <Button variant='subtle' size='compact-sm' onClick={() => form.setFieldValue('nameEdited', false)}>Reset to suggested title</Button>}
                   <PhotoInput label='Reference photo' description='Optional. A photo that helps somebody recognise this garden.' disabled={mutation.isPending} {...form.getInputProps('photo')} onUploadStateChange={photoChanged} />
-                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>The photo selection did not survive the refresh. Choose it again or continue without it.<Button variant='subtle' onClick={() => form.setFieldValue('photoWasSelected', false)}>Continue without photo</Button></Alert>}
+                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => form.setFieldValue('photoWasSelected', false)}>Continue without photo</Button></Alert>}
                 </Stack>
               </Fieldset>
               <Fieldset legend='3 · Permission and care'>
