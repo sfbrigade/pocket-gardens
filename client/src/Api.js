@@ -67,8 +67,8 @@ const Api = {
   calculateLastPage,
   parseLinkHeader,
   assets: {
-    create (data) {
-      return instance.post('/api/assets', data);
+    create (data, signal) {
+      return instance.post('/api/assets', data, { signal });
     },
     upload (url, headers, file, signal) {
       return instance.put(url, file, { headers, signal });
@@ -159,6 +159,11 @@ const Api = {
         params: { north, south, east, west, offset, pageSize },
         signal,
       });
+    },
+  },
+  plants: {
+    index (params, signal) {
+      return instance.get('/api/plants', { params, signal });
     },
   },
   users: {
