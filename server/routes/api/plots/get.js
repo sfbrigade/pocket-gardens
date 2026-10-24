@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
-import { findPlotByPublicId, formatPlot, PlotSchema } from '#models/plot.js';
+import { findPlotByPublicId, formatPlot, PlotDetailSchema } from '#models/plot.js';
 
 export default async function (fastify, opts) {
   fastify.get('/:id', {
@@ -11,7 +11,7 @@ export default async function (fastify, opts) {
         id: z.string().min(1),
       }),
       response: {
-        [StatusCodes.OK]: PlotSchema,
+        [StatusCodes.OK]: PlotDetailSchema,
         [StatusCodes.NOT_FOUND]: z.null(),
       },
     },

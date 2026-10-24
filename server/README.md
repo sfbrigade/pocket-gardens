@@ -42,6 +42,20 @@ Photos live on `PlotPhoto`, `PlantPhoto`, and `MaintenanceRecordPhoto` (many-to-
 Plot↔Neighborhood is many-to-many (`PlotNeighborhood`) because some Airtable plots link to multiple neighborhoods.
 API plot `id` is the Airtable record id when present; plots created via the API use a synthetic `pg_<uuid>` id. Internal UUIDs are also accepted on GET/PATCH.
 
+## Plot submission API
+
+`POST /api/plots` requires an administrator session. To test account-free creation locally, explicitly set both `NODE_ENV=development` and `ALLOW_ANONYMOUS_PLOT_SUBMISSION=true` in the server environment. Anonymous creation stays disabled in production even if the flag is set. `PATCH /api/plots/:id` remains administrator-only.
+
+`GET /api/plots/capabilities` reports `canCreatePlot` for the current session and `canAssignCarers: false` while the account-linking integration is deferred. Use this response to decide whether to display the development form entry.
+
+Creation requires `Location Description` and either a valid `Latitude`/`Longitude` pair or a valid `Map Coordinates` string. `stage` defaults to `potential`; `permissionStatus` defaults to `unknown`. Additional writable fields include `sunExposure`, `environmentalNotes`, and `firstPlanted` (`YYYY-MM-DD`, active plots only), plus the existing address, name, bed, soil, area, and uploaded-photo fields. Permission is independent of stage: an active garden with unknown permission can be recorded. Empty names receive a fallback containing the public plot ID.
+
+Map list responses contain marker information and photos. Detail responses also include site conditions, the first-planted date, and imported `assignedVolunteers` as IDs/display names; private notes and volunteer contact details are excluded. `stage` is authoritative for new records. Legacy `Status` is preserved for imports and exposed compatibly for new stages. A matching legacy status update preserves `preparing`; a changed recognized status maps to its corresponding stage. Unknown imported statuses remain readable without an invented stage.
+
+Apply committed Prisma migrations before deploying code that needs them. Integration tests now initialize their disposable databases from migrations alone, without `db push`, so missing migrations cannot be silently repaired during testing.
+
+The accepted scope and remaining dependent PRs are described in [the submission plan](../docs/plans/new-plot-submission.md).
+
 ### Migrate existing photos to S3
 
 If photos were imported earlier as JSON columns, re-fetch attachments from Airtable (CDN links expire), stage them in `_uploads/`, and attach rows with `setAsset`.
