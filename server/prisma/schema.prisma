@@ -152,6 +152,10 @@ model Plot {
   airtableId           String    @unique
   name                 String?
   status               String?
+  stage                String?
+  permissionStatus     String?
+  sunExposure          String?
+  environmentalNotes   String?
   streetAddress        String?
   streetCityAddress    String?
   mapCoordinates       String?
@@ -190,6 +194,7 @@ model Plot {
   @@index([zipCodeId])
   @@index([lastVolunteerId])
   @@index([status])
+  @@index([stage])
 }
 
 model PlotNeighborhood {
