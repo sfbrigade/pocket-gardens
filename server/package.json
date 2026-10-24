@@ -20,7 +20,7 @@
     "plots:migrate-photos": "node bin/migrate-plot-photos.js",
     "plots:migrate-photos:dry": "node bin/migrate-plot-photos.js --dry-run",
     "start": "fastify start -l info app.js",
-    "test": "node --test-concurrency 1 --test $(find test -name '*.test.js')",
+    "test": "NODE_ENV=test node --test-concurrency 1 --test $(find test -name '*.test.js')",
     "tsc:watch": "tsc --watch --preserveWatchOutput"
   },
   "license": "AGPL-3.0-only",
