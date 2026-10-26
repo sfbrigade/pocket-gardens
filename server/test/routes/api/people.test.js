@@ -39,6 +39,31 @@ test('/api/people', async (t) => {
     assert.deepStrictEqual(data[0].lastName, 'Smith');
   });
 
+  await t.test('searches People case-insensitively', async (t) => {
+    const response = await app.inject({
+      url: '/api/people?search=bailey'
+    }).headers(adminHeaders);
+
+    assert.deepStrictEqual(response.statusCode, StatusCodes.OK);
+
+    const data = JSON.parse(response.payload);
+    assert.deepStrictEqual(data.length, 1);
+    assert.deepStrictEqual(data[0].firstName, 'Bailey');
+    assert.deepStrictEqual(data[0].lastName, 'Volunteer');
+  });
+
+  await t.test('searches emails case-insensitively', async (t) => {
+    const response = await app.inject({
+      url: '/api/people?search=ALICE@EXAMPLE.COM'
+    }).headers(adminHeaders);
+
+    assert.deepStrictEqual(response.statusCode, StatusCodes.OK);
+
+    const data = JSON.parse(response.payload);
+    assert.deepStrictEqual(data.length, 1);
+    assert.deepStrictEqual(data[0].email, 'alice@example.com');
+  });
+
   await t.test('returns an empty list when no People match', async (t) => {
     const response = await app.inject({
       url: '/api/people?search=Nonexistent'

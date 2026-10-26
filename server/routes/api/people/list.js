@@ -33,10 +33,10 @@ export default async function (fastify, opts) {
       if (search) {
         options.where = {
           OR: [
-            { firstName: { contains: search } },
-            { lastName: { contains: search } },
-            { name: { contains: search } },
-            { email: { contains: search } },
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { name: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
             { phone: { contains: search } },
           ],
         };
