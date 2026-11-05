@@ -12,6 +12,16 @@ export function addressSuggestionPatch (values, result) {
   return { address: result.address };
 }
 
+export function resolvePlotIdentification (values, result) {
+  const address = values.addressEdited
+    ? values.address
+    : addressSuggestionPatch(values, result).address ?? '';
+  return {
+    address,
+    name: values.nameEdited ? values.name : suggestedTitle(address, values.locator),
+  };
+}
+
 export async function lookupAddress (position, { baseUrl, signal, fetchAddress = fetch, distanceTo } = {}) {
   const params = new URLSearchParams({ lat: String(position.latitude), lon: String(position.longitude), limit: '5', lang: 'en', radius: '0.1' });
   const response = await fetchAddress(`${(baseUrl || 'https://photon.komoot.io').replace(/\/$/, '')}/reverse?${params}`, {
