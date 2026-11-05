@@ -35,9 +35,11 @@ When importing Plots, Plants, or Maintenance Records (default), also requires S3
 npx prisma migrate deploy
 npm run airtable:import:dry   # report only (photo estimates work without DATABASE_URL; set it to refine skip counts)
 npm run airtable:import       # upsert into Postgres; photos → S3 via setAsset
+# Exceptional statuses require reviewed public-ID-to-stage mappings:
+npm run airtable:import:dry -- --plot-stage-resolutions=/path/to/resolutions.json
 ```
 
-Photos live on `PlotPhoto`, `PlantPhoto`, and `MaintenanceRecordPhoto` (many-to-one). Each row stores a filename; public URLs look like `/api/assets/plot_photos/{photoId}/file/{filename}` and are served via `GET /api/assets/*`. Plot API responses expose a single merged `Photos` array (Airtable `Photo` + `Photos`). Re-running import skips parents that already have photo rows.
+Photos live on `PlotPhoto`, `PlantPhoto`, and `MaintenanceRecordPhoto` (many-to-one). Each row stores a filename; public URLs look like `/api/assets/plot_photos/{photoId}/file/{filename}` and are served via `GET /api/assets/*`. Plot API responses expose a single merged `Photos` array (Airtable `Photo` + `Photos`). Re-running import skips parents that already have photo rows. Plot lifecycle preflight runs before any writes in both import modes. Planted maps to active and Not Yet Planted to potential; existing stages are preserved. Other nonblank statuses require explicit per-plot stages, and Residents Declined also records permission as not granted. A dry run without DATABASE_URL validates source data only; provide DATABASE_URL to also check existing stages and permissions.
 
 Plot↔Neighborhood is many-to-many (`PlotNeighborhood`) because some Airtable plots link to multiple neighborhoods.
 API plot `id` is the Airtable record id when present; plots created via the API use a synthetic `pg_<uuid>` id. Internal UUIDs are also accepted on GET/PATCH.
@@ -50,11 +52,29 @@ API plot `id` is the Airtable record id when present; plots created via the API 
 
 Creation requires `Location Description` and either a valid `Latitude`/`Longitude` pair or a valid `Map Coordinates` string. `stage` defaults to `potential`; `permissionStatus` defaults to `unknown`. Additional writable fields include `sunExposure`, `environmentalNotes`, and `firstPlanted` (`YYYY-MM-DD`, active plots only), plus the existing address, name, bed, soil, area, and uploaded-photo fields. Permission is independent of stage: an active garden with unknown permission can be recorded. Empty names receive a fallback containing the public plot ID.
 
-Map list responses contain marker information and photos. Detail responses also include site conditions, the first-planted date, and imported `assignedVolunteers` as IDs/display names; private notes and volunteer contact details are excluded. `stage` is authoritative for new records. Legacy `Status` is preserved for imports and exposed compatibly for new stages. A matching legacy status update preserves `preparing`; a changed recognized status maps to its corresponding stage. Unknown imported statuses remain readable without an invented stage.
+Map list responses contain marker information and photos. Detail responses also include site conditions, the first-planted date, and imported `assignedVolunteers` as IDs/display names; private notes and volunteer contact details are excluded. `stage` is the only lifecycle field. `Status` is rejected on POST/PATCH and omitted from responses. Imported rows with no source status may have a null stage. Lifecycle labels are displayed from stage, independently of permission.
 
-Apply committed Prisma migrations before deploying code that needs them. Integration tests now initialize their disposable databases from migrations alone, without `db push`, so missing migrations cannot be silently repaired during testing.
+For an existing database, complete the stage conversion below before deploying the guarded status-removal migration. Development startup stops if migration fails and never runs `db push --accept-data-loss`. Integration tests initialize their disposable databases from committed migrations alone, without schema repair.
 
-The accepted scope and remaining dependent PRs are described in [the submission plan](../docs/plans/new-plot-submission.md).
+### Convert existing plot statuses
+
+Back up the target database and stop application writers before conversion. The additive stage/permission migration must already be applied; if needed, apply the pre-removal foundation revision's migrations first. Fresh empty databases can apply the full migration chain directly.
+
+From the server workspace, export a read-only preflight report before making changes:
+
+```sh
+npm run plots:migrate-stages > /secure/path/plot-stage-before.json
+npm run plots:migrate-stages -- --resolutions=prisma/plot-stage-resolutions.json
+npm run plots:migrate-stages -- --apply --resolutions=prisma/plot-stage-resolutions.json
+npx prisma migrate deploy
+npm run prisma:generate
+```
+
+The [resolution file](prisma/plot-stage-resolutions.json) records the maintainer's provisional paused stage for six specific Residents Declined plots; permission becomes not granted. Use a file matching the target dataset: unresolved statuses, unmatched IDs, and conflicts with existing stages or permission values block application. Preflight exits nonzero when unresolved records exist, while still writing its JSON report. Keep database exports outside the repository.
+
+Conversion preserves existing canonical stages and planting history. The removal migration backfills recognized statuses and refuses to drop the old column while exceptional records remain unresolved. If a prior failed attempt is recorded, fix the data and mark only that rolled-back attempt with `npx prisma migrate resolve --rolled-back 20261104000000_plot_stage_only` before retrying deployment. Verify migration status, plot reads, and authorized writes before restarting traffic. Restore the database backup and previous application revision together if rollback is needed; raw statuses cannot be reconstructed from stage alone.
+
+For subsequent Airtable imports, pass `--plot-stage-resolutions=prisma/plot-stage-resolutions.json` from the server workspace when that file matches the complete fetched plot batch.
 
 ### Migrate existing photos to S3
 

@@ -151,7 +151,6 @@ model Plot {
   id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   airtableId           String    @unique
   name                 String?
-  status               String?
   stage                String?
   permissionStatus     String?
   sunExposure          String?
@@ -193,7 +192,6 @@ model Plot {
   @@index([latitude, longitude])
   @@index([zipCodeId])
   @@index([lastVolunteerId])
-  @@index([status])
   @@index([stage])
 }
 

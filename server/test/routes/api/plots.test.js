@@ -92,7 +92,7 @@ test('/api/plots', async (t) => {
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.id, 'recPlotAlpha');
-    assert.strictEqual(data.Status, 'Planted');
+    assert.strictEqual(data.stage, 'active');
     assert.strictEqual(data.Latitude, 37.78);
     assert.strictEqual(data.Photo, undefined);
     assert.deepStrictEqual(data.Photos, [
@@ -128,7 +128,7 @@ test('/api/plots', async (t) => {
       headers,
       payload: {
         ...validPlot,
-        Status: 'Planted',
+        stage: 'active',
         'Bed Type': 'Tree Well',
         'Map Coordinates': '37.77, -122.43',
       },
@@ -151,7 +151,7 @@ test('/api/plots', async (t) => {
       url: '/api/plots/recPlotBeta',
       headers,
       payload: {
-        Status: 'Planted',
+        stage: 'active',
         Latitude: 37.761,
         Longitude: -122.441,
       },
@@ -159,11 +159,11 @@ test('/api/plots', async (t) => {
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.id, 'recPlotBeta');
-    assert.strictEqual(data.Status, 'Planted');
+    assert.strictEqual(data.stage, 'active');
     assert.strictEqual(data.Latitude, 37.761);
 
     const row = await prisma.plot.findUnique({ where: { airtableId: 'recPlotBeta' } });
-    assert.strictEqual(row.status, 'Planted');
+    assert.strictEqual(row.stage, 'active');
     assert.strictEqual(row.latitude, 37.761);
   });
 
@@ -200,7 +200,7 @@ test('/api/plots', async (t) => {
       headers,
       payload: {
         ...validPlot,
-        Status: 'Planted',
+        stage: 'active',
         Photos: [filename],
       },
     });
@@ -265,7 +265,7 @@ test('/api/plots', async (t) => {
     assert.equal(created.statusCode, StatusCodes.CREATED);
     const plot = created.json();
     for (const [key, value] of Object.entries(payload)) assert.deepEqual(plot[key], value);
-    assert.equal(plot.Status, 'Planted');
+    assert.equal(plot.Status, undefined);
 
     const row = await prisma.plot.findUnique({ where: { airtableId: plot.id } });
     assert.equal(row.stage, 'active');
@@ -310,7 +310,8 @@ test('/api/plots', async (t) => {
       { ...validPlot, Longitude: null },
       { 'Map Coordinates': '91, 181', 'Location Description': 'First well' },
       { ...validPlot, stage: 'archived' },
-      { ...validPlot, stage: 'preparing', Status: 'Planted' },
+      { ...validPlot, Status: 'Planted' },
+      { ...validPlot, stage: 'active', Status: 'Planted' },
       { ...validPlot, permissionStatus: 'maybe' },
       { ...validPlot, sunExposure: 'very sunny' },
       { ...validPlot, 'Est. Area (Sq. Ft)': -1 },
@@ -338,23 +339,30 @@ test('/api/plots', async (t) => {
     assert.equal(response.json()["Seth's Notes"], undefined);
     assert.ok(!response.body.includes('alex@example.com'));
     const unchanged = await prisma.plot.findUnique({ where: { id: plot.id } });
-    assert.equal(unchanged.stage, null);
+    assert.equal(unchanged.stage, 'active');
   });
 
-  await t.test('PATCH / reconciles legacy statuses with stage and preserves preparing on matching status', async () => {
+  await t.test('PATCH / preserves omitted values and validates stage and planting dates', async () => {
     const headers = await authenticate(app, 'admin.user@test.com', 'test');
     const patch = (payload) => app.inject({ method: 'PATCH', url: '/api/plots/recPlotBeta', headers, payload });
-    assert.equal((await patch({ stage: 'preparing' })).json().stage, 'preparing');
-    assert.equal((await patch({ Status: 'Not Yet Planted' })).json().stage, 'preparing');
-    assert.equal((await patch({ Status: 'Planted' })).json().stage, 'active');
-    assert.equal((await patch({ Status: 'Something else' })).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-    assert.equal((await patch({ stage: 'potential', Status: 'Planted' })).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-    assert.equal((await patch({})).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-    assert.equal((await patch({ firstPlanted: '2026-10-01' })).statusCode, StatusCodes.OK);
+    for (const stage of ['potential', 'preparing', 'active', 'paused', 'archived']) {
+      assert.equal((await patch({ stage })).json().stage, stage);
+    }
+    assert.equal((await patch({ stage: 'active', firstPlanted: '2026-10-01' })).statusCode, StatusCodes.OK);
+    const partial = await patch({ 'Street Address': 'New address' });
+    assert.equal(partial.json().stage, 'active');
+    assert.equal(partial.json().firstPlanted, '2026-10-01');
+    assert.equal((await patch({ stage: 'paused' })).json().firstPlanted, '2026-10-01');
+    const invalidDate = await patch({ firstPlanted: '2026-10-02' });
+    assert.equal(invalidDate.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    assert.equal(invalidDate.json().errors[0].path, 'firstPlanted');
     assert.equal((await patch({ firstPlanted: null })).json().firstPlanted, null);
+    for (const payload of [{}, { stage: 'invalid' }, { Status: 'Planted' }, { stage: 'active', Status: 'Planted' }]) {
+      assert.equal((await patch(payload)).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    }
     const row = await prisma.plot.findUnique({ where: { airtableId: 'recPlotBeta' } });
-    assert.equal(row.stage, 'active');
-    assert.equal(row.status, 'Planted');
+    assert.equal(row.stage, 'paused');
+    assert.equal(row.originalPlantDate, null);
   });
 
   await t.test('writes require administrators and capabilities reflect the session', async () => {
@@ -368,19 +376,15 @@ test('/api/plots', async (t) => {
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: admin })).json(), { canCreatePlot: true, canAssignCarers: false });
   });
 
-  await t.test('legacy free-text statuses remain readable without inventing a stage', async () => {
-    const headers = await authenticate(app, 'admin.user@test.com', 'test');
-    const response = await app.inject({
-      method: 'PATCH',
-      url: '/api/plots/recPlotOutside',
-      headers,
-      payload: { Status: 'Needs a visit' },
-    });
-    assert.equal(response.statusCode, StatusCodes.OK);
-    assert.equal(response.json().Status, 'Needs a visit');
-    assert.equal(response.json().stage, undefined);
-    const row = await prisma.plot.findUnique({ where: { airtableId: 'recPlotOutside' } });
-    assert.equal(row.stage, null);
+  await t.test('unrecorded stages remain null in detail and summary responses', async () => {
+    await prisma.plot.update({ where: { airtableId: 'recPlotOutside' }, data: { stage: null } });
+    const detail = await app.inject({ url: '/api/plots/recPlotOutside' });
+    assert.equal(detail.statusCode, StatusCodes.OK);
+    assert.equal(detail.json().stage, null);
+    assert.equal(detail.json().Status, undefined);
+    const list = await app.inject({ url: '/api/plots' });
+    assert.equal(list.json().find(({ id }) => id === 'recPlotOutside').stage, null);
+    assert.ok(list.json().every((plot) => !Object.hasOwn(plot, 'Status')));
   });
 
   await t.test('anonymous creation requires an explicit development setting and stays disabled in production', async () => {

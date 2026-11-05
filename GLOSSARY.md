@@ -14,7 +14,7 @@ _Avoid_: Garden as a separate level above plot.
 
 **Garden stage**:
 The lifecycle condition of a plot, such as potential, preparing, or active. It describes the garden's actual condition independently of whether permission has been confirmed.
-_Avoid_: Permission or review status as a synonym for garden stage.
+_Avoid_: Permission, review status, or an imported source status as a synonym for garden stage.
 
 **Permission status**:
 What is known about permission to garden at a particular plot. An active garden can have unknown or unconfirmed permission.

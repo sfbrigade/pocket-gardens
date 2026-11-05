@@ -2,18 +2,11 @@ import { errorCodes } from 'fastify';
 import { z } from 'zod';
 
 import { parseMapCoordinates } from '#lib/airtable-schema.js';
+import { firstPlantedIssue, PLOT_STAGES } from '#lib/plot-lifecycle.js';
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import PlotPhoto from '#models/plot-photo.js';
 
-export const STAGE_STATUSES = {
-  potential: 'Not Yet Planted',
-  preparing: 'Not Yet Planted',
-  active: 'Planted',
-  paused: 'Paused',
-  archived: 'Archived',
-};
-const LEGACY_STAGES = new Map([['Planted', 'active'], ['Not Yet Planted', 'potential']]);
-export const PlotStageSchema = z.enum(['potential', 'preparing', 'active', 'paused', 'archived']);
+export const PlotStageSchema = z.enum(PLOT_STAGES);
 export const PermissionStatusSchema = z.enum(['unknown', 'needed', 'progress', 'confirmed', 'not_required', 'not_granted']);
 const SunExposureSchema = z.enum(['Full sun', 'Partial sun', 'Shade', 'Unknown']);
 
@@ -22,7 +15,6 @@ export const PlotSchema = z.strictObject({
   createdTime: z.string(),
   Latitude: z.number().optional().nullable(),
   Longitude: z.number().optional().nullable(),
-  Status: z.string().optional().nullable(),
   stage: PlotStageSchema.optional().nullable(),
   'Bed Type': z.string().optional().nullable(),
   'Pocket Garden Name': z.string().optional().nullable(),
@@ -50,7 +42,6 @@ export const PlotDetailSchema = PlotSchema.extend({
 export const PlotFieldsSchema = z.strictObject({
   Latitude: z.number().min(-90).max(90).optional(),
   Longitude: z.number().min(-180).max(180).optional(),
-  Status: z.string().optional(),
   stage: PlotStageSchema.optional(),
   permissionStatus: PermissionStatusSchema.optional(),
   sunExposure: SunExposureSchema.optional(),
@@ -71,7 +62,8 @@ export const PlotFieldsSchema = z.strictObject({
 });
 
 export const PlotCreateSchema = PlotFieldsSchema.extend({
-  stage: z.enum(['potential', 'preparing', 'active']).optional(),
+  stage: z.enum(['potential', 'preparing', 'active']).default('potential'),
+  permissionStatus: PermissionStatusSchema.default('unknown'),
   'Location Description': z.string().trim().min(1, 'Describe exactly where the plot is'),
 }).superRefine((body, ctx) => {
   const parsed = parseMapCoordinates(body['Map Coordinates']);
@@ -83,13 +75,8 @@ export const PlotCreateSchema = PlotFieldsSchema.extend({
   if (!Number.isFinite(longitude) || Math.abs(longitude) > 180) {
     ctx.addIssue({ code: 'custom', path: ['Longitude'], message: 'Set a valid map longitude' });
   }
-  const stage = body.stage ?? LEGACY_STAGES.get(body.Status) ?? 'potential';
-  if (body.Status !== undefined && body.Status !== STAGE_STATUSES[stage]) {
-    ctx.addIssue({ code: 'custom', path: ['Status'], message: 'Status must agree with the garden stage' });
-  }
-  if (body.firstPlanted && stage !== 'active') {
-    ctx.addIssue({ code: 'custom', path: ['firstPlanted'], message: 'First planted is only recorded for active gardens' });
-  }
+  const issue = firstPlantedIssue(body.stage, body.firstPlanted);
+  if (issue) ctx.addIssue(issue);
 });
 
 export const PlotUpdateSchema = PlotFieldsSchema.refine((body) => Object.keys(body).length > 0, {
@@ -99,10 +86,6 @@ export const PlotUpdateSchema = PlotFieldsSchema.refine((body) => Object.keys(bo
 
 export function allowsAnonymousPlotCreation (env = process.env) {
   return env.NODE_ENV === 'development' && env.ALLOW_ANONYMOUS_PLOT_SUBMISSION === 'true';
-}
-
-export function plotStage (plot) {
-  return plot.stage ?? LEGACY_STAGES.get(plot.status);
 }
 
 /**
@@ -120,8 +103,7 @@ export function formatPlotSummary (plot) {
     createdTime,
     Latitude: plot.latitude ?? undefined,
     Longitude: plot.longitude ?? undefined,
-    Status: STAGE_STATUSES[plot.stage] ?? plot.status ?? undefined,
-    stage: plotStage(plot),
+    stage: plot.stage ?? null,
     'Bed Type': plot.bedType ?? undefined,
     'Pocket Garden Name': plot.name ?? undefined,
     'Street Address': plot.streetAddress ?? undefined,
@@ -218,25 +200,13 @@ export function findPlotByPublicId (prisma, id) {
  */
 export function plotFieldsFromBody (body = {}, existing) {
   const data = {};
-  let stage = body.stage;
-  if (stage && body.Status !== undefined && body.Status !== STAGE_STATUSES[stage]) {
-    throw invalidPlotField('Status', 'Status must agree with the garden stage');
-  }
-  if (!stage && body.Status !== undefined && existing?.stage) {
-    stage = body.Status === STAGE_STATUSES[existing.stage] ? existing.stage : LEGACY_STAGES.get(body.Status);
-    if (!stage) throw invalidPlotField('Status', 'Use a valid garden stage for this plot');
-  }
-  if (stage) {
-    data.stage = stage;
-    data.status = STAGE_STATUSES[stage];
-  } else if (body.Status !== undefined) data.status = body.Status;
+  if (body.stage !== undefined) data.stage = body.stage;
   if (body.permissionStatus !== undefined) data.permissionStatus = body.permissionStatus;
   if (body.sunExposure !== undefined) data.sunExposure = body.sunExposure;
   if (body.environmentalNotes !== undefined) data.environmentalNotes = body.environmentalNotes;
   if (body.firstPlanted !== undefined) {
-    if (body.firstPlanted && (stage ?? existing?.stage ?? LEGACY_STAGES.get(body.Status ?? existing?.status)) !== 'active') {
-      throw invalidPlotField('firstPlanted', 'First planted is only recorded for active gardens');
-    }
+    const issue = firstPlantedIssue(body.stage ?? existing?.stage, body.firstPlanted);
+    if (issue) throw invalidPlotField(issue.path[0], issue.message);
     data.originalPlantDate = body.firstPlanted ? new Date(`${body.firstPlanted}T00:00:00.000Z`) : null;
   }
   if (body['Bed Type'] !== undefined) data.bedType = body['Bed Type'];

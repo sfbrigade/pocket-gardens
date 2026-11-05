@@ -7,7 +7,6 @@ import {
   plotFieldsFromBody,
   PlotCreateSchema,
   PlotDetailSchema,
-  plotStage,
   reloadPlotWithPhotos,
   syncPlotPhotos,
 } from '#models/plot.js';
@@ -26,11 +25,7 @@ export default async function (fastify, opts) {
       if (!allowsAnonymousPlotCreation()) return fastify.requireAdmin(request, reply);
     },
   }, async function (request, reply) {
-    const fields = plotFieldsFromBody({
-      ...request.body,
-      stage: request.body.stage ?? plotStage({ status: request.body.Status }) ?? 'potential',
-      permissionStatus: request.body.permissionStatus ?? 'unknown',
-    });
+    const fields = plotFieldsFromBody(request.body);
     fields.mapCoordinates = `${fields.latitude}, ${fields.longitude}`;
     const { Photos } = request.body;
     const publicId = `pg_${crypto.randomUUID()}`;
