@@ -41,6 +41,7 @@ export async function createPlotPlants (tx, plot, entries = []) {
     error.validation = [{ params: { issue: { path: ['plants'], message: 'A selected plant no longer exists' } } }];
     throw error;
   }
+  const plantings = [];
   for (const entry of entries) {
     let plantId = entry.plantId;
     if (entry.newPlant) {
@@ -49,14 +50,13 @@ export async function createPlotPlants (tx, plot, entries = []) {
       });
       plantId = plant.id;
     }
-    await tx.plotPlant.create({
-      data: {
-        plotId: plot.id,
-        plantId,
-        quantity: entry.quantity,
-        notes: entry.notes,
-        state: plot.stage === 'active' ? 'current' : 'planned',
-      },
+    plantings.push({
+      plotId: plot.id,
+      plantId,
+      quantity: entry.quantity,
+      notes: entry.notes,
+      state: plot.stage === 'active' ? 'current' : 'planned',
     });
   }
+  if (plantings.length) await tx.plotPlant.createMany({ data: plantings });
 }
