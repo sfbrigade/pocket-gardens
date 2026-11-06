@@ -183,7 +183,7 @@ export function isUuid (value) {
 /**
  * Look up a Plot by public id (Airtable record id or internal UUID).
  */
-export function findPlotByPublicId (prisma, id) {
+export function findPlotByPublicId (prisma, id, { select } = {}) {
   return prisma.plot.findFirst({
     where: {
       OR: [
@@ -191,7 +191,7 @@ export function findPlotByPublicId (prisma, id) {
         ...(isUuid(id) ? [{ id }] : []),
       ],
     },
-    include: PLOT_DETAIL_INCLUDE,
+    ...(select ? { select } : { include: PLOT_DETAIL_INCLUDE }),
   });
 }
 

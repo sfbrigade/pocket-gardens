@@ -27,7 +27,9 @@ export default async function (fastify, opts) {
     },
     onRequest: fastify.requireAdmin,
   }, async function (request, reply) {
-    const existing = await findPlotByPublicId(fastify.prisma, request.params.id);
+    const existing = await findPlotByPublicId(fastify.prisma, request.params.id, {
+      select: { id: true, stage: true },
+    });
     if (!existing) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }
