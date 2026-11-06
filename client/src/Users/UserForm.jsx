@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { Alert, Button, Checkbox, Container, Fieldset, Group, Loader, Stack, TextInput, Title } from '@mantine/core';
 import { hasLength, isEmail, isNotEmpty, useForm } from '@mantine/form';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
@@ -26,6 +26,7 @@ function UserForm () {
 
 function UserEditor ({ userId, user }) {
   const authContext = useAuthContext();
+  const queryClient = useQueryClient();
   const location = useLocation();
 
   const form = useForm({
@@ -52,9 +53,12 @@ function UserEditor ({ userId, user }) {
     mutationFn: (values) => Api.users.update(userId, values),
     onMutate: () => setSuccess(false),
     onSuccess: (response) => {
+      queryClient.setQueryData(['users', userId], response);
       if (userId === authContext.user.id) {
+        queryClient.setQueryData(['users', 'me'], response.data);
         authContext.setUser(response.data);
       }
+      queryClient.invalidateQueries({ queryKey: ['users'] });
       setSuccess(true);
     },
     onError: (errors) => form.setErrors(errors),
