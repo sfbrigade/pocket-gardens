@@ -48,7 +48,7 @@ API plot `id` is the Airtable record id when present; plots created via the API 
 
 `POST /api/plots` requires an administrator session. To test account-free creation locally, explicitly set both `NODE_ENV=development` and `ALLOW_ANONYMOUS_PLOT_SUBMISSION=true` in the server environment. Anonymous creation stays disabled in production even if the flag is set. `PATCH /api/plots/:id` remains administrator-only.
 
-`GET /api/plots/capabilities` reports `canCreatePlot` for the current session and `canAssignCarers: false` while the account-linking integration is deferred. Use this response to decide whether to display the development form entry.
+`GET /api/plots/capabilities` reports `canCreatePlot` for the current session. Use this response to decide whether to display the form entry. Carer assignment remains unavailable until the account-linking integration is ready.
 
 Creation requires `Location Description` and either a valid `Latitude`/`Longitude` pair or a valid `Map Coordinates` string. `stage` defaults to `potential`; `permissionStatus` defaults to `unknown`. Additional writable fields include `sunExposure`, `environmentalNotes`, and `firstPlanted` (`YYYY-MM-DD`, active plots only), plus the existing address, name, bed, soil, area, and uploaded-photo fields. Permission is independent of stage: an active garden with unknown permission can be recorded. Empty names receive a fallback containing the public plot ID.
 

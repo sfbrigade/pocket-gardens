@@ -370,10 +370,10 @@ test('/api/plots', async (t) => {
     for (const [headers, expected] of [[{}, StatusCodes.UNAUTHORIZED], [member, StatusCodes.FORBIDDEN]]) {
       assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers, payload: validPlot })).statusCode, expected);
       assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers, payload: { stage: 'active' } })).statusCode, expected);
-      assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: false, canAssignCarers: false });
+      assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: false });
     }
     const admin = await authenticate(app, 'admin.user@test.com', 'test');
-    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: admin })).json(), { canCreatePlot: true, canAssignCarers: false });
+    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: admin })).json(), { canCreatePlot: true });
   });
 
   await t.test('unrecorded stages remain null in detail and summary responses', async () => {
