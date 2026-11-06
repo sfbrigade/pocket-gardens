@@ -13,8 +13,8 @@ import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
 import usePlotSuggestions from './usePlotSuggestions';
-import { resolvePlotIdentification } from './plot-identification';
-import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, plotPayload, soils, stages, sunLevels } from './plot-form';
+import { matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
+import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, soils, stages, sunLevels } from './plot-form';
 
 function RefreshGuard () {
   useBeforeUnload(useCallback((event) => { event.preventDefault(); event.returnValue = true; }, []));
@@ -59,11 +59,13 @@ export default function PlotForm () {
       queryClient.invalidateQueries({ queryKey: ['plots'] });
     },
   });
-  const suggestions = usePlotSuggestions(form.values, mutation.isPending);
+  const previousAttempt = matchingPlotSubmission(form.values);
+  const suggestions = usePlotSuggestions(form.values, mutation.isPending || !!previousAttempt);
+  const attemptedPayload = mutation.isPending ? mutation.variables : previousAttempt?.payload;
   const values = {
     ...form.values,
-    ...(mutation.isPending
-      ? { address: mutation.variables['Street Address'] ?? '', name: mutation.variables['Pocket Garden Name'] ?? '' }
+    ...(attemptedPayload
+      ? { address: attemptedPayload['Street Address'] ?? '', name: attemptedPayload['Pocket Garden Name'] ?? '' }
       : suggestions.identification),
   };
   const needsPhoto = values.photoWasSelected && !values.photo && photoState === 'idle';
@@ -100,9 +102,11 @@ export default function PlotForm () {
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing='xl'>
         <form onSubmit={form.onSubmit((draft) => {
           if (blockedPhoto) return;
+          const attempt = preparePlotSubmission(draft, suggestions.result);
+          form.setFieldValue('submissionAttempt', attempt);
           // Per-call callbacks belong to this mounted form. A save that outlives
           // navigation still updates the cache without clearing a newer draft.
-          mutation.mutate(plotPayload({ ...draft, ...resolvePlotIdentification(draft, suggestions.result) }), {
+          mutation.mutate(attempt.payload, {
             onSuccess: ({ data }) => {
               hydrated.current = false;
               removeSaved();
@@ -123,7 +127,7 @@ export default function PlotForm () {
                   <Button onClick={openMap} variant='light'>Choose or adjust the map location</Button>
                   {values.position ? <Paper withBorder p='sm'><Text fw={600}>Location set</Text><Text size='sm'>{values.position.latitude.toFixed(5)}, {values.position.longitude.toFixed(5)}{values.position.accuracy != null && ` · ±${Math.round(values.position.accuracy)} m`}</Text></Paper> : <Text c='dimmed'>A map pin is required. Use your location or tap the map.</Text>}
                   {form.errors.position && <Text c='red' role='alert'>{form.errors.position}</Text>}
-                  <TextInput label='Address or cross street' description={suggestions.addressNote} {...form.getInputProps('address')} value={values.address} onChange={(event) => { form.setFieldValue('addressEdited', true); form.setFieldValue('address', event.currentTarget.value); }} />
+                  <TextInput label='Address or cross street' description={previousAttempt && !values.addressEdited ? 'Retained from your last save attempt. You can edit it.' : suggestions.addressNote} {...form.getInputProps('address')} value={values.address} onChange={(event) => { form.setFieldValue('addressEdited', true); form.setFieldValue('address', event.currentTarget.value); }} />
                   <Text size='xs' c='dimmed'>Address suggestions use Photon and <Anchor href='https://www.openstreetmap.org/copyright' target='_blank' rel='noopener'>OpenStreetMap data</Anchor>. Confirm the address before saving.</Text>
                   <Textarea label='Where exactly is it?' description='Street side, plot order, or a fixed landmark, such as the second tree well north of the blue gate.' required autosize minRows={2} {...form.getInputProps('locator')} />
                   <TextInput label='Garden title' description={values.nameEdited ? 'Custom title. Other changes will keep it.' : 'Suggested from the address and exact location. You can edit it.'} {...form.getInputProps('name')} value={values.name} onChange={(event) => { form.setFieldValue('nameEdited', true); form.setFieldValue('name', event.currentTarget.value); }} />

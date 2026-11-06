@@ -4,6 +4,8 @@ import { test } from 'node:test';
 
 import { assetExists, authenticate, build, upload } from '#test/helper.js';
 import s3 from '#lib/s3.js';
+import { createPlotDraft } from '../../../../client/src/Plots/plot-form.js';
+import { preparePlotSubmission } from '../../../../client/src/Plots/plot-submission.js';
 
 test('plot submission recovery', async (t) => {
   const app = await build(t);
@@ -18,6 +20,32 @@ test('plot submission recovery', async (t) => {
     plants: [{ newPlant: { plantName: 'Yarrow' }, quantity: 2 }],
   });
   const create = (payload) => app.inject({ method: 'POST', url: '/api/plots', headers, payload });
+
+  await t.test('a refreshed client draft replays suggested fields and still rejects intentional edits', async () => {
+    const values = {
+      ...createPlotDraft(),
+      position: { latitude: 37.77, longitude: -122.43 },
+      locator: 'Second tree well',
+      stage: 'active',
+      plants: [{ newPlant: { plantName: 'Yarrow' }, quantity: 2, notes: '' }],
+    };
+    const result = { position: values.position, address: '440 5th Avenue, San Francisco' };
+    const attempt = preparePlotSubmission(values, result);
+    const first = await create(attempt.payload);
+    assert.equal(first.statusCode, 201);
+    const restored = JSON.parse(JSON.stringify({ ...values, submissionAttempt: attempt }));
+    for (const suggestion of [undefined, { ...result, address: 'Different address' }]) {
+      const retry = await create(preparePlotSubmission(restored, suggestion).payload);
+      assert.equal(retry.statusCode, 200);
+      assert.deepEqual(retry.json(), first.json());
+    }
+    const changed = preparePlotSubmission({ ...restored, locator: 'Third tree well' }, result);
+    const conflict = await create(changed.payload);
+    assert.equal(conflict.statusCode, 409);
+    assert.equal(conflict.json().plotId, first.json().id);
+    assert.equal(await prisma.plot.count(), 4);
+    assert.equal(await prisma.plant.count(), 4);
+  });
 
   await t.test('replays a saved draft without duplicating plots or directory plants', async () => {
     const payload = draft();
