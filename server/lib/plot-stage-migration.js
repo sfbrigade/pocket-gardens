@@ -22,10 +22,18 @@ export async function migratePlotStages (prisma, { apply = false, resolutions = 
     if (apply) {
       if (columns.length !== 3) throw new Error('Apply the additive plot-submission migration before applying stage resolutions');
       if (plan.unresolved.length) throw new Error('Resolve every reported plot before applying stage resolutions');
-      for (const row of plan.updates) {
+      const previousById = new Map(snapshot.map((row) => [row.airtableId, row]));
+      const changes = plan.updates.filter((row) => {
+        const previous = previousById.get(row.airtableId);
+        return row.stage !== previous.stage || row.permissionStatus !== previous.permissionStatus;
+      });
+      if (changes.length) {
         await tx.$executeRaw`
-          UPDATE "Plot" SET stage = ${row.stage}, "permissionStatus" = ${row.permissionStatus}
-          WHERE "airtableId" = ${row.airtableId}
+          UPDATE "Plot" AS plot
+          SET stage = changes.stage, "permissionStatus" = changes."permissionStatus"
+          FROM jsonb_to_recordset(${JSON.stringify(changes)}::jsonb)
+            AS changes("airtableId" text, stage text, "permissionStatus" text)
+          WHERE plot."airtableId" = changes."airtableId"
         `;
       }
     }

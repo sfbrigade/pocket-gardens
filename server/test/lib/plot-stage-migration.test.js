@@ -32,6 +32,13 @@ test('stage-only upgrade preserves data and refuses unresolved lifecycle values'
       ('recPotential', 'Not Yet Planted', NULL, NULL, NULL),
       ('recDeclined', 'Residents Declined', NULL, NULL, '2024-12-05'),
       ('recMissing', NULL, NULL, NULL, NULL)`);
+    await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS "PlotStageWrites"');
+    await prisma.$executeRawUnsafe('CREATE TABLE "PlotStageWrites" ("airtableId" TEXT)');
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION track_plot_stage_write() RETURNS trigger AS $$
+      BEGIN INSERT INTO "PlotStageWrites" VALUES (NEW."airtableId"); RETURN NEW; END;
+    $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER track_plot_stage_write AFTER UPDATE ON "Plot"
+      FOR EACH ROW EXECUTE FUNCTION track_plot_stage_write()`);
   });
 
   await t.test('preflight is read-only and apply refuses partial resolution', async () => {
@@ -47,6 +54,17 @@ test('stage-only upgrade preserves data and refuses unresolved lifecycle values'
     await assert.rejects(deploy(), /Unresolved plot lifecycle data/);
     const [row] = await prisma.$queryRaw`SELECT status, stage FROM "Plot" WHERE "airtableId" = 'recActive'`;
     assert.deepEqual(row, { status: 'Planted', stage: null });
+  });
+
+  await t.test('conversion updates only changed plots and repeated application writes nothing', async () => {
+    const options = { apply: true, resolutions: { recDeclined: 'paused' } };
+    await migratePlotStages(prisma, options);
+    const writes = await prisma.$queryRaw`SELECT "airtableId" FROM "PlotStageWrites" ORDER BY "airtableId"`;
+    assert.deepEqual(writes.map(({ airtableId }) => airtableId), ['recActive', 'recDeclined', 'recPotential']);
+    await prisma.$executeRawUnsafe('TRUNCATE "PlotStageWrites"');
+    await migratePlotStages(prisma, options);
+    const repeated = await prisma.$queryRaw`SELECT * FROM "PlotStageWrites"`;
+    assert.deepEqual(repeated, []);
   });
 
   await t.test('reviewed resolutions preserve stages, permissions, and dates before removing status', async () => {
