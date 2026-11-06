@@ -131,6 +131,8 @@ function LeafletContainer ({ mode = 'explore', position, onPositionChange, selec
     <MapContainer
       center={[37.7749, -122.4194]}
       zoom={13}
+      // Picker views can unmount mid-zoom; Leaflet's zoom callback outlives the removed map.
+      zoomAnimation={mode !== 'pick'}
       minZoom={13}
       maxBounds={SAN_FRANCISCO_BOUNDS}
       maxBoundsViscosity={1}
