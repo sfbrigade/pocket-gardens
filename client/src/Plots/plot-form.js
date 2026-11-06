@@ -11,6 +11,7 @@ export const sunLevels = ['Full sun', 'Partial sun', 'Shade', 'Unknown'];
 export function createPlotDraft () {
   return {
     submissionId: uuid(),
+    submissionAttempt: null,
     stage: 'potential',
     position: null,
     address: '',
