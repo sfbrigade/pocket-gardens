@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBeforeUnload, useNavigate } from 'react-router';
-import { Alert, Box, Button, Container, Fieldset, Group, Loader, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
-import { useDisclosure, useMounted, useSessionStorage } from '@mantine/hooks';
+import { Alert, Box, Button, Container, Fieldset, Group, Loader, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, useMantineTheme } from '@mantine/core';
+import { useDisclosure, useMediaQuery, useMounted, useSessionStorage } from '@mantine/hooks';
 import { isNotEmpty, useForm } from '@mantine/form';
 import { modals } from '@mantine/modals';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,6 +22,8 @@ function RefreshGuard () {
 export default function PlotForm () {
   useHead({ title: 'Create a garden' });
   const mounted = useMounted();
+  const theme = useMantineTheme();
+  const desktop = useMediaQuery(`(min-width: ${theme.breakpoints.md})`, false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [initial] = useState(createPlotDraft);
@@ -164,7 +166,7 @@ export default function PlotForm () {
             </Stack>
           </Fieldset>
         </form>
-        <Box visibleFrom='md' style={{ position: 'sticky', top: 80, height: 'min(76dvh, 760px)', alignSelf: 'start', borderRadius: 12, overflow: 'hidden' }}>{map}</Box>
+        {desktop && !mapOpened && <Box style={{ position: 'sticky', top: 80, height: 'min(76dvh, 760px)', alignSelf: 'start', borderRadius: 12, overflow: 'hidden' }}>{map}</Box>}
       </SimpleGrid>
       <Modal opened={mapOpened} onClose={closeMap} fullScreen title='Where is the garden?' keepMounted={false}>
         <Box h='calc(100dvh - 150px)'>{mapOpened && map}</Box><Button fullWidth mt='md' disabled={!values.position} onClick={closeMap}>Use this location</Button>
