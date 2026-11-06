@@ -6,12 +6,19 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 
 import { createClient } from '#prisma/client.js';
-import { migratePlotStages } from '#lib/plot-stage-migration.js';
 
-const migration = fileURLToPath(new URL('../../prisma/migrations/20261104000000_plot_stage_only/migration.sql', import.meta.url));
+const migration = fileURLToPath(new URL('../../prisma/migrations/20261024000000_plot_submission_fields/migration.sql', import.meta.url));
 const serverDir = fileURLToPath(new URL('../../', import.meta.url));
+const declinedIds = [
+  'rec87crQlQLX2wSdC',
+  'recfTnZp3A2pPPV8G',
+  'recgqSd4PpKQSjP2W',
+  'rectjw1tcU6XdF7NK',
+  'recVhA0CGGBh4bG1i',
+  'recyxppURE0mZZdpf',
+];
 
-test('stage-only upgrade preserves data and refuses unresolved lifecycle values', async (t) => {
+test('plot submission upgrade converts legacy data atomically', async (t) => {
   const container = await new PostgreSqlContainer('postgres:18.3').start();
   t.after(() => container.stop());
   const databaseUrl = container.getConnectionUri();
@@ -23,73 +30,63 @@ test('stage-only upgrade preserves data and refuses unresolved lifecycle values'
   t.beforeEach(async () => {
     await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS "Plot"');
     await prisma.$executeRawUnsafe(`CREATE TABLE "Plot" (
-      "airtableId" TEXT PRIMARY KEY, status TEXT, stage TEXT, "permissionStatus" TEXT, "originalPlantDate" TIMESTAMP
+      "airtableId" TEXT PRIMARY KEY, status TEXT, "originalPlantDate" TIMESTAMP
     )`);
     await prisma.$executeRawUnsafe('CREATE INDEX "Plot_status_idx" ON "Plot"(status)');
     await prisma.$executeRawUnsafe(`INSERT INTO "Plot" VALUES
-      ('recActive', 'Planted', NULL, NULL, '2024-12-05'),
-      ('recPreparing', 'Not Yet Planted', 'preparing', 'confirmed', NULL),
-      ('recPotential', 'Not Yet Planted', NULL, NULL, NULL),
-      ('recDeclined', 'Residents Declined', NULL, NULL, '2024-12-05'),
-      ('recMissing', NULL, NULL, NULL, NULL)`);
-    await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS "PlotStageWrites"');
-    await prisma.$executeRawUnsafe('CREATE TABLE "PlotStageWrites" ("airtableId" TEXT)');
-    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION track_plot_stage_write() RETURNS trigger AS $$
-      BEGIN INSERT INTO "PlotStageWrites" VALUES (NEW."airtableId"); RETURN NEW; END;
-    $$ LANGUAGE plpgsql`);
-    await prisma.$executeRawUnsafe(`CREATE TRIGGER track_plot_stage_write AFTER UPDATE ON "Plot"
-      FOR EACH ROW EXECUTE FUNCTION track_plot_stage_write()`);
+      ('recActive', ' Planted ', '2024-12-05'),
+      ('recPotential', 'Not Yet Planted', NULL),
+      ('recMissing', NULL, NULL),
+      ('recBlank', ' ', NULL)`);
+    for (const id of declinedIds) {
+      await prisma.$executeRaw`INSERT INTO "Plot" VALUES (${id}, 'Residents Declined', '2024-12-05')`;
+    }
   });
 
-  await t.test('preflight is read-only and apply refuses partial resolution', async () => {
-    const report = await migratePlotStages(prisma);
-    assert.equal(report.snapshot.length, 5);
-    assert.deepEqual(report.unresolved.map(({ airtableId }) => airtableId), ['recDeclined']);
-    await assert.rejects(migratePlotStages(prisma, { apply: true }), /Resolve every reported plot/);
-    const [row] = await prisma.$queryRaw`SELECT stage FROM "Plot" WHERE "airtableId" = 'recActive'`;
-    assert.equal(row.stage, null);
-  });
-
-  await t.test('failed migration rolls back even the automatic backfill and retains status', async () => {
-    await assert.rejects(deploy(), /Unresolved plot lifecycle data/);
-    const [row] = await prisma.$queryRaw`SELECT status, stage FROM "Plot" WHERE "airtableId" = 'recActive'`;
-    assert.deepEqual(row, { status: 'Planted', stage: null });
-  });
-
-  await t.test('conversion updates only changed plots and repeated application writes nothing', async () => {
-    const options = { apply: true, resolutions: { recDeclined: 'paused' } };
-    await migratePlotStages(prisma, options);
-    const writes = await prisma.$queryRaw`SELECT "airtableId" FROM "PlotStageWrites" ORDER BY "airtableId"`;
-    assert.deepEqual(writes.map(({ airtableId }) => airtableId), ['recActive', 'recDeclined', 'recPotential']);
-    await prisma.$executeRawUnsafe('TRUNCATE "PlotStageWrites"');
-    await migratePlotStages(prisma, options);
-    const repeated = await prisma.$queryRaw`SELECT * FROM "PlotStageWrites"`;
-    assert.deepEqual(repeated, []);
-  });
-
-  await t.test('reviewed resolutions preserve stages, permissions, and dates before removing status', async () => {
-    await migratePlotStages(prisma, { apply: true, resolutions: { recDeclined: 'paused' } });
+  await t.test('one migration adds fields, resolves all six plots, and removes status', async () => {
     await deploy();
     const rows = await prisma.$queryRaw`SELECT * FROM "Plot" ORDER BY "airtableId"`;
+    assert.equal(rows.length, 10);
     assert.ok(rows.every((row) => !Object.hasOwn(row, 'status')));
+    assert.ok(rows.every((row) => row.sunExposure === null && row.environmentalNotes === null));
     const byId = new Map(rows.map((row) => [row.airtableId, row]));
     assert.equal(byId.get('recActive').stage, 'active');
+    assert.equal(byId.get('recActive').permissionStatus, null);
+    assert.equal(byId.get('recActive').originalPlantDate.toISOString(), '2024-12-05T00:00:00.000Z');
     assert.equal(byId.get('recPotential').stage, 'potential');
-    assert.equal(byId.get('recPreparing').stage, 'preparing');
-    assert.equal(byId.get('recPreparing').permissionStatus, 'confirmed');
-    assert.equal(byId.get('recDeclined').stage, 'paused');
-    assert.equal(byId.get('recDeclined').permissionStatus, 'not_granted');
-    assert.equal(byId.get('recDeclined').originalPlantDate.toISOString(), '2024-12-05T00:00:00.000Z');
     assert.equal(byId.get('recMissing').stage, null);
-    assert.equal((await migratePlotStages(prisma)).alreadyMigrated, true);
+    assert.equal(byId.get('recBlank').stage, null);
+    for (const id of declinedIds) {
+      assert.equal(byId.get(id).stage, 'paused');
+      assert.equal(byId.get(id).permissionStatus, 'not_granted');
+      assert.equal(byId.get(id).originalPlantDate.toISOString(), '2024-12-05T00:00:00.000Z');
+    }
+    const indexes = await prisma.$queryRaw`SELECT indexname FROM pg_indexes WHERE tablename = 'Plot'`;
+    assert.ok(indexes.some(({ indexname }) => indexname === 'Plot_stage_idx'));
+    assert.ok(indexes.every(({ indexname }) => indexname !== 'Plot_status_idx'));
   });
 
-  await t.test('permission conflicts and unfamiliar statuses cannot be discarded by migration', async () => {
-    await prisma.$executeRaw`UPDATE "Plot" SET stage = 'active', "permissionStatus" = 'confirmed' WHERE "airtableId" = 'recDeclined'`;
-    const report = await migratePlotStages(prisma);
-    assert.match(report.unresolved[0].message, /permission status/);
-    await assert.rejects(deploy(), /Unresolved plot lifecycle data/);
-    await prisma.$executeRaw`UPDATE "Plot" SET status = 'Unfamiliar', stage = NULL, "permissionStatus" = NULL WHERE "airtableId" = 'recDeclined'`;
+  await t.test('unknown and unreviewed declined statuses roll back schema and data changes', async () => {
+    for (const status of ['Unfamiliar', 'Residents Declined']) {
+      await prisma.$executeRaw`INSERT INTO "Plot" VALUES ('recUnresolved', ${status}, NULL)`;
+      await assert.rejects(deploy(), /Unresolved plot lifecycle data/);
+      const [active] = await prisma.$queryRaw`SELECT * FROM "Plot" WHERE "airtableId" = 'recActive'`;
+      assert.deepEqual(active, {
+        airtableId: 'recActive', status: ' Planted ', originalPlantDate: new Date('2024-12-05T00:00:00.000Z'),
+      });
+      const [declined] = await prisma.$queryRaw`SELECT * FROM "Plot" WHERE "airtableId" = ${declinedIds[0]}`;
+      assert.equal(declined.status, 'Residents Declined');
+      assert.equal(Object.hasOwn(declined, 'stage'), false);
+      const indexes = await prisma.$queryRaw`SELECT indexname FROM pg_indexes WHERE tablename = 'Plot'`;
+      assert.ok(indexes.some(({ indexname }) => indexname === 'Plot_status_idx'));
+      assert.ok(indexes.every(({ indexname }) => indexname !== 'Plot_stage_idx'));
+      await prisma.$executeRaw`DELETE FROM "Plot" WHERE "airtableId" = 'recUnresolved'`;
+    }
+    await deploy();
+  });
+
+  await t.test('reviewed IDs do not assign a stage when their source status is unfamiliar', async () => {
+    await prisma.$executeRaw`UPDATE "Plot" SET status = 'Needs a visit' WHERE "airtableId" = ${declinedIds[0]}`;
     await assert.rejects(deploy(), /Unresolved plot lifecycle data/);
   });
 });
