@@ -5,17 +5,13 @@ export function suggestedTitle (address, locator) {
   return [shortAddress, detail].filter(Boolean).join(' · ');
 }
 
-export function addressSuggestionPatch (values, result) {
-  if (values.addressEdited || !result || !values.position ||
-    values.position.latitude.toFixed(5) !== result.position.latitude.toFixed(5) ||
-    values.position.longitude.toFixed(5) !== result.position.longitude.toFixed(5)) return {};
-  return { address: result.address };
-}
-
 export function resolvePlotIdentification (values, result) {
+  const matchesPosition = result && values.position &&
+    values.position.latitude.toFixed(5) === result.position.latitude.toFixed(5) &&
+    values.position.longitude.toFixed(5) === result.position.longitude.toFixed(5);
   const address = values.addressEdited
     ? values.address
-    : addressSuggestionPatch(values, result).address ?? '';
+    : matchesPosition ? result.address : '';
   return {
     address,
     name: values.nameEdited ? values.name : suggestedTitle(address, values.locator),
