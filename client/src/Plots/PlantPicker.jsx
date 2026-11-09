@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Combobox, Group, Loader, Modal, Stack, Text, TextInput, useCombobox } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { isNotEmpty, useForm } from '@mantine/form';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import Api from '../Api';
 
 export default function PlantPicker ({ onSelect, disabled }) {
@@ -10,18 +10,24 @@ export default function PlantPicker ({ onSelect, disabled }) {
   const [debounced] = useDebouncedValue(search.trim(), 300);
   const [adding, setAdding] = useState(false);
   const combobox = useCombobox({ onDropdownClose: () => combobox.resetSelectedOption() });
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: ['plant-directory', debounced],
-    queryFn: ({ signal }) => Api.plants.index({ search: debounced, pageSize: 10 }, signal).then(({ data }) => data),
+    queryFn: ({ signal, pageParam }) => Api.plants.index({ search: debounced, pageSize: 10, offset: pageParam }, signal),
+    initialPageParam: 0,
+    getNextPageParam: (response) => response.headers['x-next-offset'] ?? undefined,
     enabled: !!debounced && !disabled,
   });
+  const matches = query.data?.pages.flatMap(({ data }) => data) ?? [];
   const newPlant = useForm({ initialValues: { plantName: '', commonName: '', latinName: '' }, validate: { plantName: isNotEmpty('Plant name is required') } });
   function select (value) {
-    if (value === '__new__') {
+    if (value === '__more__') {
+      query.fetchNextPage();
+      return;
+    } else if (value === '__new__') {
       newPlant.setValues({ plantName: search.trim(), commonName: '', latinName: '' });
       setAdding(true);
     } else {
-      const plant = query.data?.find(({ id }) => id === value);
+      const plant = matches.find(({ id }) => id === value);
       if (plant) onSelect({ plantId: plant.id, label: plant.plantName || plant.commonName || plant.latinName });
       setSearch('');
     }
@@ -36,7 +42,8 @@ export default function PlantPicker ({ onSelect, disabled }) {
         <Combobox.Dropdown hidden={!search.trim()}>
           <Combobox.Options>
             {query.isError && <Combobox.Empty>Unable to search. <Button variant='subtle' size='compact-xs' onMouseDown={(event) => event.preventDefault()} onClick={() => query.refetch()}>Retry search</Button></Combobox.Empty>}
-            {query.data?.map((plant) => <Combobox.Option key={plant.id} value={plant.id}><Text size='sm'>{plant.plantName || plant.commonName || plant.latinName}</Text>{plant.latinName && <Text size='xs' c='dimmed'>{plant.latinName}</Text>}</Combobox.Option>)}
+            {matches.map((plant) => <Combobox.Option key={plant.id} value={plant.id}><Text size='sm'>{plant.plantName || plant.commonName || plant.latinName}</Text>{plant.latinName && <Text size='xs' c='dimmed'>{plant.latinName}</Text>}</Combobox.Option>)}
+            {query.hasNextPage && <Combobox.Option value='__more__' disabled={query.isFetching}>Show more matches</Combobox.Option>}
             {!query.isError && !query.isFetching && debounced === search.trim() && query.data && <Combobox.Option value='__new__'>+ Add a new plant: {search.trim()}</Combobox.Option>}
             {query.isFetching && <Combobox.Empty>Searching directory…</Combobox.Empty>}
           </Combobox.Options>
