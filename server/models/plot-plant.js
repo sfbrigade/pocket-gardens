@@ -9,7 +9,7 @@ const NewPlantSchema = PlantCreateFieldsSchema.pick({ plantName: true, commonNam
 const PlotPlantInputSchema = z.strictObject({
   plantId: z.string().uuid().optional(),
   newPlant: NewPlantSchema.optional(),
-  quantity: z.number().int().nonnegative().optional(),
+  quantity: z.number().int().nonnegative().max(2147483647).optional(),
   notes: z.string().trim().optional(),
 }).refine(({ plantId, newPlant }) => !!plantId !== !!newPlant, {
   message: 'Select an existing plant or explicitly add a new plant',
