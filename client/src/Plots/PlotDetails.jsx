@@ -1,22 +1,13 @@
 import { Alert, Badge, Divider, Group, Image, List, Stack, Text, Title } from '@mantine/core';
 
-import { plotStageLabel } from '../plots.js';
-
-const labels = {
-  unknown: 'Unknown',
-  needed: 'Needed',
-  progress: 'In progress',
-  confirmed: 'Confirmed',
-  not_required: 'Not required',
-  not_granted: 'Not granted',
-};
+import { plotPermissionLabels, plotStageLabel } from '../plots.js';
 
 export default function PlotDetails ({ plot }) {
   const facts = [
     ['Address', plot['Street City Address (for Maps)'] || plot['Street Address']],
     ['Look for', plot['Location Description']],
     ['Coordinates', Number.isFinite(plot.Latitude) && Number.isFinite(plot.Longitude) ? `${plot.Latitude}, ${plot.Longitude}` : null],
-    ['Permission', labels[plot.permissionStatus]],
+    ['Permission', plotPermissionLabels[plot.permissionStatus]],
     ['First planted', plot.firstPlanted],
     ['Bed type', plot['Bed Type']], ['Area', plot['Est. Area (Sq. Ft)'] != null ? `${plot['Est. Area (Sq. Ft)']} sq ft` : null],
     ['Sun', plot.sunExposure], ['Soil', plot['Soil Type']], ['Environmental notes', plot.environmentalNotes],

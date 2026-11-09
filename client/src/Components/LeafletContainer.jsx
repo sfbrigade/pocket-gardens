@@ -12,7 +12,7 @@ import markerIconRetina from 'leaflet/dist/images/marker-icon-2x.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
 
-import { plotsQueryOptions, plotStageLabel } from '../plots';
+import { hasCoordinates, plotsQueryOptions, plotStageLabel } from '../plots';
 
 const SAN_FRANCISCO_BOUNDS = [[37.708, -122.515], [37.833, -122.355]];
 
@@ -51,7 +51,7 @@ function PlotMarkers ({ selectedPlot, onSelectPlot }) {
       ? 'Loading gardens…'
       : plots.length === 0 ? 'No gardens in this area.' : '';
 
-  const visiblePlots = selectedPlot && Number.isFinite(selectedPlot.Latitude) && !plots.some(({ id }) => id === selectedPlot.id)
+  const visiblePlots = selectedPlot && hasCoordinates(selectedPlot) && !plots.some(({ id }) => id === selectedPlot.id)
     ? [...plots, selectedPlot]
     : plots;
   return (

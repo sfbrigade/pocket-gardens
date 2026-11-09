@@ -6,6 +6,15 @@ export function plotStageLabel (stage) {
   return plotStageLabels[stage] || 'Stage not recorded';
 }
 
+export const plotPermissionLabels = {
+  unknown: 'Unknown',
+  needed: 'Needed',
+  progress: 'In progress',
+  confirmed: 'Confirmed',
+  not_required: 'Not required',
+  not_granted: 'Not granted',
+};
+
 import Api from './Api.js';
 import { keepPreviousData } from '@tanstack/react-query';
 
