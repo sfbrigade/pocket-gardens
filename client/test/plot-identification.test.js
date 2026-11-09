@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addressSuggestionPatch, lookupAddress, resolvePlotIdentification, suggestedTitle } from '../src/Plots/plot-identification.js';
+import { lookupAddress, resolvePlotIdentification, suggestedTitle } from '../src/Plots/plot-identification.js';
 import { createPlotDraft, plotPayload } from '../src/Plots/plot-form.js';
 
 const position = { latitude: 37.77, longitude: -122.43 };
 
 test('late address suggestions cannot overwrite manual edits or a newer pin', () => {
   const result = { position, address: '440 5th Avenue' };
-  assert.deepEqual(addressSuggestionPatch({ position, addressEdited: true }, result), {});
-  assert.deepEqual(addressSuggestionPatch({ position: { ...position, latitude: 37.78 } }, result), {});
-  assert.deepEqual(addressSuggestionPatch({ position, addressEdited: false }, result), { address: '440 5th Avenue' });
+  const draft = { ...createPlotDraft(), position };
+  assert.equal(resolvePlotIdentification({ ...draft, address: 'Manual address', addressEdited: true }, result).address, 'Manual address');
+  assert.equal(resolvePlotIdentification({ ...draft, position: { ...position, latitude: 37.78 } }, result).address, '');
+  assert.equal(resolvePlotIdentification(draft, result).address, '440 5th Avenue');
   assert.equal(suggestedTitle('440 5th Avenue, San Francisco, CA', 'Second tree well.'), '440 5th Avenue · Second tree well');
   assert.equal(suggestedTitle('', 'Second tree well'), 'Second tree well');
 });
