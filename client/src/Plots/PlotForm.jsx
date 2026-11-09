@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBeforeUnload, useNavigate } from 'react-router';
 import { Alert, Box, Button, Container, Fieldset, Group, Loader, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery, useMounted, useSessionStorage } from '@mantine/hooks';
-import { isNotEmpty, useForm } from '@mantine/form';
+import { useForm } from '@mantine/form';
 import { modals } from '@mantine/modals';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useHead } from '@unhead/react';
@@ -12,7 +12,7 @@ import Api from '../Api';
 import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
-import { beds, createPlotDraft, hasDraftContent, permissions, plotFormErrors, plotPayload, soils, stages, sunLevels } from './plot-form';
+import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, plotPayload, soils, stages, sunLevels } from './plot-form';
 
 function RefreshGuard () {
   useBeforeUnload(useCallback((event) => { event.preventDefault(); event.returnValue = true; }, []));
@@ -37,12 +37,7 @@ export default function PlotForm () {
     mode: 'controlled',
     initialValues: initial,
     onValuesChange: (values) => { if (hydrated.current) setSaved(values); },
-    validate: {
-      position: (value) => value && Number.isFinite(value.latitude) && Number.isFinite(value.longitude) ? null : 'Choose a map location',
-      locator: isNotEmpty('Describe exactly where the plot is'),
-      area: (value) => value === '' || (Number.isFinite(Number(value)) && Number(value) >= 0) ? null : 'Enter a nonnegative area',
-      plants: { quantity: (value) => value === '' || (Number.isInteger(Number(value)) && Number(value) >= 0) ? null : 'Enter a whole nonnegative quantity' },
-    },
+    validate: plotDraftErrors,
   });
   useEffect(() => {
     if (!mounted || hydrated.current) return;
@@ -88,7 +83,7 @@ export default function PlotForm () {
     form.setFieldValue('photoWasSelected', state !== 'idle');
   }
 
-  const map = <GardenMap mode='pick' position={values.position} onPositionChange={(position) => form.setFieldValue('position', position)} />;
+  const map = <GardenMap mode='pick' disabled={mutation.isPending} position={values.position} onPositionChange={(position) => { if (!mutation.isPending) form.setFieldValue('position', position); }} />;
   const stageLabel = stages.find(({ value }) => value === values.stage)?.label;
   if (capability.isPending) return <Container py='xl'><Loader aria-label='Checking garden creation access' /></Container>;
   if (capability.isError) return <Container py='xl'><Alert color='red' title='Unable to check access'><Button variant='subtle' onClick={() => capability.refetch()}>Try again</Button></Alert></Container>;
@@ -143,7 +138,7 @@ export default function PlotForm () {
                       <Paper key={plant.key} withBorder p='sm'>
                         <Stack gap='xs'>
                           <Group justify='space-between'><Text fw={600}>{plant.label}{plant.newPlant && ' · new directory entry'}</Text><Button variant='subtle' color='red' size='compact-sm' onClick={() => form.removeListItem('plants', index)}>Remove plant</Button></Group>
-                          <NumberInput label={`Quantity for ${plant.label}`} min={0} allowDecimal={false} {...form.getInputProps(`plants.${index}.quantity`)} />
+                          <NumberInput label={`Quantity for ${plant.label}`} min={0} max={maxPlantQuantity} allowDecimal={false} {...form.getInputProps(`plants.${index}.quantity`)} />
                           <TextInput label={`Notes for ${plant.label}`} {...form.getInputProps(`plants.${index}.notes`)} />
                         </Stack>
                       </Paper>

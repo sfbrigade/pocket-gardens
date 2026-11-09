@@ -76,20 +76,20 @@ function PlotMarkers ({ selectedPlot, onSelectPlot }) {
   );
 }
 
-function MapSelection ({ position, onPositionChange, selectedPlot, mode, viewportSize }) {
+function MapSelection ({ position, onPositionChange, selectedPlot, mode, disabled, viewportSize }) {
   const [message, setMessage] = useState('');
   const [locating, setLocating] = useState(false);
   const controls = useRef(null);
   const map = useMapEvents({
     click: ({ latlng }) => {
-      if (mode === 'pick' && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng });
+      if (mode === 'pick' && !disabled && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng });
     },
     locationfound: ({ latlng, accuracy }) => {
       setLocating(false);
       if (!latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) { setMessage('Your location is outside this map. Choose a point on the map instead.'); return; }
       setMessage(`Location found, accurate to about ${Math.round(accuracy)} metres.`);
       map.setView(latlng, 17);
-      if (mode === 'pick') onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng, accuracy });
+      if (mode === 'pick' && !disabled) onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng, accuracy });
     },
     locationerror: () => { setLocating(false); setMessage('Could not use your location. Check location access or choose a point on the map.'); },
   });
@@ -108,14 +108,15 @@ function MapSelection ({ position, onPositionChange, selectedPlot, mode, viewpor
     <>
       <Paper ref={controls} p='xs' shadow='sm' style={{ position: 'absolute', right: 12, top: 12, zIndex: 1000, maxWidth: 260 }}>
         <Stack gap='xs'>
-          <Button size='compact-md' loading={locating} variant='light' onClick={() => { setLocating(true); setMessage('Finding your location…'); map.locate({ enableHighAccuracy: true, timeout: 10000 }); }}>Use my location</Button>
-          {mode === 'pick' && <><Button size='compact-md' variant='default' onClick={() => { const point = map.getCenter(); onPositionChange?.({ latitude: point.lat, longitude: point.lng }); }}>Place pin at map center</Button><Text size='sm'>Tap the map to place a pin. Drag the pin to adjust it.</Text></>}
+          <Button size='compact-md' disabled={disabled} loading={locating} variant='light' onClick={() => { setLocating(true); setMessage('Finding your location…'); map.locate({ enableHighAccuracy: true, timeout: 10000 }); }}>Use my location</Button>
+          {mode === 'pick' && <><Button size='compact-md' disabled={disabled} variant='default' onClick={() => { const point = map.getCenter(); onPositionChange?.({ latitude: point.lat, longitude: point.lng }); }}>Place pin at map center</Button><Text size='sm'>Tap the map to place a pin. Drag the pin to adjust it.</Text></>}
           {message && <Text size='sm' role='status'>{message}</Text>}
         </Stack>
       </Paper>
       {position && <Marker
-        position={[position.latitude, position.longitude]} icon={gardenIcon} draggable title='New garden location' eventHandlers={{
+        position={[position.latitude, position.longitude]} icon={gardenIcon} draggable={!disabled} title='New garden location' eventHandlers={{
           dragend: ({ target }) => {
+            if (disabled) { target.setLatLng([position.latitude, position.longitude]); return; }
             const point = target.getLatLng();
             if (latLngBounds(SAN_FRANCISCO_BOUNDS).contains(point)) onPositionChange?.({ latitude: point.lat, longitude: point.lng });
             else { target.setLatLng([position.latitude, position.longitude]); setMessage('Keep the pin within this map’s coverage.'); }
@@ -126,7 +127,7 @@ function MapSelection ({ position, onPositionChange, selectedPlot, mode, viewpor
   );
 }
 
-function LeafletContainer ({ mode = 'explore', position, onPositionChange, selectedPlot, onSelectPlot, viewportSize }) {
+function LeafletContainer ({ mode = 'explore', disabled = false, position, onPositionChange, selectedPlot, onSelectPlot, viewportSize }) {
   return (
     <MapContainer
       center={[37.7749, -122.4194]}
@@ -144,7 +145,7 @@ function LeafletContainer ({ mode = 'explore', position, onPositionChange, selec
         url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
       />
       <PlotMarkers selectedPlot={selectedPlot} onSelectPlot={onSelectPlot} />
-      <MapSelection mode={mode} position={position} onPositionChange={onPositionChange} selectedPlot={selectedPlot} viewportSize={viewportSize} />
+      <MapSelection mode={mode} disabled={disabled} position={position} onPositionChange={onPositionChange} selectedPlot={selectedPlot} viewportSize={viewportSize} />
     </MapContainer>
   );
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createPlotDraft, hasDraftContent, plotPayload, plotFormErrors } from '../src/Plots/plot-form.js';
+import { createPlotDraft, hasDraftContent, plotDraftErrors, plotPayload, plotFormErrors } from '../src/Plots/plot-form.js';
 
 test('a restored draft keeps its submission identity and catalogue selections', () => {
   const draft = createPlotDraft();
@@ -36,4 +36,20 @@ test('server field names map to form controls and preserve form-level feedback',
   assert.deepEqual(plotFormErrors({ Latitude: 'Set a pin', 'Location Description': 'Describe it', _form: 'Failed', plotId: 'saved' }), {
     position: 'Set a pin', locator: 'Describe it', _form: 'Failed',
   });
+});
+
+test('plant quantity validation respects the database range and skips hidden potential plantings', () => {
+  const draft = { ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 }, locator: 'Near gate', stage: 'active' };
+  for (const quantity of [0, '', 2147483647]) {
+    draft.plants = [{ plantId: 'directory-id', quantity }];
+    assert.deepEqual(plotDraftErrors(draft), {});
+  }
+  for (const quantity of [-1, 1.5, 2147483648, 'not a number']) {
+    draft.plants = [{ plantId: 'directory-id', quantity }];
+    assert.ok(plotDraftErrors(draft)['plants.0.quantity']);
+    draft.stage = 'potential';
+    assert.deepEqual(plotDraftErrors(draft), {});
+    assert.deepEqual(plotPayload(draft).plants, []);
+    draft.stage = 'active';
+  }
 });
