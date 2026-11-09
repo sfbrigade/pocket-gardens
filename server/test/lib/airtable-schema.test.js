@@ -36,7 +36,7 @@ test('formatPlot exposes Airtable id, coords, and Photos from related rows', () 
     createdAt: new Date('2023-01-01T12:00:00.000Z'),
     latitude: 37.78,
     longitude: -122.42,
-    status: 'Planted',
+    stage: 'active',
     bedType: 'Tree Well',
     name: 'Alpha',
     photos: [
@@ -47,7 +47,7 @@ test('formatPlot exposes Airtable id, coords, and Photos from related rows', () 
   assert.strictEqual(formatted.id, 'recPlotAlpha');
   assert.strictEqual(formatted.Latitude, 37.78);
   assert.strictEqual(formatted.Longitude, -122.42);
-  assert.strictEqual(formatted.Status, 'Planted');
+  assert.strictEqual(formatted.stage, 'active');
   assert.strictEqual(formatted['Bed Type'], 'Tree Well');
   assert.strictEqual(formatted.Photo, undefined);
   assert.deepStrictEqual(formatted.Photos, [
@@ -58,20 +58,20 @@ test('formatPlot exposes Airtable id, coords, and Photos from related rows', () 
 
 test('plotFieldsFromBody derives coordinates from Map Coordinates', () => {
   const data = plotFieldsFromBody({
-    Status: 'Planted',
+    stage: 'active',
     'Map Coordinates': '37.5, -122.5',
   });
-  assert.strictEqual(data.status, 'Planted');
+  assert.strictEqual(data.stage, 'active');
   assert.strictEqual(data.latitude, 37.5);
   assert.strictEqual(data.longitude, -122.5);
 });
 
 test('plotFieldsFromBody ignores unparseable Map Coordinates for lat/lng', () => {
   const data = plotFieldsFromBody({
-    Status: 'Planted',
+    stage: 'active',
     'Map Coordinates': 'not a coord',
   });
-  assert.strictEqual(data.status, 'Planted');
+  assert.strictEqual(data.stage, 'active');
   assert.strictEqual(data.mapCoordinates, 'not a coord');
   assert.strictEqual(data.latitude, undefined);
   assert.strictEqual(data.longitude, undefined);

@@ -7,11 +7,11 @@
     "test": "test"
   },
   "scripts": {
-    "dev": "prisma migrate deploy; prisma db push --accept-data-loss; npm run prisma:generate; fastify start -w -l info -P app.js",
+    "dev": "prisma migrate deploy && npm run prisma:generate && fastify start -w -l info -P app.js",
     "lint": "eslint --fix",
     "lint:check": "eslint",
     "pretest": "eslint",
-    "prisma:generate": "prisma generate; tsc",
+    "prisma:generate": "prisma generate && tsc",
     "prisma:studio": "prisma studio",
     "airtable:import": "node bin/airtable-import.js",
     "airtable:import:dry": "node bin/airtable-import.js --dry-run",
@@ -20,7 +20,7 @@
     "plots:migrate-photos": "node bin/migrate-plot-photos.js",
     "plots:migrate-photos:dry": "node bin/migrate-plot-photos.js --dry-run",
     "start": "fastify start -l info app.js",
-    "test": "node --test-concurrency 1 --test $(find test -name '*.test.js')",
+    "test": "NODE_ENV=test node --test-concurrency 1 --test $(find test -name '*.test.js')",
     "tsc:watch": "tsc --watch --preserveWatchOutput"
   },
   "license": "AGPL-3.0-only",

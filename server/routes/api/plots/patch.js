@@ -5,9 +5,9 @@ import {
   findPlotByPublicId,
   formatPlot,
   plotFieldsFromBody,
-  PlotFieldsSchema,
-  PlotSchema,
-  reloadPlotWithPhotos,
+  PlotUpdateSchema,
+  PlotDetailSchema,
+  reloadPlotDetails,
   syncPlotPhotos,
 } from '#models/plot.js';
 
@@ -18,19 +18,22 @@ export default async function (fastify, opts) {
       params: z.object({
         id: z.string().min(1),
       }),
-      body: PlotFieldsSchema,
+      body: PlotUpdateSchema,
       response: {
-        [StatusCodes.OK]: PlotSchema,
+        [StatusCodes.OK]: PlotDetailSchema,
         [StatusCodes.NOT_FOUND]: z.null(),
-        [StatusCodes.UNPROCESSABLE_ENTITY]: z.null(),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: fastify.ValidationErrorSchema,
       },
     },
+    onRequest: fastify.requireAdmin,
   }, async function (request, reply) {
-    const existing = await findPlotByPublicId(fastify.prisma, request.params.id);
+    const existing = await findPlotByPublicId(fastify.prisma, request.params.id, {
+      select: { id: true, stage: true },
+    });
     if (!existing) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }
-    const data = plotFieldsFromBody(request.body);
+    const data = plotFieldsFromBody(request.body, existing);
     const { Photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
       if (Object.keys(data).length) {
@@ -42,7 +45,7 @@ export default async function (fastify, opts) {
       if (Photos !== undefined) {
         await syncPlotPhotos(tx, existing.id, Photos);
       }
-      return reloadPlotWithPhotos(tx, existing.id);
+      return reloadPlotDetails(tx, existing.id);
     });
     reply.send(formatPlot(record));
   });

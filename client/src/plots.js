@@ -1,3 +1,11 @@
+export const plotStageLabels = {
+  potential: 'Potential site', preparing: 'Preparing', active: 'Active', paused: 'Paused', archived: 'Archived',
+};
+
+export function plotStageLabel (stage) {
+  return plotStageLabels[stage] || 'Stage not recorded';
+}
+
 import Api from './Api.js';
 import { keepPreviousData } from '@tanstack/react-query';
 
