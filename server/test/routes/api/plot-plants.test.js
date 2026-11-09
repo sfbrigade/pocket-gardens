@@ -68,6 +68,12 @@ test('plant directory search and plot plantings', async (t) => {
     assert.equal(response.json().plants[0].quantity, 0);
   });
 
+  await t.test('accepts the largest quantity supported by the database', async () => {
+    const response = await create({ plants: [{ plantId: lavender, quantity: 2147483647 }] });
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.json().plants[0].quantity, 2147483647);
+  });
+
   await t.test('rejects invalid or duplicate selections without creating plot or directory entries', async () => {
     const plots = await prisma.plot.count();
     const plants = await prisma.plant.count();
@@ -78,6 +84,7 @@ test('plant directory search and plot plantings', async (t) => {
       { plants: [{ plantId: lavender, newPlant: { plantName: 'Yarrow' } }] },
       { plants: [{ plantId: lavender, quantity: -1 }] },
       { plants: [{ plantId: lavender, quantity: 1.5 }] },
+      { plants: [{ plantId: lavender, quantity: 2147483648 }] },
       { plants: [{ newPlant: { plantName: ' ' } }] },
       { plants: [{ newPlant: { plantName: 'Yarrow' } }, { plantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }] },
     ]) {
