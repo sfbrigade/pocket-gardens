@@ -7,7 +7,7 @@ import {
   plotFieldsFromBody,
   PlotCreateSchema,
   PlotDetailSchema,
-  reloadPlotWithPhotos,
+  reloadPlotDetails,
   syncPlotPhotos,
 } from '#models/plot.js';
 
@@ -40,7 +40,7 @@ export default async function (fastify, opts) {
       if (Photos !== undefined) {
         await syncPlotPhotos(tx, created.id, Photos);
       }
-      return reloadPlotWithPhotos(tx, created.id);
+      return reloadPlotDetails(tx, created.id);
     });
     reply.code(StatusCodes.CREATED).send(formatPlot(record));
   });

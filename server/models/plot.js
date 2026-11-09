@@ -167,7 +167,7 @@ export async function syncPlotPhotos (tx, plotId, filenames) {
   await runPhotoHandlers(handlers);
 }
 
-export function reloadPlotWithPhotos (tx, id) {
+export function reloadPlotDetails (tx, id) {
   return tx.plot.findUnique({
     where: { id },
     include: PLOT_DETAIL_INCLUDE,
@@ -267,5 +267,5 @@ export default {
   buildViewportWhere,
   PLOT_PHOTOS_INCLUDE,
   syncPlotPhotos,
-  reloadPlotWithPhotos,
+  reloadPlotDetails,
 };

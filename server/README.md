@@ -48,13 +48,11 @@ API plot `id` is the Airtable record id when present; plots created via the API 
 
 `POST /api/plots` requires an administrator session. To test account-free creation locally, explicitly set both `NODE_ENV=development` and `ALLOW_ANONYMOUS_PLOT_SUBMISSION=true` in the server environment. Anonymous creation stays disabled in production even if the flag is set. `PATCH /api/plots/:id` remains administrator-only.
 
-`GET /api/plots/capabilities` reports `canCreatePlot` for the current session. Use this response to decide whether to display the form entry. Carer assignment remains unavailable until the account-linking integration is ready.
+`GET /api/plots/capabilities` reports `canCreatePlot` for the current session. Use this response to decide whether to display the form entry. Carer assignment is deferred until account linking is ready.
 
-Creation requires `Location Description` and either a valid `Latitude`/`Longitude` pair or a valid `Map Coordinates` string. `stage` defaults to `potential`; `permissionStatus` defaults to `unknown`. Additional writable fields include `sunExposure`, `environmentalNotes`, and `firstPlanted` (`YYYY-MM-DD`, active plots only), plus the existing address, name, bed, soil, area, and uploaded-photo fields. Permission is independent of stage: an active garden with unknown permission can be recorded. Empty names receive a fallback containing the public plot ID.
+Creation requires `Location Description` and valid coordinates. `stage` defaults to `potential`; `permissionStatus` defaults to `unknown`. Permission is independent of garden stage. `firstPlanted` uses `YYYY-MM-DD` and can be set for active gardens. See `/api/reference` for the full field contract.
 
-Map list responses contain marker information and photos. Detail responses also include site conditions, the first-planted date, and imported `assignedVolunteers` as IDs/display names; private notes and volunteer contact details are excluded. `stage` is the only lifecycle field. `Status` is rejected on POST/PATCH and omitted from responses. Imported rows with no source status may have a null stage. Lifecycle labels are displayed from stage, independently of permission.
-
-Development startup stops if migration fails and never runs `db push --accept-data-loss`. Integration tests initialize their disposable databases from committed migrations alone, without schema repair.
+Map responses contain marker information and photos; detail responses add site facts and assigned volunteer display names. Private notes and volunteer contact details are excluded. `stage` replaces the legacy `Status` field, which is rejected on POST/PATCH and omitted from responses. Imported plots may have a null stage.
 
 ### Convert existing plot statuses
 
@@ -73,7 +71,7 @@ If a failed attempt is recorded, resolve the exceptional records and mark only t
 
 The six embedded resolutions apply to existing database rows. For Airtable imports, use `--plot-stage-resolutions=/path/to/resolutions.json` with a JSON object mapping exceptional plot IDs to explicit stages, for example `{"recExample": "paused"}`. Existing canonical stages are preserved; fresh imports containing declined plots need explicit resolutions even for those six IDs. Resolution files must match the fetched batch. Complete imports before the app takes ownership of the data.
 
-This migration replaces the two earlier, unmerged foundation migrations. Databases that already applied either version need their migration history reconciled before using it; do not redeploy the rewritten history unchanged to a shared database.
+Development databases that applied the earlier foundation migrations need their migration history reconciled before using this combined migration.
 
 ### Migrate existing photos to S3
 
