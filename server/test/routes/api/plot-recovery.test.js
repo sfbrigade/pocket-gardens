@@ -52,7 +52,92 @@ test('plot submission recovery', async (t) => {
     assert.notEqual(other.json().id, first.json().id);
   });
 
-  await t.test('a rollback after copying retains the upload, cleans the destination, and allows retry', async (t) => {
+  for (const keyed of [true, false]) {
+    await t.test(`a lost commit acknowledgment preserves saved photos ${keyed ? 'with' : 'without'} a submission ID`, async (t) => {
+      const filename = `${randomUUID()}.jpg`;
+      await upload([['640x480.jpg', filename]]);
+      const payload = { ...draft(), Photos: [filename] };
+      if (!keyed) delete payload.submissionId;
+      const copied = t.mock.method(s3, 'copyObject');
+      t.mock.method(console, 'error', () => {});
+      const original = app.prisma;
+      app.prisma = new Proxy(original, {
+        get (target, property) {
+          if (property === '$transaction') {
+            return async (callback) => {
+              await original.$transaction(callback);
+              throw new Error('Simulated lost commit acknowledgment');
+            };
+          }
+          return Reflect.get(target, property);
+        },
+      });
+      let response;
+      try {
+        response = await create(payload);
+      } finally {
+        app.prisma = original;
+      }
+      assert.equal(response.statusCode, 201);
+      assert.ok(await assetExists(copied.mock.calls[0].arguments[1]));
+      assert.equal(await assetExists(`_uploads/${filename}`), false);
+      assert.equal(await prisma.plot.count(), 4);
+      assert.equal(await prisma.plant.count(), 4);
+      if (keyed) {
+        const retry = await create(payload);
+        assert.equal(retry.statusCode, 200);
+        assert.deepEqual(retry.json(), response.json());
+        assert.equal(copied.mock.calls.length, 1);
+      }
+    });
+  }
+
+  for (const committed of [true, false]) {
+    await t.test(`an uncertain commit retains photos when recovery ${committed ? 'is unavailable' : 'finds no row'}`, async (t) => {
+      const filename = `${randomUUID()}.jpg`;
+      await upload([['640x480.jpg', filename]]);
+      const payload = { ...draft(), Photos: [filename] };
+      const copied = t.mock.method(s3, 'copyObject');
+      t.mock.method(console, 'error', () => {});
+      const original = app.prisma;
+      app.prisma = new Proxy(original, {
+        get (target, property) {
+          if (property === '$transaction') {
+            return async (callback) => {
+              await original.$transaction(async (tx) => {
+                const record = await callback(tx);
+                if (!committed) throw new Error('Simulated transaction failure after callback completed');
+                return record;
+              });
+              throw new Error('Simulated lost commit acknowledgment');
+            };
+          }
+          if (property === 'plot' && committed) {
+            return new Proxy(target.plot, {
+              get (delegate, method) {
+                if (method === 'findFirst') return async () => { throw new Error('Database unavailable during recovery'); };
+                return Reflect.get(delegate, method);
+              },
+            });
+          }
+          return Reflect.get(target, property);
+        },
+      });
+      try {
+        assert.equal((await create(payload)).statusCode, 500);
+      } finally {
+        app.prisma = original;
+      }
+      assert.ok(await assetExists(copied.mock.calls[0].arguments[1]));
+      assert.ok(await assetExists(`_uploads/${filename}`));
+      assert.equal((await create(payload)).statusCode, committed ? 200 : 201);
+      assert.equal(await prisma.plot.count(), 4);
+      assert.equal(await prisma.plant.count(), 4);
+      assert.equal(copied.mock.calls.length, committed ? 1 : 2);
+    });
+  }
+
+  await t.test('a failed detail reload rolls back, cleans the destination, and retains the upload for retry', async (t) => {
     const filename = `${randomUUID()}.jpg`;
     await upload([['640x480.jpg', filename]]);
     const payload = { ...draft(), Photos: [filename] };
@@ -63,8 +148,19 @@ test('plot submission recovery', async (t) => {
       get (target, property) {
         if (property === '$transaction') {
           return (callback) => original.$transaction(async (tx) => {
-            await callback(tx);
-            throw new Error('Simulated database failure after attachment copy');
+            return callback(new Proxy(tx, {
+              get (transaction, key) {
+                if (key === 'plot') {
+                  return new Proxy(transaction.plot, {
+                    get (delegate, method) {
+                      if (method === 'findUnique') return async () => { throw new Error('Simulated detail reload failure'); };
+                      return Reflect.get(delegate, method);
+                    },
+                  });
+                }
+                return Reflect.get(transaction, key);
+              },
+            }));
           });
         }
         return Reflect.get(target, property);
