@@ -39,6 +39,7 @@ test('/api/maintenance-records', async (t) => {
     ]);
     assert.deepStrictEqual(data[0].photos, []);
     assert.strictEqual(data[0].date, '2026-08-20');
+    assert.strictEqual(data[0].plotName, 'Alpha Garden');
     assert.strictEqual(data[0].estNextVisit, '2026-09-03');
     assert.strictEqual(data[0].createdTime, undefined);
     assert.strictEqual(data[0].airtableId, undefined);

@@ -12,8 +12,21 @@ const PersonResponseSchema = z.object({
   phone: z.string().nullable(),
 });
 
+const AssignedPlotSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  streetAddress: z.string().nullable(),
+  status: z.string().nullable(),
+});
+
+const PersonDetailResponseSchema = PersonResponseSchema.extend({
+  homeZipCode: z.string().nullable(),
+  assignedPlots: z.array(AssignedPlotSchema),
+});
+
 class Person extends Base {
   static ResponseSchema = PersonResponseSchema;
+  static DetailResponseSchema = PersonDetailResponseSchema;
 
   constructor (data) {
     super(Prisma.PersonScalarFieldEnum, data);
