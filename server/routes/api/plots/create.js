@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { submissionFingerprint, findSubmission, cleanupSubmissionObjects } from '#lib/plot-submission.js';
 
 import {
+  findPlotByPublicId,
   formatPlot,
   allowsAnonymousPlotCreation,
   plotFieldsFromBody,
@@ -41,6 +42,7 @@ export default async function (fastify, opts) {
     if (existing) return replay(existing);
     const publicId = `pg_${crypto.randomUUID()}`;
     const copied = [];
+    let callbackCompleted = false;
     let record;
     try {
       record = await fastify.prisma.$transaction(async (tx) => {
@@ -57,15 +59,32 @@ export default async function (fastify, opts) {
         if (Photos !== undefined) {
           await syncPlotPhotos(tx, created.id, Photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
         }
-        return reloadPlotDetails(tx, created.id);
+        const details = await reloadPlotDetails(tx, created.id);
+        callbackCompleted = true;
+        return details;
       });
     } catch (error) {
-      await cleanupSubmissionObjects(copied, request.log);
-      if (error.code === 'P2002' && submissionId) {
-        const winner = await findSubmission(fastify.prisma, submissionId);
-        if (winner) return replay(winner);
+      if (!callbackCompleted) {
+        // A failed callback never requests COMMIT, so its copies can be removed.
+        await cleanupSubmissionObjects(copied, request.log);
+        if (error.code === 'P2002' && submissionId) {
+          const winner = await findSubmission(fastify.prisma, submissionId);
+          if (winner) return replay(winner);
+        }
+        throw error;
       }
-      throw error;
+      // COMMIT may have succeeded despite losing its acknowledgment. Recover our
+      // own row even for requests without a submission ID before touching files.
+      try {
+        record = await findPlotByPublicId(fastify.prisma, publicId);
+      } catch (recoveryError) {
+        request.log.warn({ err: recoveryError, publicId }, 'Plot commit recovery could not complete');
+      }
+      if (!record) {
+        // A missing row does not prove rollback: COMMIT may still be in flight.
+        request.log.warn({ err: error, publicId, copied }, 'Plot commit outcome is uncertain; retaining photo objects');
+        throw error;
+      }
     }
     await cleanupSubmissionObjects((Photos ?? []).map((filename) => `_uploads/${filename}`), request.log);
     reply.code(StatusCodes.CREATED).send(formatPlot(record));
