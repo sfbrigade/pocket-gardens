@@ -52,14 +52,9 @@ export default function PlotForm () {
   const mutation = useMutation({
     mutationFn: Api.plots.create,
     onSuccess: ({ data }) => {
-      hydrated.current = false;
-      removeSaved();
-      form.resetDirty();
       queryClient.setQueryData(['plot', data.id], data);
       queryClient.invalidateQueries({ queryKey: ['plots'] });
-      navigate(`/plots/${data.id}`, { replace: true, state: { created: true } });
     },
-    onError: (errors) => form.setErrors(plotFormErrors(errors)),
   });
   const values = form.values;
   const needsPhoto = values.photoWasSelected && !values.photo && photoState === 'idle';
@@ -94,7 +89,21 @@ export default function PlotForm () {
       {dirty && <RefreshGuard />}
       <Group justify='space-between' mb='lg'><div><Title order={1}>Create a new garden</Title><Text c='dimmed'>Add a garden to Pocket Gardens. You can fill the rest in later.</Text></div><Button variant='subtle' onClick={() => navigate('/')}>Back to map</Button></Group>
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing='xl'>
-        <form onSubmit={form.onSubmit((draft) => { if (!blockedPhoto) mutation.mutate(plotPayload(draft)); })}>
+        <form onSubmit={form.onSubmit((draft) => {
+          if (blockedPhoto) return;
+          // Per-call callbacks belong to this mounted form. A save that outlives
+          // navigation still updates the cache without clearing a newer draft.
+          mutation.mutate(plotPayload(draft), {
+            onSuccess: ({ data }) => {
+              hydrated.current = false;
+              removeSaved();
+              form.resetDirty();
+              navigate(`/plots/${data.id}`, { replace: true, state: { created: true } });
+            },
+            onError: (errors) => form.setErrors(plotFormErrors(errors)),
+          });
+        })}
+        >
           <Fieldset disabled={mutation.isPending} variant='unstyled'>
             <Stack gap='lg'>
               {restored && <Alert color='green' title='Draft restored'>Your unfinished garden is ready to continue.</Alert>}
