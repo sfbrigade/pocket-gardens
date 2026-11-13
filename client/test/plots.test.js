@@ -50,6 +50,35 @@ test('viewport plot queries', async (t) => {
     assert.equal(requests.length, 1);
   });
 
+  await t.test('reuses recent bounds on remount but refreshes invalidated or expired results', async (t) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const options = plotsQueryOptions(bounds);
+    respond = async () => ({ data: [garden] });
+    await client.fetchQuery(options);
+
+    let unsubscribe;
+    t.after(() => { unsubscribe?.(); client.clear(); });
+    for (let mount = 0; mount < 2; mount++) {
+      unsubscribe = new QueryObserver(client, options).subscribe(() => {});
+      await setImmediate();
+      assert.equal(requests.length, 1);
+      unsubscribe();
+    }
+
+    const observer = new QueryObserver(client, options);
+    unsubscribe = observer.subscribe(() => {});
+    respond = async () => ({ data: [{ ...garden, id: 'new-garden' }] });
+    await client.invalidateQueries({ queryKey: ['plots'] });
+    assert.equal(requests.length, 2);
+    assert.equal(observer.getCurrentResult().data[0].id, 'new-garden');
+    unsubscribe();
+
+    client.setQueryData(options.queryKey, [garden], { updatedAt: Date.now() - 60_000 });
+    unsubscribe = new QueryObserver(client, options).subscribe(() => {});
+    await setImmediate();
+    assert.equal(requests.length, 3);
+  });
+
   await t.test('keeps markers mounted during a bounds refresh, then replaces them with current results', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const observer = new QueryObserver(client, plotsQueryOptions(bounds));

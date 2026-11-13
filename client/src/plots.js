@@ -6,6 +6,15 @@ export function plotStageLabel (stage) {
   return plotStageLabels[stage] || 'Stage not recorded';
 }
 
+export const plotPermissionLabels = {
+  unknown: 'Unknown',
+  needed: 'Needed',
+  progress: 'In progress',
+  confirmed: 'Confirmed',
+  not_required: 'Not required',
+  not_granted: 'Not granted',
+};
+
 import Api from './Api.js';
 import { keepPreviousData } from '@tanstack/react-query';
 
@@ -18,6 +27,8 @@ export function plotsQueryOptions (bounds) {
   return {
     queryKey: ['plots', bounds],
     enabled: bounds !== null,
+    // Reopening a picker can reuse recent results; saves still invalidate them.
+    staleTime: 30_000,
     // Keep markers mounted when opening a popup pans the map and refreshes bounds.
     placeholderData: keepPreviousData,
     queryFn: async ({ signal }) => {
