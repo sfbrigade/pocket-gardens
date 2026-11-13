@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useBeforeUnload, useNavigate } from 'react-router';
+import { useBeforeUnload, useLocation, useNavigate } from 'react-router';
 import { Alert, Anchor, Box, Button, Container, Fieldset, Group, Loader, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery, useMounted, useSessionStorage } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
@@ -9,6 +9,7 @@ import { useHead } from '@unhead/react';
 import { v4 as uuid } from 'uuid';
 
 import Api from '../Api';
+import { isMapPosition } from '../map-location';
 import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
@@ -27,11 +28,14 @@ export default function PlotForm () {
   const theme = useMantineTheme();
   const desktop = useMediaQuery(`(min-width: ${theme.breakpoints.md})`, false);
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [initial] = useState(createPlotDraft);
   const [saved, setSaved, removeSaved] = useSessionStorage({ key: 'pocket-gardens:plot-draft:v1', defaultValue: null });
   const hydrated = useRef(false);
   const [restored, setRestored] = useState(false);
+  const [pendingPosition, setPendingPosition] = useState(null);
+  const handledLocation = useRef(null);
   const [photoState, setPhotoState] = useState('idle');
   const [mapOpened, { open: openMap, close: closeMap }] = useDisclosure();
   const capability = useQuery({ queryKey: ['plots', 'capabilities'], queryFn: ({ signal }) => Api.plots.capabilities(signal).then(({ data }) => data), enabled: mounted });
@@ -51,6 +55,26 @@ export default function PlotForm () {
       setRestored(hasDraftContent(values));
     }
   }, [mounted, saved]);
+
+  function clearIncomingPosition () {
+    navigate(location.pathname, { replace: true, state: { ...location.state, mapPosition: undefined } });
+    setPendingPosition(null);
+  }
+
+  useEffect(() => {
+    const incoming = location.state?.mapPosition;
+    if (!mounted || !hydrated.current || !capability.data?.canCreatePlot || !isMapPosition(incoming) || handledLocation.current === location.key) return;
+    handledLocation.current = location.key;
+    const draft = form.getValues();
+    const samePosition = draft.position?.latitude === incoming.latitude && draft.position?.longitude === incoming.longitude;
+    if (hasDraftContent(draft) && !samePosition) {
+      // Leave the route state intact until a choice is made, including across refresh.
+      setPendingPosition(incoming);
+    } else {
+      if (!samePosition) form.setFieldValue('position', incoming);
+      clearIncomingPosition();
+    }
+  }, [mounted, capability.data?.canCreatePlot, location.key]);
 
   const mutation = useMutation({
     mutationFn: Api.plots.create,
@@ -89,7 +113,7 @@ export default function PlotForm () {
     form.setFieldValue('photoWasSelected', state !== 'idle');
   }
 
-  const map = <GardenMap mode='pick' disabled={mutation.isPending} position={values.position} onPositionChange={(position) => { if (!mutation.isPending) form.setFieldValue('position', position); }} />;
+  const map = <GardenMap mode='pick' disabled={mutation.isPending || !!pendingPosition} position={values.position} onPositionChange={(position) => { if (!mutation.isPending && !pendingPosition) form.setFieldValue('position', position); }} />;
   const stageLabel = stages.find(({ value }) => value === values.stage)?.label;
   if (capability.isPending) return <Container py='xl'><Loader aria-label='Checking garden creation access' /></Container>;
   if (capability.isError) return <Container py='xl'><Alert color='red' title='Unable to check access'><Button variant='subtle' onClick={() => capability.refetch()}>Try again</Button></Alert></Container>;
@@ -99,9 +123,27 @@ export default function PlotForm () {
     <Container size='xl' py='md'>
       {dirty && <RefreshGuard />}
       <Group justify='space-between' mb='lg'><div><Title order={1}>Create a new garden</Title><Text c='dimmed'>Add a garden to Pocket Gardens. You can fill the rest in later.</Text></div><Button variant='subtle' onClick={() => navigate('/')}>Back to map</Button></Group>
+      {pendingPosition && (
+        <Alert color='yellow' title='You have an unfinished garden' role='alert' mb='lg'>
+          <Text>The map location ({pendingPosition.latitude.toFixed(5)}, {pendingPosition.longitude.toFixed(5)}) is for a different garden. Keep your existing draft, or discard it and start a new garden at this pin.</Text>
+          <Group mt='sm'>
+            <Button onClick={clearIncomingPosition}>Keep existing draft</Button>
+            <Button
+              color='red' variant='outline' onClick={() => {
+                form.setValues({ ...createPlotDraft(), position: pendingPosition });
+                form.clearErrors();
+                setPhotoState('idle');
+                setRestored(false);
+                clearIncomingPosition();
+              }}
+            >Discard draft and start here
+            </Button>
+          </Group>
+        </Alert>
+      )}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing='xl'>
         <form onSubmit={form.onSubmit((draft) => {
-          if (blockedPhoto) return;
+          if (blockedPhoto || pendingPosition) return;
           const attempt = preparePlotSubmission(draft, suggestions.result);
           form.setFieldValue('submissionAttempt', attempt);
           // Per-call callbacks belong to this mounted form. A save that outlives
@@ -117,7 +159,7 @@ export default function PlotForm () {
           });
         })}
         >
-          <Fieldset disabled={mutation.isPending} variant='unstyled'>
+          <Fieldset disabled={mutation.isPending || !!pendingPosition} variant='unstyled'>
             <Stack gap='lg'>
               {restored && <Alert color='green' title='Draft restored'>Your unfinished garden is ready to continue.</Alert>}
               {form.errors._form && <Alert color='red' role='alert'>{form.errors._form}{mutation.error?.plotId && <Button variant='subtle' onClick={() => navigate(`/plots/${mutation.error.plotId}`)}>View saved garden</Button>}</Alert>}

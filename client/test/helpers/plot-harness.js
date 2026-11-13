@@ -64,15 +64,16 @@ export async function setupPlotTests (t) {
   });
   t.after(() => vite.close());
   const { default: PlotForm } = await vite.ssrLoadModule('/src/Plots/PlotForm.jsx');
+  const { default: Home } = await vite.ssrLoadModule('/src/Home.jsx');
   const { default: Api } = await vite.ssrLoadModule('/src/Api.js');
   t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true } }));
   // Keep real modal portals so the plant form is outside the garden form in
   // the DOM. Disable animations, which are outside these interaction checks.
   const theme = { components: { Modal: { defaultProps: { transitionProps: { duration: 0 } } } } };
 
-  async function mount (test, { queryData = [] } = {}) {
+  async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-    client.setQueryData(['plots', 'capabilities'], { canCreatePlot: true });
+    client.setQueryData(['plots', 'capabilities'], { canCreatePlot });
     for (const [key, data] of queryData) client.setQueryData(key, data);
     const container = dom.window.document.createElement('div');
     dom.window.document.body.appendChild(container);
@@ -88,19 +89,21 @@ export async function setupPlotTests (t) {
     test.after(unmount);
     let navigate;
     let path;
+    let location;
     function Location () {
       navigate = useNavigate();
-      path = useLocation().pathname;
+      location = useLocation();
+      path = location.pathname;
       return null;
     }
     await interact(() => root.render(h(QueryClientProvider, { client },
       h(MantineProvider, { theme },
         h(UnheadProvider, { value: createHead() },
-          h(MemoryRouter, { initialEntries: ['/plots/new'] },
+          h(MemoryRouter, { initialEntries: [initialEntry] },
             h(Location),
             h(Routes, null,
               h(Route, { path: '/plots/new', element: h(PlotForm) }),
-              h(Route, { path: '*', element: h('div', null, 'Map or saved garden') }))))))));
+              h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') }))))))));
     const field = (label) => {
       const element = [...dom.window.document.querySelectorAll('label')].find((element) => element.textContent.replace(/\s*\*$/, '').trim() === label);
       const input = element && dom.window.document.getElementById(element.htmlFor);
@@ -108,7 +111,7 @@ export async function setupPlotTests (t) {
       return input;
     };
     const button = (text) => {
-      const element = [...dom.window.document.querySelectorAll('button')].find((element) => element.textContent.trim() === text || element.getAttribute('aria-label') === text);
+      const element = [...dom.window.document.querySelectorAll('button, a')].find((element) => element.textContent.trim() === text || element.getAttribute('aria-label') === text);
       assert.ok(element, `Button not found: ${text}`);
       return element;
     };
@@ -119,7 +122,8 @@ export async function setupPlotTests (t) {
       button,
       unmount,
       get path () { return path; },
-      navigate: (path) => interact(() => navigate(path)),
+      get location () { return location; },
+      navigate: (path, options) => interact(() => navigate(path, options)),
       change: (label, value) => interact(() => {
         const input = field(label);
         const prototype = input.tagName === 'TEXTAREA' ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
