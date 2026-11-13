@@ -70,8 +70,8 @@ const Api = {
     create (data) {
       return instance.post('/api/assets', data);
     },
-    upload (url, headers, file) {
-      return instance.put(url, file, { headers });
+    upload (url, headers, file, signal) {
+      return instance.put(url, file, { headers, signal });
     },
   },
   auth: {
@@ -140,6 +140,20 @@ const Api = {
     },
   },
   plots: {
+    capabilities (signal) {
+      return instance.get('/api/plots/capabilities', { signal });
+    },
+    get (id, signal) {
+      return instance.get(`/api/plots/${encodeURIComponent(id)}`, { signal });
+    },
+    create (data) {
+      return instance.post('/api/plots', data).catch((error) => {
+        if (error.response?.status === StatusCodes.CONFLICT) {
+          throw { _form: error.response.data.message, plotId: error.response.data.plotId };
+        }
+        return handleError(error);
+      });
+    },
     index ({ north, south, east, west, offset, pageSize = 100 }, signal) {
       return instance.get('/api/plots', {
         params: { north, south, east, west, offset, pageSize },
