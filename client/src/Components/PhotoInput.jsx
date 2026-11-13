@@ -46,16 +46,16 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
                     })}
                   >
                     <Image src={s.file.preview} alt='' />
-                    <CloseButton aria-label='Remove photo' onClick={(event) => { event.stopPropagation(); onRemove(s); }} className={classes.remove} />
+                    <CloseButton disabled={disabled} aria-label='Remove photo' onClick={(event) => { event.stopPropagation(); onRemove(s); }} className={classes.remove} />
                     <Loader className={classes.spinner} />
-                    {s.status === 'error' && <Box p='xs'><Text c='red' role='alert'>Photo upload failed.</Text><Button type='button' size='xs' onClick={(event) => { event.stopPropagation(); onRetry(s); }}>Retry upload</Button></Box>}
+                    {s.status === 'error' && <Box p='xs'><Text c='red' role='alert'>Photo upload failed.</Text><Button disabled={disabled} type='button' size='xs' onClick={(event) => { event.stopPropagation(); onRetry(s); }}>Retry upload</Button></Box>}
                   </Box>
                 ));
               } else if (statuses.length === 0 && _value) {
                 return (
                   <Box className={classes.preview}>
                     {valueUrl ? <Image src={valueUrl} alt='Uploaded photo' /> : <Text p='md'>Photo uploaded and attached.</Text>}
-                    <CloseButton aria-label='Remove photo' className={classes.remove} onClick={(event) => { event.stopPropagation(); onRemoved(); }} />
+                    <CloseButton disabled={disabled} aria-label='Remove photo' className={classes.remove} onClick={(event) => { event.stopPropagation(); onRemoved(); }} />
                   </Box>
                 );
               } else if (statuses.length === 0 && !_value) {

@@ -133,6 +133,12 @@ export async function setupPlotTests (t) {
       }),
       click: (text) => interact(() => button(text).click()),
       submit: () => interact(() => container.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))),
+      dropPhoto: () => interact(() => {
+        const file = new dom.window.File(['photo'], 'garden.jpg', { type: 'image/jpeg' });
+        const event = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'dataTransfer', { value: { files: [file], items: [{ kind: 'file', type: file.type, getAsFile: () => file }], types: ['Files'] } });
+        container.querySelector('input[type=file]').parentElement.dispatchEvent(event);
+      }),
       upload: () => interact(() => {
         const input = container.querySelector('input[type=file]');
         const file = new dom.window.File(['photo'], 'garden.jpg', { type: 'image/jpeg' });

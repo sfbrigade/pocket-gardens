@@ -108,7 +108,9 @@ export default function PlotForm () {
     form.insertListItem('plants', { ...plant, key: uuid(), quantity: '', notes: '' });
   }
 
+  const photoSubmissionId = values.submissionId;
   function photoChanged (state) {
+    if (form.getValues().submissionId !== photoSubmissionId) return;
     setPhotoState(state);
     form.setFieldValue('photoWasSelected', state !== 'idle');
   }
@@ -174,7 +176,7 @@ export default function PlotForm () {
                   <Textarea label='Where exactly is it?' description='Street side, plot order, or a fixed landmark, such as the second tree well north of the blue gate.' required autosize minRows={2} {...form.getInputProps('locator')} />
                   <TextInput label='Garden title' description={values.nameEdited ? 'Custom title. Other changes will keep it.' : 'Suggested from the address and exact location. You can edit it.'} {...form.getInputProps('name')} value={values.name} onChange={(event) => { form.setFieldValue('nameEdited', true); form.setFieldValue('name', event.currentTarget.value); }} />
                   {values.nameEdited && suggestions.title && <Button variant='subtle' size='compact-sm' onClick={() => form.setFieldValue('nameEdited', false)}>Reset to suggested title</Button>}
-                  <PhotoInput label='Reference photo' description='Optional. A photo that helps somebody recognise this garden.' disabled={mutation.isPending} {...form.getInputProps('photo')} onUploadStateChange={photoChanged} />
+                  <PhotoInput key={values.submissionId} label='Reference photo' description='Optional. A photo that helps somebody recognise this garden.' disabled={mutation.isPending || !!pendingPosition} {...form.getInputProps('photo')} onChange={(filename) => { if (form.getValues().submissionId === photoSubmissionId) form.setFieldValue('photo', filename); }} onUploadStateChange={photoChanged} />
                   {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => form.setFieldValue('photoWasSelected', false)}>Continue without photo</Button></Alert>}
                 </Stack>
               </Fieldset>

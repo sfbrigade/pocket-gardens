@@ -88,3 +88,58 @@ test('garden photo upload lifecycle', async (t) => {
     assert.equal(readDraft().photoWasSelected, false);
   });
 });
+
+
+test('photo work belongs to its garden draft', async (t) => {
+  const { dom, Api, mount, readDraft, revokePreview } = await setupPlotTests(t);
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ features: [] }) }));
+  t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'old.jpg', url: '/upload', headers: {} } }));
+  for (const choice of ['Keep existing draft', 'Discard draft and start here']) {
+    await t.test(`drop while choosing: ${choice}`, async (t) => {
+      const original = { ...createPlotDraft(), locator: 'Old garden', addressEdited: true };
+      dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
+      const upload = t.mock.method(Api.assets, 'upload', async () => {});
+      const view = await mount(t, { initialEntry: { pathname: '/plots/new', state: { mapPosition: { latitude: 37.79, longitude: -122.41 } } } });
+      await waitFor(() => assert.match(view.container.textContent, /You have an unfinished garden/));
+      await view.dropPhoto();
+      // Flush the dropzone's asynchronous file extraction.
+      await interact(() => new Promise((resolve) => setTimeout(resolve, 30)));
+      assert.equal(upload.mock.calls.length, 0, 'the choice prompt must disable div drop handlers');
+      assert.deepEqual(readDraft(), original);
+      await view.click(choice);
+      if (choice === 'Keep existing draft') assert.equal(readDraft().submissionId, original.submissionId);
+      else assert.notEqual(readDraft().submissionId, original.submissionId);
+    });
+  }
+  for (const outcome of ['success', 'failure']) {
+    for (const choice of ['Keep existing draft', 'Discard draft and start here']) {
+      await t.test(`in-flight ${outcome} after ${choice}`, async (t) => {
+        const original = { ...createPlotDraft(), locator: 'Old garden', addressEdited: true };
+        dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
+        const pending = Promise.withResolvers();
+        const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
+        const view = await mount(t);
+        await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Old garden'));
+        await view.upload();
+        await waitFor(() => assert.equal(upload.mock.calls.length, 1));
+        const signal = upload.mock.calls[0].arguments[3];
+        const preview = view.container.querySelector('img').getAttribute('src');
+        await view.navigate('/plots/new', { state: { mapPosition: { latitude: 37.79, longitude: -122.41 } } });
+        await waitFor(() => assert.match(view.container.textContent, /You have an unfinished garden/));
+        await view.click(choice);
+        const replaced = choice.startsWith('Discard');
+        assert.equal(signal.aborted, replaced);
+        if (replaced) assert.ok(revokePreview.mock.calls.some(({ arguments: args }) => args[0] === preview));
+        await view.change('Garden title', 'My title');
+        await interact(() => outcome === 'success' ? pending.resolve() : pending.reject(new Error('Late failure')));
+        await waitFor(() => assert.equal(view.client.isMutating(), 0));
+        assert.equal(readDraft().name, 'My title');
+        assert.equal(readDraft().photo, !replaced && outcome === 'success' ? 'old.jpg' : '');
+        if (replaced) {
+          assert.equal(readDraft().photoWasSelected, false);
+          assert.doesNotMatch(view.container.textContent, /Photo upload failed/);
+        }
+      });
+    }
+  }
+});

@@ -8,6 +8,8 @@ import Api from '../Api';
 function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, onUploading, onUploadError }) {
   const [statuses, setStatuses] = useState([]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
+  const disabledRef = useRef(disabled);
+  useEffect(() => { disabledRef.current = disabled; }, [disabled]);
   const uploads = useRef(new Map());
   const previews = useRef(new Map());
   const mutation = useMutation({
@@ -48,6 +50,7 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
   }
 
   function onDropAccepted (files) {
+    if (disabledRef.current) return;
     setRejectedFiles([]);
     const next = files.map((file) => {
       const id = uuid();
