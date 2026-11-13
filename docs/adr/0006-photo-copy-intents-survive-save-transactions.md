@@ -4,8 +4,8 @@ Write each new garden photo's destination to a durable intent before copying,
 outside the garden transaction so rollback or process death cannot erase it.
 The save holds a lock on that intent until its database transaction finishes;
 reconciliation takes the same lock before checking authoritative photo references
-and deleting unreferenced targets. A lease alone would allow a slow save to commit
-after cleanup. Failed database reads retain objects for retry.
+and durably retiring unreferenced targets before external deletion. A lease alone
+would allow a slow save to commit after cleanup. Failed database reads retain objects for retry.
 
 Retired intents remain as tombstones and are revisited: a storage operation may
 finish after its database transaction is interrupted. A retired intent fences

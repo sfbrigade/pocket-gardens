@@ -198,3 +198,68 @@ Finish with local commits, a clean working tree, test/build results and honest l
   identity. Local previews are released when the server rejects the source.
 - Full client suite: 74 passed. Targeted regressions were first observed failing
   on stale attachments, then passed after the recovery change.
+
+### Operational checks and pagination refinement
+
+- Prepared `docs/photo-upload-operations.md`, dry-run-by-default cleanup, and a
+  policy JSON merger that never contacts/mutates storage. Unrelated rules survive;
+  current/noncurrent staging versions, delete markers and incomplete multipart
+  uploads are covered. Installation/scheduling are documented for later execution.
+- Added actual 1,005-version RustFS coverage. Version candidates are grouped by
+  key so cleanup cannot invalidate a continuation marker mid-listing.
+- A 105-intent reconciliation regression caught Prisma cursor/skip omitting one
+  row after the prior batch's due times changed. Explicit `key > lastKey` keyset
+  pagination fixes the issue. Re-run and final validation are in progress.
+
+### Coordination update
+
+The owner authorized separate map fixes on branch 07. This checkout does not edit
+those files or touch the user's testing checkout. After the owner supplies the
+updated 07 commit, rebase these logical photo commits onto that local tip at a
+clean checkpoint, preserving the separate prerequisite (its SHA will change).
+
+Reconciliation now commits its retirement fence before external deletion. This
+also protects against deletion outlasting a lost database connection; a regression
+checks that another connection sees retirement before deletion begins and that a
+lost deletion acknowledgment remains retryable.
+
+### Validation at the clean photo checkpoint
+
+- `npm test -w client`: **74 passed**.
+- `CI=true npm test -w server` with this checkout's example .env and disposable
+  testcontainers: **182 passed**. Includes shared consumers and all new storage,
+  version/pagination, rollback, ambiguous-commit and cleanup recovery seams.
+- `npm run lint:check`: passed for both workspaces.
+- `npm run build -w client`: client and SSR builds passed.
+- `DATABASE_URL=postgresql://localhost/unused npm run prisma:generate -w server`:
+  generation and TypeScript compilation passed.
+- `prisma validate`: passed. Migrations deployed successfully to each disposable
+  integration-test PostgreSQL database; no application/production DB was migrated.
+- `git diff --check`: passed.
+
+Native lifecycle execution/timing, production permissions and scheduler setup,
+and physical-device performance remain unmeasured. Installation, migration and
+scheduling must be executed later using the operations runbook. No GitHub writes,
+pushes, production changes or changes to the user's branch 07 checkout occurred.
+The coordinated rebase onto the owner's updated branch 07 is the remaining stack
+step; validate the combined tree afterward.
+
+### Final stack integration
+
+- Rebased the four photo commits cleanly onto the owner's local branch 07 tip
+  `72eaa34816ecdbdd0287bda357d4788210e94536`.
+- Photo prerequisite intended for #55 is now `9ea2884` (originally `ce31116`).
+  Lifecycle tracking follows at `c9bc04a`, form recovery at `d2c7448`, then the
+  policy/operations/verification commit. All remain separate local commits.
+- `git range-diff` confirmed all four photo patches were preserved by the rebase.
+  Only this final execution record/runbook is updated afterward.
+- Combined-tree validation: **76 client tests passed**, workspace lint passed,
+  client and SSR builds passed. The server tree object is identical to the exact
+  tree that passed **182 server tests**, Prisma generation/TypeScript compilation,
+  schema validation and disposable migration deployment; those results remain
+  applicable without an unnecessary repeat of unchanged server tests.
+- Branch 08 adds no changes to LeafletContainer.jsx or map-interactions.test.js.
+  Branch 07 remains at the owner-provided tip; the user's testing checkout was
+  never edited by this work. No GitHub or production actions were performed.
+- Implementation, local commits, operational preparation and stack integration
+  are complete. Production rollout steps remain deliberately unexecuted.

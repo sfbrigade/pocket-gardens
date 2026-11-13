@@ -8,3 +8,8 @@ $ dokku letsencrypt:enable <name of app>
 ```
 
 The web process runs `npm start -w server`, which applies pending Prisma migrations before starting the server. A migration failure stops startup; check the application logs and resolve it before restarting.
+
+Photo uploads also require the additive lifecycle migration, staging retention
+configuration and a scheduled reconciliation worker. See
+[photo upload operations](photo-upload-operations.md) for dry-run, merged-policy
+preparation and later rollout steps. These steps are not applied automatically.
