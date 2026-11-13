@@ -103,6 +103,7 @@ export async function setupPlotTests (t) {
             h(Location),
             h(Routes, null,
               h(Route, { path: '/plots/new', element: h(PlotForm) }),
+              showHome && h(Route, { path: '/plots/:plotId', element: h(Home) }),
               h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') }))))))));
     const field = (label) => {
       const element = [...dom.window.document.querySelectorAll('label')].find((element) => element.textContent.replace(/\s*\*$/, '').trim() === label);

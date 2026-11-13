@@ -12,8 +12,105 @@ test('map viewport interactions', async (t) => {
     initialize.apply(this, args);
     map = this;
   });
+  // jsdom has no map layout. Supply geographic bounds at the real map seam.
+  t.mock.method(Map.prototype, 'getBounds', () => latLngBounds([[37.76, -122.44], [37.80, -122.40]]));
+
+  await t.test('unloads offscreen markers and restores cached pins without requests or recreating retained markers', async (t) => {
+    const center = { id: 'center', Latitude: 37.78, Longitude: -122.42 };
+    const edge = { id: 'edge', Latitude: 37.781, Longitude: -122.428 };
+    const margin = { id: 'margin', Latitude: 37.78, Longitude: -122.4255 };
+    const buffered = { id: 'buffered', Latitude: 37.78, Longitude: -122.448 };
+    const list = t.mock.method(Api.plots, 'index', async () => ({ data: [center, edge, margin, buffered], headers: {} }));
+    const view = await mount(t, { initialEntry: '/', showHome: true });
+    const markers = () => Object.values(map._layers).filter((layer) => layer instanceof Marker);
+    const markerAt = (plot) => markers().find((marker) => marker.getLatLng().lat === plot.Latitude && marker.getLatLng().lng === plot.Longitude);
+    await waitFor(() => assert.equal(list.mock.calls.length, 1));
+    await waitFor(() => assert.equal(markers().length, 3, 'data in the fetch buffer should not all become markers'));
+    const originalCenter = markerAt(center);
+    const originalEdge = markerAt(edge);
+    const positionUpdates = t.mock.method(originalCenter, 'setLatLng');
+
+    let visible = latLngBounds([[37.775, -122.425], [37.785, -122.415]]);
+    t.mock.method(map, 'getBounds', () => visible);
+    await interact(() => map.fire('zoomend').fire('moveend'));
+    await waitFor(() => assert.equal(markers().length, 2, 'zooming in should unload distant markers'));
+    assert.ok(markerAt(margin), 'keep a small margin of offscreen pins to avoid churn near the screen edge');
+    assert.strictEqual(markerAt(center), originalCenter);
+    assert.equal(markerAt(edge), undefined);
+    assert.equal(list.mock.calls.length, 1);
+
+    for (const delta of [0.00001, -0.00001]) {
+      visible = latLngBounds([[37.775 + delta, -122.425], [37.785 + delta, -122.415]]);
+      await interact(() => map.fire('moveend'));
+      await interact(() => delay(300));
+      assert.strictEqual(markerAt(center), originalCenter);
+      assert.equal(positionUpdates.mock.calls.length, 0, 'retained markers should not receive redundant position updates');
+    }
+
+    visible = latLngBounds([[37.775, -122.43], [37.785, -122.42]]);
+    await interact(() => map.fire('moveend'));
+    await waitFor(() => assert.ok(markerAt(edge)));
+    assert.notStrictEqual(markerAt(edge), originalEdge, 'an unloaded marker is recreated from cached data');
+    assert.strictEqual(markerAt(center), originalCenter);
+    assert.equal(list.mock.calls.length, 1);
+
+    // Keep an open popup mounted even when the viewport moves away from it.
+    const edgeMarker = markerAt(edge);
+    await interact(() => edgeMarker.openPopup());
+    visible = latLngBounds([[37.775, -122.425], [37.785, -122.415]]);
+    await interact(() => map.fire('moveend'));
+    await interact(() => delay(300));
+    assert.strictEqual(markerAt(edge), edgeMarker);
+    assert.equal(edgeMarker.isPopupOpen(), true);
+    await interact(() => edgeMarker.closePopup());
+    await waitFor(() => assert.equal(markerAt(edge), undefined));
+
+    visible = latLngBounds([[37.76, -122.449], [37.80, -122.409]]);
+    await interact(() => map.fire('moveend'));
+    await waitFor(() => assert.ok(markerAt(buffered), 'panning into the fetch buffer should use cached data'));
+    assert.equal(list.mock.calls.length, 1);
+    assert.equal(positionUpdates.mock.calls.length, 0);
+    assert.equal(view.client.getQueryCache().findAll({ queryKey: ['plots'] }).find(({ queryKey }) => typeof queryKey[1] === 'object').state.data.length, 4);
+
+    const bufferedMarker = markerAt(buffered);
+    await interact(() => bufferedMarker.openPopup());
+    list.mock.mockImplementation(async () => ({ data: [], headers: {} }));
+    visible = latLngBounds([[37.81, -122.40], [37.82, -122.39]]);
+    await interact(() => map.fire('moveend'));
+    await waitFor(() => assert.equal(list.mock.calls.length, 2));
+    await waitFor(() => assert.equal(markers().length, 1));
+    assert.strictEqual(markerAt(buffered), bufferedMarker, 'the open popup survives replacement fetch coverage');
+    assert.equal(bufferedMarker.isPopupOpen(), true);
+    await interact(() => bufferedMarker.closePopup());
+    await waitFor(() => assert.equal(markers().length, 0));
+  });
+
+  await t.test('retains the selected garden outside rendering and fetched coverage without duplicates', async (t) => {
+    const selected = { id: 'selected', Latitude: 37.78, Longitude: -122.428 };
+    const list = t.mock.method(Api.plots, 'index', async () => ({ data: [selected], headers: {} }));
+    const view = await mount(t, { initialEntry: '/plots/selected', showHome: true, queryData: [[['plot', selected.id], selected]] });
+    await waitFor(() => assert.equal(list.mock.calls.length, 1));
+    const markers = () => Object.values(map._layers).filter((layer) => layer instanceof Marker);
+    await waitFor(() => assert.equal(markers().length, 1));
+    const original = markers()[0];
+    let visible = latLngBounds([[37.775, -122.425], [37.785, -122.415]]);
+    t.mock.method(map, 'getBounds', () => visible);
+    await interact(() => map.fire('moveend'));
+    await interact(() => delay(300));
+    assert.deepEqual(markers(), [original]);
+    assert.equal(list.mock.calls.length, 1);
+
+    list.mock.mockImplementation(async () => ({ data: [], headers: {} }));
+    visible = latLngBounds([[37.81, -122.40], [37.82, -122.39]]);
+    await interact(() => map.fire('moveend'));
+    await waitFor(() => assert.equal(list.mock.calls.length, 2));
+    await waitFor(() => assert.equal(view.client.isFetching(), 0));
+    assert.deepEqual(markers(), [original]);
+  });
+
   await t.test('batches viewport changes and reuses buffered coverage', async (t) => {
-    const garden = { id: 'garden', Latitude: 37.775, Longitude: -122.42 };
+    t.mock.method(Map.prototype, 'getBounds', () => latLngBounds([[37.785, -122.435], [37.795, -122.425]]));
+    const garden = { id: 'garden', Latitude: 37.79, Longitude: -122.43 };
     const list = t.mock.method(Api.plots, 'index', async () => ({ data: [garden], headers: {} }));
     const view = await mount(t, { initialEntry: '/', showHome: true });
     await waitFor(() => assert.ok(map));
@@ -65,7 +162,7 @@ test('map viewport interactions', async (t) => {
     visible = latLngBounds([[37.81, -122.40], [37.82, -122.39]]);
     await interact(() => map.fire('moveend'));
     await waitFor(() => assert.equal(list.mock.calls.length, 4));
-    assert.strictEqual(marker(), originalMarker, 'keep markers while replacement coverage loads');
+    assert.equal(marker(), undefined, 'offscreen markers unload while replacement coverage loads');
     const obsoleteSignal = list.mock.calls.at(-1).arguments[1];
     list.mock.mockImplementation(async () => ({ data: [garden], headers: {} }));
     visible = latLngBounds([[37.74, -122.49], [37.75, -122.48]]);
@@ -74,14 +171,14 @@ test('map viewport interactions', async (t) => {
     assert.equal(obsoleteSignal.aborted, true);
     await interact(() => pending.resolve({ data: [{ ...garden, id: 'obsolete' }], headers: {} }));
     await interact(() => delay(30));
-    assert.strictEqual(marker(), originalMarker);
+    assert.equal(marker(), undefined, 'neither cached offscreen plots nor obsolete results should render');
     await waitFor(() => assert.equal(view.client.getQueryCache().findAll({ queryKey: ['plots'] }).filter(({ queryKey }) => typeof queryKey[1] === 'object' && queryKey[1] !== null).length, 1));
 
     list.mock.mockImplementation(async () => { throw new Error('Offline'); });
     visible = latLngBounds([[37.72, -122.47], [37.73, -122.46]]);
     await interact(() => map.fire('moveend'));
     await waitFor(() => assert.match(view.container.textContent, /Unable to load gardens/));
-    list.mock.mockImplementation(async () => ({ data: [garden], headers: {} }));
+    list.mock.mockImplementation(async () => ({ data: [{ ...garden, Latitude: 37.725, Longitude: -122.465 }], headers: {} }));
     await interact(() => map.fire('moveend'));
     await waitFor(() => assert.ok(marker()));
     assert.doesNotMatch(view.container.textContent, /Unable to load gardens/);

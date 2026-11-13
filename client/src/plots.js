@@ -28,9 +28,9 @@ export function containsBounds (coverage, visible) {
     visible.east <= coverage.east && visible.west >= coverage.west;
 }
 
-export function bufferedBounds (visible) {
-  const latitudePadding = (visible.north - visible.south) * 0.25;
-  const longitudePadding = (visible.east - visible.west) * 0.25;
+export function bufferedBounds (visible, padding = 0.25) {
+  const latitudePadding = (visible.north - visible.south) * padding;
+  const longitudePadding = (visible.east - visible.west) * padding;
   return {
     north: Math.min(90, visible.north + latitudePadding),
     south: Math.max(-90, visible.south - latitudePadding),
