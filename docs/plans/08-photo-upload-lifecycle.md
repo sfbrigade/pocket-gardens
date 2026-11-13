@@ -188,3 +188,13 @@ Finish with local commits, a clean working tree, test/build results and honest l
   the test configuration by copying example.env into this checkout's ignored
   .env, matching CI. Existing rollback test now stages a real source so injected
   copy failure still reaches the intended seam after adding missing-photo checks.
+
+### Form recovery complete
+
+- Completed-photo refresh still attempts save/replay first. A structured Photos
+  error resets only the stale photo/uploader and attempted payload, preserves all
+  other values/manual overrides and submission ID, and survives another refresh.
+- Reattachment and explicit continue-without-photo both use the same submission
+  identity. Local previews are released when the server rejects the source.
+- Full client suite: 74 passed. Targeted regressions were first observed failing
+  on stale attachments, then passed after the recovery change.
