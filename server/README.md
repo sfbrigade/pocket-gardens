@@ -91,3 +91,19 @@ Re-running import or migrate skips parents that already have photo rows. Use `--
 ## Learn More
 
 To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs/latest/).
+
+## Photo upload retention and reconciliation
+
+`PHOTO_UPLOAD_RETENTION_DAYS=7` controls temporary upload recovery. The native
+`_uploads/` bucket policy must use the same value. Garden-copy cleanup is durable
+and runs through a separate job; it never scans unknown permanent assets.
+
+```sh
+npm run photos:cleanup:dry -w server
+# Destructive operator step after inspecting the dry-run:
+npm run photos:cleanup -w server -- --apply
+```
+
+See [operations and rollout](../docs/photo-upload-operations.md) before configuring
+storage or scheduling this job. The policy generator only prepares a merged JSON
+document; nothing installs a bucket policy automatically.

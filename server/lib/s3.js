@@ -181,8 +181,8 @@ async function * listVersions (Prefix) {
   let VersionIdMarker;
   do {
     const page = await client.send(new ListObjectVersionsCommand({ Bucket: process.env.AWS_S3_BUCKET, Prefix, KeyMarker, VersionIdMarker }));
-    yield * (page.Versions ?? []);
-    yield * (page.DeleteMarkers ?? []);
+    // Keep each key's entries together across version and marker arrays.
+    yield * [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])].sort((a, b) => a.Key < b.Key ? -1 : a.Key > b.Key ? 1 : 0);
     KeyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
     VersionIdMarker = page.NextVersionIdMarker;
     if (page.IsTruncated && !KeyMarker) throw new Error('Storage omitted version continuation marker');
@@ -197,12 +197,13 @@ async function bucketIsVersioned () {
 
 async function purgeObject (key, versioned = false) {
   if (!versioned) return deleteObject(key);
-  // Delete versions before markers so a failed run cannot expose old contents.
-  // Repeat runs also catch late PUT/copy completions.
+  // Keep delete markers until contents are removed so hidden keys stay hidden
+  // on a partial failure. Repeat runs also catch late PUT/copy completions.
   const versions = [];
   for await (const version of listVersions(key)) {
     if (version.Key === key) versions.push(version);
   }
+  versions.sort((a, b) => Number(!Object.hasOwn(a, 'Size')) - Number(!Object.hasOwn(b, 'Size')));
   for (const version of versions) await deleteObject(key, version.VersionId);
 }
 

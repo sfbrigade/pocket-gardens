@@ -88,6 +88,26 @@ test('durable photo lifecycle and reconciliation', async (t) => {
     assert.equal((await create(payload(files))).statusCode, 201, 'recent staging survives a failed save');
   });
 
+  await t.test('retirement commits before external deletion, including a lost deletion acknowledgment', async (t) => {
+    const filename = await stage();
+    const key = `plot_photos/${randomUUID()}/file/${filename}`;
+    await prisma.photoCopyIntent.create({ data: { key, upload: filename } });
+    await s3.copyObject(`${process.env.AWS_S3_BUCKET}/_uploads/${filename}`, key);
+    const original = s3.purgeObject;
+    let fenced = false;
+    const purge = t.mock.method(s3, 'purgeObject', async (...args) => {
+      fenced = (await prisma.photoCopyIntent.findUnique({ where: { key } })).retired;
+      await original(...args);
+      throw new Error('Lost deletion acknowledgment');
+    });
+    assert.equal((await reconcilePhotoCopies(prisma, { dryRun: false })).failed, 1);
+    assert.equal(fenced, true, 'other connections must see retirement before storage deletion starts');
+    assert.equal(await assetExists(key), false);
+    assert.ok((await prisma.photoCopyIntent.findUnique({ where: { key } })).lastError);
+    purge.mock.restore();
+    assert.equal((await reconcilePhotoCopies(prisma, { dryRun: false })).deleted, 1);
+  });
+
   await t.test('active saves are locked out of cleanup; committed references remain protected', async (t) => {
     const filename = await stage();
     const original = s3.copyObject;
@@ -184,6 +204,13 @@ test('durable photo lifecycle and reconciliation', async (t) => {
     assert.deepEqual(deleted.mock.calls.map(({ arguments: args }) => args[0]), ['_uploads/boundary.jpg', '_uploads/older.jpg']);
   });
 
+  await t.test('copy reconciliation paginates through more than one batch', async () => {
+    await prisma.photoCopyIntent.createMany({ data: Array.from({ length: 105 }, () => ({ key: `plot_photos/${randomUUID()}/file/${randomUUID()}.jpg`, upload: 'interrupted-before-write.jpg' })) });
+    assert.equal((await reconcilePhotoCopies(prisma)).deleted, 105);
+    assert.equal((await reconcilePhotoCopies(prisma, { dryRun: false })).deleted, 105);
+    assert.equal(await prisma.photoCopyIntent.count({ where: { retired: true, checks: 1 } }), 105);
+  });
+
   await t.test('storage listing and expiry paginate beyond a full S3 page', async () => {
     const names = Array.from({ length: 1005 }, () => `${randomUUID()}.jpg`);
     for (let i = 0; i < names.length; i += 30) {
@@ -210,6 +237,12 @@ test('durable photo lifecycle and reconciliation', async (t) => {
       for await (const version of s3.listVersions(`_uploads/${filename}`)) versions.push(version);
       assert.equal(versions.length, 3);
       assert.equal(await assetExists(`_uploads/${filename}`), false);
+      // More than one page of versions for a single key exercises continuation
+      // markers while cleanup is deleting objects from the listed namespace.
+      for (let i = 0; i < 1002; i += 30) await upload(Array.from({ length: Math.min(30, 1002 - i) }, () => ['640x480.jpg', filename]));
+      let versionCount = 0;
+      for await (const version of s3.listVersions(`_uploads/${filename}`)) { assert.equal(version.Key, `_uploads/${filename}`); versionCount++; }
+      assert.equal(versionCount, 1005);
       const result = await expireStagingUploads(prisma, { dryRun: false, now: later(8), versioned: true });
       assert.equal(result.failed, 0);
       for await (const version of s3.listVersions(`_uploads/${filename}`)) assert.fail(`Version survived: ${version.VersionId}`);
@@ -217,6 +250,18 @@ test('durable photo lifecycle and reconciliation', async (t) => {
       await upload([['640x480.jpg', filename], ['640x480.jpg', `${filename}.other`]]);
       await s3.purgeObject(`_uploads/${filename}`, true);
       assert.ok(await assetExists(`_uploads/${filename}.other`));
+      const savedPhoto = await stage();
+      assert.equal((await create(payload([savedPhoto]))).statusCode, 201);
+      const [kept] = await prisma.photoCopyIntent.findMany();
+      const orphan = `plot_photos/${randomUUID()}/file/${savedPhoto}`;
+      await prisma.photoCopyIntent.create({ data: { key: orphan, upload: savedPhoto } });
+      await s3.copyObject(`${process.env.AWS_S3_BUCKET}/${kept.key}`, orphan);
+      await s3.copyObject(`${process.env.AWS_S3_BUCKET}/${kept.key}`, orphan);
+      const reconciled = await reconcilePhotoCopies(prisma, { dryRun: false, now: later(2), versioned: true });
+      assert.equal(reconciled.retained, 1);
+      assert.equal(reconciled.deleted, 1);
+      assert.ok(await assetExists(kept.key));
+      for await (const version of s3.listVersions(orphan)) assert.fail(`Orphan version survived: ${version.VersionId}`);
     } finally {
       client.destroy();
     }
