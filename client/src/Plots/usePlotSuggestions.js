@@ -12,6 +12,7 @@ export default function usePlotSuggestions (values, disabled) {
     queryFn: ({ signal }) => lookupAddress(position, { signal, baseUrl: env?.VITE_PHOTON_BASE_URL }),
     enabled: mounted && !!position && !values.addressEdited && !disabled,
     retry: false,
+    refetchOnWindowFocus: false,
     staleTime: 24 * 60 * 60 * 1000,
   });
   const identification = resolvePlotIdentification(values, query.data);
