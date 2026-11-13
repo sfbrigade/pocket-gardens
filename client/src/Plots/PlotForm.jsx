@@ -37,6 +37,7 @@ export default function PlotForm () {
   const [pendingPosition, setPendingPosition] = useState(null);
   const handledLocation = useRef(null);
   const [photoState, setPhotoState] = useState('idle');
+  const [photoReset, setPhotoReset] = useState(0);
   const [mapOpened, { open: openMap, close: closeMap }] = useDisclosure();
   const capability = useQuery({ queryKey: ['plots', 'capabilities'], queryFn: ({ signal }) => Api.plots.capabilities(signal).then(({ data }) => data), enabled: mounted });
   const form = useForm({
@@ -157,7 +158,18 @@ export default function PlotForm () {
               form.resetDirty();
               navigate(`/plots/${data.id}`, { replace: true, state: { created: true } });
             },
-            onError: (errors) => form.setErrors(plotFormErrors(errors)),
+            onError: (errors) => {
+              const fields = plotFormErrors(errors);
+              if (fields.photo) {
+                // A structured photo error means this attempt did not save.
+                // Keep draft identity and all other fields, but release the
+                // stale uploader and require reattachment or explicit opt-out.
+                form.setValues({ photo: '', photoWasSelected: true, submissionAttempt: null });
+                setPhotoState('idle');
+                setPhotoReset((current) => current + 1);
+              }
+              form.setErrors(fields);
+            },
           });
         })}
         >
@@ -176,8 +188,8 @@ export default function PlotForm () {
                   <Textarea label='Where exactly is it?' description='Street side, plot order, or a fixed landmark, such as the second tree well north of the blue gate.' required autosize minRows={2} {...form.getInputProps('locator')} />
                   <TextInput label='Garden title' description={values.nameEdited ? 'Custom title. Other changes will keep it.' : 'Suggested from the address and exact location. You can edit it.'} {...form.getInputProps('name')} value={values.name} onChange={(event) => { form.setFieldValue('nameEdited', true); form.setFieldValue('name', event.currentTarget.value); }} />
                   {values.nameEdited && suggestions.title && <Button variant='subtle' size='compact-sm' onClick={() => form.setFieldValue('nameEdited', false)}>Reset to suggested title</Button>}
-                  <PhotoInput key={values.submissionId} label='Reference photo' description='Optional. A photo that helps somebody recognise this garden.' disabled={mutation.isPending || !!pendingPosition} {...form.getInputProps('photo')} onChange={(filename) => { if (form.getValues().submissionId === photoSubmissionId) form.setFieldValue('photo', filename); }} onUploadStateChange={photoChanged} />
-                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => form.setFieldValue('photoWasSelected', false)}>Continue without photo</Button></Alert>}
+                  <PhotoInput key={`${values.submissionId}:${photoReset}`} label='Reference photo' description='Optional. Uploads are temporary until you save. If a photo expires, you can reattach it.' disabled={mutation.isPending || !!pendingPosition} {...form.getInputProps('photo')} onChange={(filename) => { if (form.getValues().submissionId === photoSubmissionId) form.setFieldValue('photo', filename); }} onUploadStateChange={photoChanged} />
+                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => { form.setFieldValue('photoWasSelected', false); form.clearFieldError('photo'); }}>Continue without photo</Button></Alert>}
                 </Stack>
               </Fieldset>
               <Fieldset legend='3 · Permission and care'>

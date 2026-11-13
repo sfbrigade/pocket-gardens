@@ -89,7 +89,6 @@ test('garden photo upload lifecycle', async (t) => {
   });
 });
 
-
 test('photo work belongs to its garden draft', async (t) => {
   const { dom, Api, mount, readDraft, revokePreview } = await setupPlotTests(t);
   t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ features: [] }) }));
@@ -142,4 +141,74 @@ test('photo work belongs to its garden draft', async (t) => {
       });
     }
   }
+});
+
+test('completed and expired photo refresh recovery preserves the garden draft', async (t) => {
+  const { dom, Api, mount, readDraft, revokePreview } = await setupPlotTests(t);
+  const oldPhoto = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg';
+  const newPhoto = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jpg';
+  for (const choice of ['reattach', 'continue']) {
+    await t.test(`expired photo: ${choice}`, async (t) => {
+      const original = {
+        ...createPlotDraft(),
+        position: { latitude: 37.77, longitude: -122.43 },
+        locator: 'Near gate',
+        address: 'My address',
+        addressEdited: true,
+        name: 'My title',
+        nameEdited: true,
+        photo: oldPhoto,
+        photoWasSelected: true,
+      };
+      dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
+      const create = t.mock.method(Api.plots, 'create', async () => { throw Object.assign(new Error('Photo unavailable'), { Photos: 'This photo is missing or has expired. Reattach it or continue without a photo.' }); });
+      t.mock.method(Api.assets, 'create', async () => ({ data: { filename: newPhoto, url: '/upload', headers: {} } }));
+      t.mock.method(Api.assets, 'upload', async () => {});
+      let view = await mount(t);
+      await waitFor(() => assert.match(view.container.textContent, /Photo uploaded and attached/));
+      assert.equal(view.button('Create garden').disabled, false, 'a completed restored photo can be saved/replayed');
+      await view.submit();
+      await waitFor(() => assert.match(view.container.textContent, /missing or has expired/));
+      assert.equal(readDraft().photo, '');
+      assert.equal(readDraft().photoWasSelected, true);
+      assert.equal(readDraft().submissionId, original.submissionId);
+      assert.equal(view.field('Garden title').value, original.name);
+      assert.equal(view.field('Address or cross street').value, original.address);
+      assert.equal(view.field('Where exactly is it?').value, original.locator);
+      assert.equal(view.button('Create garden').disabled, true);
+      await view.unmount();
+      view = await mount(t);
+      await waitFor(() => assert.match(view.container.textContent, /Reattach your photo/));
+      assert.equal(readDraft().submissionId, original.submissionId);
+      if (choice === 'reattach') {
+        await view.upload();
+        await waitFor(() => assert.equal(readDraft().photo, newPhoto));
+      } else await view.click('Continue without photo');
+      create.mock.restore();
+      const save = t.mock.method(Api.plots, 'create', async () => ({ data: { id: 'pg_recovered' } }));
+      await view.submit();
+      await waitFor(() => assert.equal(view.path, '/plots/pg_recovered'));
+      const sent = save.mock.calls[0].arguments[0];
+      assert.equal(sent.submissionId, original.submissionId);
+      assert.equal(sent['Pocket Garden Name'], original.name);
+      assert.equal(sent['Street Address'], original.address);
+      assert.deepEqual(sent.Photos, choice === 'reattach' ? [newPhoto] : undefined);
+    });
+  }
+
+  await t.test('an expired uploaded preview is released before reattachment', async (t) => {
+    dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify({ ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 }, locator: 'Gate', addressEdited: true }));
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: oldPhoto, url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => {});
+    t.mock.method(Api.plots, 'create', async () => { throw Object.assign(new Error('Photo unavailable'), { Photos: 'Photo expired' }); });
+    const view = await mount(t);
+    await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Gate'));
+    await view.upload();
+    await waitFor(() => assert.equal(readDraft().photo, oldPhoto));
+    const preview = view.container.querySelector('img').getAttribute('src');
+    await view.submit();
+    await waitFor(() => assert.equal(readDraft().photo, ''));
+    assert.ok(revokePreview.mock.calls.some(({ arguments: args }) => args[0] === preview));
+    assert.equal(view.container.querySelector('img'), null);
+  });
 });
