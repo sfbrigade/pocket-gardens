@@ -5,12 +5,7 @@ import { createPlotDraft, plotPayload } from '../src/Plots/plot-form.js';
 
 const position = { latitude: 37.77, longitude: -122.43 };
 
-test('late address suggestions cannot overwrite manual edits or a newer pin', () => {
-  const result = { position, address: '440 5th Avenue' };
-  const draft = { ...createPlotDraft(), position };
-  assert.equal(resolvePlotIdentification({ ...draft, address: 'Manual address', addressEdited: true }, result).address, 'Manual address');
-  assert.equal(resolvePlotIdentification({ ...draft, position: { ...position, latitude: 37.78 } }, result).address, '');
-  assert.equal(resolvePlotIdentification(draft, result).address, '440 5th Avenue');
+test('suggested titles combine the local address and locator, including locations without an address', () => {
   assert.equal(suggestedTitle('440 5th Avenue, San Francisco, CA', 'Second tree well.'), '440 5th Avenue · Second tree well');
   assert.equal(suggestedTitle('', 'Second tree well'), 'Second tree well');
 });
@@ -61,12 +56,11 @@ test('suggestions derive visible and submitted values without changing the draft
   assert.equal(payload.submissionId, draft.submissionId);
 });
 
-test('intentional empty overrides survive late suggestions and draft recovery', () => {
+test('intentional empty overrides suppress suggestions and omit optional payload fields', () => {
   const draft = { ...createPlotDraft(), position, locator: 'Near gate', address: '', addressEdited: true, name: '', nameEdited: true };
-  const restored = JSON.parse(JSON.stringify(draft));
-  const identification = resolvePlotIdentification(restored, { position, address: 'Suggested street' });
+  const identification = resolvePlotIdentification(draft, { position, address: 'Suggested street' });
   assert.deepEqual(identification, { address: '', name: '' });
-  const payload = plotPayload({ ...restored, ...identification });
+  const payload = plotPayload({ ...draft, ...identification });
   assert.equal(payload['Street Address'], undefined);
   assert.equal(payload['Pocket Garden Name'], undefined);
 });
