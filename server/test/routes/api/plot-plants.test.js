@@ -28,13 +28,15 @@ test('plant directory search and plot plantings', async (t) => {
   });
 
   await t.test('ranks exact matches before fuzzy matches and paginates deterministically', async () => {
-    const exact = await prisma.plant.create({ data: { airtableId: 'exact_sage', plantName: 'Sage' } });
-    const first = await app.inject({ url: '/api/plants?search=Sage&pageSize=1' });
+    const fuzzy = await prisma.plant.create({ data: { airtableId: 'fuzzy_lavender', plantName: 'Lavendr' } });
+    const first = await app.inject({ url: '/api/plants?search=Lavender&pageSize=1' });
     assert.equal(first.json().length, 1);
+    assert.equal(first.json()[0].id, lavender);
     assert.equal(first.headers['x-next-offset'], '1');
-    const second = await app.inject({ url: '/api/plants?search=Sage&pageSize=1&offset=1' });
-    assert.notEqual(first.json()[0].id, second.json()[0].id);
-    assert.ok([first.json()[0].id, second.json()[0].id].includes(exact.id));
+    const second = await app.inject({ url: '/api/plants?search=Lavender&pageSize=1&offset=1' });
+    assert.equal(second.json()[0].id, fuzzy.id);
+    const repeated = await app.inject({ url: '/api/plants?search=Lavender&pageSize=1' });
+    assert.deepEqual(repeated.json(), first.json());
     assert.deepEqual((await app.inject({ url: '/api/plants?search=%25%27%3B%20DROP%20TABLE&pageSize=1' })).json(), []);
   });
 
