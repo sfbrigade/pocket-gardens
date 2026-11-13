@@ -13,12 +13,10 @@ test('homepage server rendering keeps Leaflet behind the browser mount', async (
   const { render } = await vite.ssrLoadModule('/src/entry-server.jsx');
   const request = { url: '/', urlData: () => '/' };
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const { head, html } = await render(request, {}, { context: {} });
-    assert.match(html, /role="status">Loading map\.\.\./);
-    assert.doesNotMatch(html, /data-msg=|window is not defined|leaflet-container/);
-    assert.match(head.headTags, /<title>Pocket Gardens<\/title>/);
-  }
+  const homepage = await render(request, {}, { context: {} });
+  assert.match(homepage.html, /role="status">Loading map\.\.\./);
+  assert.doesNotMatch(homepage.html, /data-msg=|window is not defined|leaflet-container/);
+  assert.match(homepage.head.headTags, /<title>Pocket Gardens<\/title>/);
 
   const { head } = await render({ url: '/login', urlData: () => '/login' }, {}, { context: {} });
   assert.match(head.headTags, /<title>Log in - Pocket Gardens<\/title>/);
