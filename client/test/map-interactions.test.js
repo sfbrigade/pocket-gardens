@@ -15,6 +15,46 @@ test('map viewport interactions', async (t) => {
   // jsdom has no map layout. Supply geographic bounds at the real map seam.
   t.mock.method(Map.prototype, 'getBounds', () => latLngBounds([[37.76, -122.44], [37.80, -122.40]]));
 
+  for (const startEvent of ['movestart', 'zoomstart']) {
+    await t.test(`pauses pending viewport work during ${startEvent}, including resize`, async (t) => {
+      let visible = latLngBounds([[37.77, -122.43], [37.78, -122.42]]);
+      t.mock.method(Map.prototype, 'getBounds', () => visible);
+      const garden = { id: 'garden', Latitude: 37.775, Longitude: -122.425 };
+      const list = t.mock.method(Api.plots, 'index', async () => ({ data: [garden], headers: {} }));
+      const view = await mount(t, { initialEntry: '/', showHome: true });
+      await waitFor(() => assert.equal(list.mock.calls.length, 1));
+      const markers = () => Object.values(map._layers).filter((layer) => layer instanceof Marker);
+      await waitFor(() => assert.equal(markers().length, 1));
+      const originalMarker = markers()[0];
+
+      visible = latLngBounds([[37.79, -122.41], [37.80, -122.40]]);
+      await interact(() => map.fire('moveend'));
+      await interact(() => delay(50));
+      // A new interaction begins before the previous debounce expires.
+      visible = latLngBounds([[37.80, -122.40], [37.81, -122.39]]);
+      await interact(() => map.fire(startEvent));
+      await interact(() => delay(300));
+      assert.equal(list.mock.calls.length, 1, 'do not fetch intermediate bounds during an active interaction');
+      assert.deepEqual(markers(), [originalMarker], 'do not cull markers mid-interaction');
+
+      await interact(() => map.fire('resize'));
+      await interact(() => delay(300));
+      assert.equal(list.mock.calls.length, 1, 'resize must not restart work while the interaction is active');
+      assert.deepEqual(markers(), [originalMarker]);
+
+      visible = latLngBounds([[37.81, -122.39], [37.82, -122.38]]);
+      await interact(() => map.fire('zoomend').fire('moveend'));
+      await waitFor(() => assert.equal(list.mock.calls.length, 2));
+      const bounds = list.mock.calls.at(-1).arguments[0];
+      assert.ok(bounds.north >= visible.getNorth() && bounds.south <= visible.getSouth());
+      assert.ok(bounds.east >= visible.getEast() && bounds.west <= visible.getWest());
+      await interact(() => map.fire('resize'));
+      await interact(() => delay(300));
+      assert.equal(list.mock.calls.length, 2, 'settled covered bounds still reuse the fetched data');
+      await view.unmount();
+    });
+  }
+
   await t.test('unloads offscreen markers and restores cached pins without requests or recreating retained markers', async (t) => {
     const center = { id: 'center', Latitude: 37.78, Longitude: -122.42 };
     const edge = { id: 'edge', Latitude: 37.781, Longitude: -122.428 };
