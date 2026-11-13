@@ -70,9 +70,10 @@ export async function setupPlotTests (t) {
   // the DOM. Disable animations, which are outside these interaction checks.
   const theme = { components: { Modal: { defaultProps: { transitionProps: { duration: 0 } } } } };
 
-  async function mount (test) {
+  async function mount (test, { queryData = [] } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     client.setQueryData(['plots', 'capabilities'], { canCreatePlot: true });
+    for (const [key, data] of queryData) client.setQueryData(key, data);
     const container = dom.window.document.createElement('div');
     dom.window.document.body.appendChild(container);
     const root = createRoot(container);
