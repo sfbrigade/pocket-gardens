@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Paper, Stack, Text } from '@mantine/core';
+import { useDebouncedValue } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { MapContainer } from 'react-leaflet/MapContainer';
 import { TileLayer } from 'react-leaflet/TileLayer';
@@ -96,6 +97,7 @@ function NearbyGardens ({ position }) {
 function MapSelection ({ position, onPositionChange, selectedPlot, mode, disabled, viewportSize }) {
   const [message, setMessage] = useState('');
   const [locating, setLocating] = useState(false);
+  const [nearbyPosition] = useDebouncedValue(position, 800);
   const controls = useRef(null);
   const map = useMapEvents({
     click: ({ latlng }) => {
@@ -128,7 +130,9 @@ function MapSelection ({ position, onPositionChange, selectedPlot, mode, disable
           <Button size='compact-md' disabled={disabled} loading={locating} variant='light' onClick={() => { setLocating(true); setMessage('Finding your location…'); map.locate({ enableHighAccuracy: true, timeout: 10000 }); }}>Use my location</Button>
           {mode === 'pick' && <><Button size='compact-md' disabled={disabled} variant='default' onClick={() => { const point = map.getCenter(); onPositionChange?.({ latitude: point.lat, longitude: point.lng }); }}>Place pin at map center</Button><Text size='sm'>Tap the map to place a pin. Drag the pin to adjust it.</Text></>}
           {message && <Text size='sm' role='status'>{message}</Text>}
-          {mode === 'pick' && position && <NearbyGardens position={position} />}
+          {mode === 'pick' && position && (position.latitude === nearbyPosition?.latitude && position.longitude === nearbyPosition?.longitude
+            ? <NearbyGardens position={nearbyPosition} />
+            : <Text size='sm' role='status'>Checking nearby gardens…</Text>)}
         </Stack>
       </Paper>
       {position && <Marker
