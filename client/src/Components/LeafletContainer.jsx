@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Paper, Stack, Text } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
@@ -26,8 +26,31 @@ const gardenIcon = new Icon({
   shadowSize: [41, 41],
 });
 
+// A viewport update should only mount/unmount pins entering/leaving the margin.
+// Unchanged pins need no Leaflet position updates or popup/handler updates.
+const PlotMarker = memo(function PlotMarker ({ plot, onSelectPlot, onOpenPopup, onClosePopup }) {
+  return (
+    <Marker
+      position={[plot.Latitude, plot.Longitude]}
+      icon={gardenIcon}
+      title={plot['Pocket Garden Name'] || 'Pocket garden'}
+      alt={plot['Pocket Garden Name'] || 'Pocket garden'}
+      eventHandlers={{ popupopen: () => onOpenPopup(plot), popupclose: () => onClosePopup(plot.id) }}
+    >
+      <Popup>
+        <strong>{plot['Pocket Garden Name'] || 'Pocket garden'}</strong>
+        <div>Stage: {plotStageLabel(plot.stage)}</div>
+        {onSelectPlot && <Button size='compact-sm' mt='xs' onClick={() => onSelectPlot(plot.id)}>View garden details</Button>}
+      </Popup>
+    </Marker>
+  );
+});
+
 function PlotMarkers ({ selectedPlot, onSelectPlot }) {
   const [bounds, setBounds] = useState(null);
+  const [markerBounds, setMarkerBounds] = useState(null);
+  const [openPlot, setOpenPlot] = useState(null);
+  const closePopup = useCallback((id) => setOpenPlot((plot) => plot?.id === id ? null : plot), []);
   const timer = useRef(null);
   const refresh = useRef(null);
   const map = useMapEvents({ moveend: updateBounds, resize: updateBounds });
@@ -48,6 +71,8 @@ function PlotMarkers ({ selectedPlot, onSelectPlot }) {
       west: Math.max(-180, Math.min(180, visible.getWest())),
     };
     if (!Object.values(next).every(Number.isFinite) || next.north < next.south || next.east < next.west) return;
+    // Rendering follows settled movement independently of cached fetch coverage.
+    setMarkerBounds(bufferedBounds(next, 0.1));
     if (containsBounds(bounds, next)) {
       if ((isError || isStale) && !isFetching) refetch();
     } else setBounds(bufferedBounds(next));
@@ -64,25 +89,20 @@ function PlotMarkers ({ selectedPlot, onSelectPlot }) {
       ? 'Loading gardens…'
       : plots.length === 0 ? 'No gardens in this area.' : '';
 
-  const visiblePlots = selectedPlot && hasCoordinates(selectedPlot) && !plots.some(({ id }) => id === selectedPlot.id)
-    ? [...plots, selectedPlot]
-    : plots;
+  const visiblePlots = useMemo(() => {
+    const visible = plots.filter((plot) => plot.id === selectedPlot?.id || plot.id === openPlot?.id || (markerBounds &&
+      plot.Latitude <= markerBounds.north && plot.Latitude >= markerBounds.south &&
+      plot.Longitude <= markerBounds.east && plot.Longitude >= markerBounds.west));
+    // Retain selected/open gardens even if replacement coverage no longer includes them.
+    for (const plot of [selectedPlot, openPlot]) {
+      if (plot && hasCoordinates(plot) && !visible.some(({ id }) => id === plot.id)) visible.push(plot);
+    }
+    return visible;
+  }, [plots, markerBounds, selectedPlot, openPlot]);
   return (
     <>
       {visiblePlots.map((plot) => (
-        <Marker
-          key={plot.id}
-          position={[plot.Latitude, plot.Longitude]}
-          icon={gardenIcon}
-          title={plot['Pocket Garden Name'] || 'Pocket garden'}
-          alt={plot['Pocket Garden Name'] || 'Pocket garden'}
-        >
-          <Popup>
-            <strong>{plot['Pocket Garden Name'] || 'Pocket garden'}</strong>
-            <div>Stage: {plotStageLabel(plot.stage)}</div>
-            {onSelectPlot && <Button size='compact-sm' mt='xs' onClick={() => onSelectPlot(plot.id)}>View garden details</Button>}
-          </Popup>
-        </Marker>
+        <PlotMarker key={plot.id} plot={plot} onSelectPlot={onSelectPlot} onOpenPopup={setOpenPlot} onClosePopup={closePopup} />
       ))}
       <div role='status' aria-live='polite' className='map-status' hidden={!status}>{status}</div>
     </>
