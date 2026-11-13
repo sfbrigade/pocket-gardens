@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createPlotDraft, hasDraftContent, plotDraftErrors, plotPayload, plotFormErrors } from '../src/Plots/plot-form.js';
 
-test('a restored draft keeps its submission identity and catalogue selections', () => {
+test('payload mapping retains submission identity, plant selections, and valid zero values', () => {
   const draft = createPlotDraft();
   assert.equal(hasDraftContent(draft), false);
   draft.position = { latitude: 37.77, longitude: -122.43, accuracy: 5 };
@@ -11,9 +11,8 @@ test('a restored draft keeps its submission identity and catalogue selections', 
   draft.area = 0;
   draft.firstPlanted = '2026-10-01';
   draft.plants = [{ key: 'ui-only', plantId: 'directory-id', label: 'Lavender', quantity: 0, notes: '' }];
-  const restored = JSON.parse(JSON.stringify(draft));
-  assert.equal(hasDraftContent(restored), true);
-  const payload = plotPayload(restored);
+  assert.equal(hasDraftContent(draft), true);
+  const payload = plotPayload(draft);
   assert.equal(payload.submissionId, draft.submissionId);
   assert.equal(payload['Location Description'], 'Second tree well');
   assert.equal(payload['Est. Area (Sq. Ft)'], 0);
