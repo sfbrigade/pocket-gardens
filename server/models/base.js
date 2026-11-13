@@ -112,7 +112,7 @@ class Base {
       }
       if (newValue) {
         newPath = path.join(assetDirPath, newValue);
-        onCopyTarget?.(newPath);
+        await onCopyTarget?.(newPath);
         await s3.copyObject(path.join(process.env.AWS_S3_BUCKET, '_uploads', newValue), newPath);
         if (!retainUpload) await s3.deleteObject(path.join('_uploads', newValue));
       }

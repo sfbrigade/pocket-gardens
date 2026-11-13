@@ -309,3 +309,27 @@ model MaintenanceRecordPhoto {
 
   @@index([maintenanceRecordId])
 }
+
+// Issued upload tokens outlive browser sessions and signed PUT URLs.
+model AssetUpload {
+  filename  String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// Written outside the garden transaction before its external copy. No FK: an
+// intent must survive rollback or process death. Retired intents are tombstones
+// revisited to catch an external copy that finished after transaction failure.
+model PhotoCopyIntent {
+  key           String   @id
+  upload        String
+  retired       Boolean  @default(false)
+  checks        Int      @default(0)
+  lastError     String?
+  nextCheckAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([nextCheckAt])
+}

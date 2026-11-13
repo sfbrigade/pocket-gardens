@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { lockPlotUploads, recordCopyIntent } from '#lib/photo-lifecycle.js';
+import { PhotoUnavailable } from '#lib/upload-policy.js';
 import { StatusCodes } from 'http-status-codes';
 import { createPlotPlants } from '#models/plot-plant.js';
 import { z } from 'zod';
@@ -57,12 +59,19 @@ export default async function (fastify, opts) {
         });
         await createPlotPlants(tx, created, request.body.plants);
         if (Photos !== undefined) {
-          await syncPlotPhotos(tx, created.id, Photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
+          await lockPlotUploads(fastify.prisma, tx, Photos);
+          await syncPlotPhotos(tx, created.id, Photos, {
+            retainUpload: true,
+            onCopyTarget: async (key) => {
+              await recordCopyIntent(fastify.prisma, tx, key);
+              copied.push(key);
+            },
+          });
         }
         const details = await reloadPlotDetails(tx, created.id);
         callbackCompleted = true;
         return details;
-      });
+      }, { timeout: 60000 });
     } catch (error) {
       if (!callbackCompleted) {
         // A failed callback never requests COMMIT, so its copies can be removed.
@@ -70,6 +79,12 @@ export default async function (fastify, opts) {
         if (error.code === 'P2002' && submissionId) {
           const winner = await findSubmission(fastify.prisma, submissionId);
           if (winner) return replay(winner);
+        }
+        if (error instanceof PhotoUnavailable || ['NoSuchKey', 'NotFound'].includes(error.name)) {
+          // Another concurrent request may have committed and removed staging.
+          const winner = await findSubmission(fastify.prisma, submissionId);
+          if (winner) return replay(winner);
+          return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send({ statusCode: 422, errors: [{ path: 'Photos', message: new PhotoUnavailable().message }] });
         }
         throw error;
       }
