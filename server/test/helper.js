@@ -11,7 +11,7 @@ import YAML from 'yaml';
 import { StatusCodes } from 'http-status-codes';
 import * as nodemailerMock from 'nodemailer-mock';
 
-import { GenericContainer } from 'testcontainers';
+import { GenericContainer, Wait } from 'testcontainers';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import {
   Builder,
@@ -69,10 +69,11 @@ async function build (t) {
   process.env.DATABASE_URL = `postgresql://${startedDbContainer.getUsername()}:${startedDbContainer.getPassword()}@${startedDbContainer.getHost()}:${startedDbContainer.getPort()}/${startedDbContainer.getDatabase()}`;
   t.prisma = createClient(process.env.DATABASE_URL);
 
-  // set up a new storage container
+  // RustFS opens its TCP port before storage and IAM initialization finishes.
   let storageContainer = new GenericContainer(compose.services.storage.image)
     .withEntrypoint(['rustfs', '/data'])
-    .withExposedPorts(9000);
+    .withExposedPorts(9000)
+    .withWaitStrategy(Wait.forHttp('/health/ready', 9000).forStatusCode(200));
   if (!process.env.CI) {
     storageContainer = storageContainer.withNetworkMode('pocket-gardens');
   }
