@@ -11,11 +11,14 @@ export const sunLevels = ['Full sun', 'Partial sun', 'Shade', 'Unknown'];
 export function createPlotDraft () {
   return {
     submissionId: uuid(),
+    submissionAttempt: null,
     stage: 'potential',
     position: null,
     address: '',
+    addressEdited: false,
     locator: '',
     name: '',
+    nameEdited: false,
     photo: '',
     photoWasSelected: false,
     permissionStatus: 'unknown',

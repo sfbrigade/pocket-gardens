@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBeforeUnload, useNavigate } from 'react-router';
-import { Alert, Box, Button, Container, Fieldset, Group, Loader, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, useMantineTheme } from '@mantine/core';
+import { Alert, Anchor, Box, Button, Container, Fieldset, Group, Loader, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery, useMounted, useSessionStorage } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
 import { modals } from '@mantine/modals';
@@ -12,7 +12,9 @@ import Api from '../Api';
 import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
-import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, plotPayload, soils, stages, sunLevels } from './plot-form';
+import usePlotSuggestions from './usePlotSuggestions';
+import { matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
+import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, soils, stages, sunLevels } from './plot-form';
 
 function RefreshGuard () {
   useBeforeUnload(useCallback((event) => { event.preventDefault(); event.returnValue = true; }, []));
@@ -34,6 +36,7 @@ export default function PlotForm () {
   const [mapOpened, { open: openMap, close: closeMap }] = useDisclosure();
   const capability = useQuery({ queryKey: ['plots', 'capabilities'], queryFn: ({ signal }) => Api.plots.capabilities(signal).then(({ data }) => data), enabled: mounted });
   const form = useForm({
+    name: 'plot-submission',
     mode: 'controlled',
     initialValues: initial,
     onValuesChange: (values) => { if (hydrated.current) setSaved(values); },
@@ -43,7 +46,7 @@ export default function PlotForm () {
     if (!mounted || hydrated.current) return;
     hydrated.current = true;
     if (saved && typeof saved === 'object' && typeof saved.submissionId === 'string' && Array.isArray(saved.plants)) {
-      const values = { ...initial, ...saved };
+      const values = { ...initial, ...saved, nameEdited: saved.nameEdited ?? !!saved.name, addressEdited: saved.addressEdited ?? !!saved.address };
       form.setValues(values);
       setRestored(hasDraftContent(values));
     }
@@ -56,7 +59,15 @@ export default function PlotForm () {
       queryClient.invalidateQueries({ queryKey: ['plots'] });
     },
   });
-  const values = form.values;
+  const previousAttempt = matchingPlotSubmission(form.values);
+  const suggestions = usePlotSuggestions(form.values, mutation.isPending || !!previousAttempt);
+  const attemptedPayload = mutation.isPending ? mutation.variables : previousAttempt?.payload;
+  const values = {
+    ...form.values,
+    ...(attemptedPayload
+      ? { address: attemptedPayload['Street Address'] ?? '', name: attemptedPayload['Pocket Garden Name'] ?? '' }
+      : suggestions.identification),
+  };
   const needsPhoto = values.photoWasSelected && !values.photo && photoState === 'idle';
   const blockedPhoto = photoState === 'uploading' || photoState === 'error' || needsPhoto;
   const dirty = hasDraftContent(values) && !mutation.isSuccess;
@@ -82,7 +93,7 @@ export default function PlotForm () {
   const stageLabel = stages.find(({ value }) => value === values.stage)?.label;
   if (capability.isPending) return <Container py='xl'><Loader aria-label='Checking garden creation access' /></Container>;
   if (capability.isError) return <Container py='xl'><Alert color='red' title='Unable to check access'><Button variant='subtle' onClick={() => capability.refetch()}>Try again</Button></Alert></Container>;
-  if (!capability.data.canCreatePlot) return <Container py='xl'><Alert title='Garden creation is not available'>Please sign in as an administrator. Account-free creation is available only in an explicitly enabled development environment.</Alert><Button mt='md' onClick={() => navigate('/')}>Back to map</Button></Container>;
+  if (!capability.data.canCreatePlot) return <Container py='xl'><Alert title='A staff account is needed'>Please sign in with a staff account to create a garden.</Alert><Group mt='md'><Button onClick={() => navigate('/login', { state: { from: '/plots/new' } })}>Sign in</Button><Button variant='subtle' onClick={() => navigate('/')}>Back to map</Button></Group></Container>;
 
   return (
     <Container size='xl' py='md'>
@@ -91,9 +102,11 @@ export default function PlotForm () {
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing='xl'>
         <form onSubmit={form.onSubmit((draft) => {
           if (blockedPhoto) return;
+          const attempt = preparePlotSubmission(draft, suggestions.result);
+          form.setFieldValue('submissionAttempt', attempt);
           // Per-call callbacks belong to this mounted form. A save that outlives
           // navigation still updates the cache without clearing a newer draft.
-          mutation.mutate(plotPayload(draft), {
+          mutation.mutate(attempt.payload, {
             onSuccess: ({ data }) => {
               hydrated.current = false;
               removeSaved();
@@ -114,11 +127,13 @@ export default function PlotForm () {
                   <Button onClick={openMap} variant='light'>Choose or adjust the map location</Button>
                   {values.position ? <Paper withBorder p='sm'><Text fw={600}>Location set</Text><Text size='sm'>{values.position.latitude.toFixed(5)}, {values.position.longitude.toFixed(5)}{values.position.accuracy != null && ` · ±${Math.round(values.position.accuracy)} m`}</Text></Paper> : <Text c='dimmed'>A map pin is required. Use your location or tap the map.</Text>}
                   {form.errors.position && <Text c='red' role='alert'>{form.errors.position}</Text>}
-                  <TextInput label='Address or cross street' {...form.getInputProps('address')} />
+                  <TextInput label='Address or cross street' description={previousAttempt && !values.addressEdited ? 'Retained from your last save attempt. You can edit it.' : suggestions.addressNote} {...form.getInputProps('address')} value={values.address} onChange={(event) => { form.setFieldValue('addressEdited', true); form.setFieldValue('address', event.currentTarget.value); }} />
+                  <Text size='xs' c='dimmed'>Address suggestions use Photon and <Anchor href='https://www.openstreetmap.org/copyright' target='_blank' rel='noopener'>OpenStreetMap data</Anchor>. Confirm the address before saving.</Text>
                   <Textarea label='Where exactly is it?' description='Street side, plot order, or a fixed landmark, such as the second tree well north of the blue gate.' required autosize minRows={2} {...form.getInputProps('locator')} />
-                  <TextInput label='Garden title' description='Optional. An address and garden ID are used if no title is supplied.' {...form.getInputProps('name')} />
+                  <TextInput label='Garden title' description={values.nameEdited ? 'Custom title. Other changes will keep it.' : 'Suggested from the address and exact location. You can edit it.'} {...form.getInputProps('name')} value={values.name} onChange={(event) => { form.setFieldValue('nameEdited', true); form.setFieldValue('name', event.currentTarget.value); }} />
+                  {values.nameEdited && suggestions.title && <Button variant='subtle' size='compact-sm' onClick={() => form.setFieldValue('nameEdited', false)}>Reset to suggested title</Button>}
                   <PhotoInput label='Reference photo' description='Optional. A photo that helps somebody recognise this garden.' disabled={mutation.isPending} {...form.getInputProps('photo')} onUploadStateChange={photoChanged} />
-                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>The photo selection did not survive the refresh. Choose it again or continue without it.<Button variant='subtle' onClick={() => form.setFieldValue('photoWasSelected', false)}>Continue without photo</Button></Alert>}
+                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => form.setFieldValue('photoWasSelected', false)}>Continue without photo</Button></Alert>}
                 </Stack>
               </Fieldset>
               <Fieldset legend='3 · Permission and care'>
