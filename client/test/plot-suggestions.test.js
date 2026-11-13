@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate, setTimeout as delay } from 'node:timers/promises';
-import { focusManager } from '@tanstack/react-query';
+import { defaultScheduler, focusManager, notifyManager } from '@tanstack/react-query';
 import { createPlotDraft } from '../src/Plots/plot-form.js';
 import { draftStorageKey, interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
 
@@ -9,12 +9,14 @@ test('garden suggestion requests', async (t) => {
   const { dom, Api, mount } = await setupPlotTests(t);
 
   await t.test('returning to the tab does not repeat a failed Photon lookup', async (t) => {
+    // The query cache can settle before React renders its asynchronous notification.
+    notifyManager.setScheduler((callback) => setTimeout(callback, 100));
+    t.after(() => notifyManager.setScheduler(defaultScheduler));
     const position = { latitude: 37.77, longitude: -122.43 };
     dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify({ ...createPlotDraft(), position }));
     const lookup = t.mock.method(globalThis, 'fetch', async () => { throw new Error('Photon unavailable'); });
     const view = await mount(t);
-    const key = ['nearby-address', '37.77000', '-122.43000'];
-    await waitFor(() => assert.equal(view.client.getQueryState(key)?.status, 'error'));
+    await waitFor(() => assert.match(view.container.textContent, /No nearby address could be suggested/));
     assert.equal(lookup.mock.calls.length, 1);
 
     t.after(() => focusManager.setFocused(undefined));
