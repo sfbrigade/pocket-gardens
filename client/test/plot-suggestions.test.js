@@ -33,8 +33,16 @@ test('garden suggestion requests', async (t) => {
     dom.window.sessionStorage.removeItem(draftStorageKey);
     // Keep address lookup independent of the application's nearby-garden requests.
     t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ features: [] }) }));
-    const list = t.mock.method(Api.plots, 'index', async () => ({ data: [], headers: {} }));
     const { Map, latLng } = await import('leaflet');
+    const positions = [37.77001, 37.77002, 37.77003].map((latitude) => latLng(latitude, -122.43));
+    const finalPosition = positions.at(-1);
+    const gardens = [150, 210].map((metres) => ({
+      id: String(metres),
+      'Pocket Garden Name': `${metres} m garden`,
+      Latitude: finalPosition.lat + metres / 111320,
+      Longitude: finalPosition.lng,
+    }));
+    const list = t.mock.method(Api.plots, 'index', async () => ({ data: gardens, headers: {} }));
     const initialize = Map.prototype.initialize;
     let map;
     t.mock.method(Map.prototype, 'initialize', function (...args) {
@@ -45,7 +53,6 @@ test('garden suggestion requests', async (t) => {
     await view.click('Choose or adjust the map location');
     await waitFor(() => assert.ok(map));
 
-    const positions = [37.77001, 37.77002, 37.77003].map((latitude) => latLng(latitude, -122.43));
     const areas = positions.map((position) => position.toBounds(440));
     const nearbyRequests = () => list.mock.calls.filter(({ arguments: [params] }) => areas.some((area) =>
       params.north === area.getNorth() && params.south === area.getSouth() &&
@@ -61,6 +68,6 @@ test('garden suggestion requests', async (t) => {
     const finalArea = positions.at(-1).toBounds(440);
     assert.equal(nearbyRequests()[0].arguments[0].north, finalArea.getNorth());
     assert.equal(nearbyRequests()[0].arguments[0].south, finalArea.getSouth());
-    await waitFor(() => assert.match(view.container.ownerDocument.body.textContent, /No other gardens recorded within 200 m/));
+    await waitFor(() => assert.match(view.container.ownerDocument.body.textContent, /1 garden within 200 m\. Nearest: 150 m garden, 150 m away\./));
   });
 });
