@@ -157,3 +157,34 @@ Finish with local commits, a clean working tree, test/build results and honest l
   submission ID, disable choice-time interactions, and reject stale callbacks.
   Targeted upload/map-draft tests: 20 passed after reproducing the failures.
 - Lifecycle implementation and final validation remain in progress.
+
+### Settled lifecycle design
+
+- `AssetUpload` records issued filename/expiry before returning a signed URL.
+  `PHOTO_UPLOAD_RETENTION_DAYS` defaults to 7 (integer 1–365). PUT URLs last
+  900 seconds; staging age and token expiry are checked during garden saves.
+- `PhotoCopyIntent` records each garden-create target outside its save transaction
+  before storage writes. The save locks the intent row until commit/rollback;
+  cleanup uses `FOR UPDATE SKIP LOCKED` and checks exact committed references.
+  Retired rows remain as repeatable cleanup tombstones for late external copies.
+- Reconciliation starts one hour after intent creation and repeats daily; failures
+  remain due and expose checks/lastError. No historical permanent-object scanning.
+- Shared Base.setAsset awaits the optional copy hook; other consumers retain their
+  API. Prefix-only staging sweeps include untracked imports once old enough.
+- ADR 0006 captures the transaction/lock/tombstone tradeoff. Native storage policy
+  and fallback cleanup remain separate operational steps, never applied here.
+
+### Server validation so far
+
+- Prisma generation and TypeScript compilation passed; new migration is applied
+  only in disposable PostgreSQL test containers.
+- Existing submission-recovery suite passed, including ambiguous commit cases.
+- New lifecycle integration tests passed against disposable PostgreSQL/RustFS:
+  durable intent before copy, partial writes/rollback, storage/delete outages,
+  database unavailability, active-save locks, committed references, late copies,
+  missing/expired uploads, same-submission replay, dry-run command, cutoff/scope,
+  1,005-object pagination, and versioned objects/delete markers.
+- Initial full server run lacked example registration/mail configuration; fixed
+  the test configuration by copying example.env into this checkout's ignored
+  .env, matching CI. Existing rollback test now stages a real source so injected
+  copy failure still reaches the intended seam after adding missing-photo checks.

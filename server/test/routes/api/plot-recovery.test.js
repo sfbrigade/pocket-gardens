@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 import { assetExists, authenticate, build, upload } from '#test/helper.js';
 import s3 from '#lib/s3.js';
+import { reconcilePhotoCopies } from '#lib/photo-lifecycle.js';
 import { createPlotDraft } from '../../../../client/src/Plots/plot-form.js';
 import { preparePlotSubmission } from '../../../../client/src/Plots/plot-submission.js';
 
@@ -158,6 +159,9 @@ test('plot submission recovery', async (t) => {
       }
       assert.ok(await assetExists(copied.mock.calls[0].arguments[1]));
       assert.ok(await assetExists(`_uploads/${filename}`));
+      const cleanup = await reconcilePhotoCopies(prisma, { dryRun: false, now: new Date(Date.now() + 2 * 60 * 60 * 1000) });
+      assert.equal(cleanup[committed ? 'retained' : 'deleted'], 1);
+      assert.equal(await assetExists(copied.mock.calls[0].arguments[1]), committed);
       assert.equal((await create(payload)).statusCode, committed ? 200 : 201);
       assert.equal(await prisma.plot.count(), 4);
       assert.equal(await prisma.plant.count(), 4);

@@ -21,7 +21,9 @@
     "plots:migrate-photos:dry": "node bin/migrate-plot-photos.js --dry-run",
     "start": "fastify start -l info app.js",
     "test": "NODE_ENV=test node --test-concurrency 1 --test $(find test -name '*.test.js')",
-    "tsc:watch": "tsc --watch --preserveWatchOutput"
+    "tsc:watch": "tsc --watch --preserveWatchOutput",
+    "photos:cleanup": "node bin/reconcile-photos.js",
+    "photos:cleanup:dry": "node bin/reconcile-photos.js --dry-run"
   },
   "license": "AGPL-3.0-only",
   "dependencies": {
