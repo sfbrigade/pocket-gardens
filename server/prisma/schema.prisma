@@ -132,6 +132,7 @@ model Plant {
 
   photos                  PlantPhoto[]
   maintenanceRecordPlants MaintenanceRecordPlant[]
+  plots                   PlotPlant[]
 }
 
 model Partner {
@@ -188,11 +189,26 @@ model Plot {
   neighborhoods        PlotNeighborhood[]
   assignedVolunteers   PlotAssignedVolunteer[]
   maintenanceRecords   MaintenanceRecord[]
+  plants               PlotPlant[]
 
   @@index([latitude, longitude])
   @@index([zipCodeId])
   @@index([lastVolunteerId])
   @@index([stage])
+}
+
+model PlotPlant {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  plotId   String @db.Uuid
+  plantId  String @db.Uuid
+  quantity Int?
+  notes    String?
+  state    String
+  plot     Plot   @relation(fields: [plotId], references: [id], onDelete: Cascade)
+  plant    Plant  @relation(fields: [plantId], references: [id], onDelete: Restrict)
+
+  @@unique([plotId, plantId])
+  @@index([plantId])
 }
 
 model PlotNeighborhood {

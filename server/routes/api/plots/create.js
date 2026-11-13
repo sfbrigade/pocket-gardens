@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { StatusCodes } from 'http-status-codes';
+import { createPlotPlants } from '#models/plot-plant.js';
 
 import {
   formatPlot,
@@ -37,6 +38,7 @@ export default async function (fastify, opts) {
           name: fields.name || [fields.streetAddress, publicId].filter(Boolean).join(' · '),
         },
       });
+      await createPlotPlants(tx, created, request.body.plants);
       if (Photos !== undefined) {
         await syncPlotPhotos(tx, created.id, Photos);
       }
