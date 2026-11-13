@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Button, Paper, Stack, Text } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
@@ -6,7 +6,7 @@ import { MapContainer } from 'react-leaflet/MapContainer';
 import { TileLayer } from 'react-leaflet/TileLayer';
 import { Marker } from 'react-leaflet/Marker';
 import { Popup } from 'react-leaflet/Popup';
-import { useMapEvents } from 'react-leaflet/hooks';
+import { useMap, useMapEvents } from 'react-leaflet/hooks';
 import { DomEvent, Icon, latLng, latLngBounds } from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerIconRetina from 'leaflet/dist/images/marker-icon-2x.png';
@@ -51,18 +51,11 @@ function PlotMarkers ({ selectedPlot, onSelectPlot }) {
   const [markerBounds, setMarkerBounds] = useState(null);
   const [openPlot, setOpenPlot] = useState(null);
   const closePopup = useCallback((id) => setOpenPlot((plot) => plot?.id === id ? null : plot), []);
-  const timer = useRef(null);
-  const refresh = useRef(null);
-  const map = useMapEvents({ moveend: updateBounds, resize: updateBounds });
+  const map = useMap();
   // Only the current coverage is retained. Nearby checks keep their own exact queries.
   const { data: plots = [], isPending, isFetching, isError, isStale, refetch } = useQuery({ ...plotsQueryOptions(bounds), gcTime: 0 });
 
-  function updateBounds () {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => refresh.current(), 250);
-  }
-
-  refresh.current = () => {
+  const refreshViewport = useEffectEvent(() => {
     const visible = map.getBounds();
     const next = {
       north: Math.min(90, visible.getNorth()),
@@ -76,11 +69,22 @@ function PlotMarkers ({ selectedPlot, onSelectPlot }) {
     if (containsBounds(bounds, next)) {
       if ((isError || isStale) && !isFetching) refetch();
     } else setBounds(bufferedBounds(next));
-  };
+  });
 
   useEffect(() => {
-    map.whenReady(updateBounds);
-    return () => { clearTimeout(timer.current); map.off('load', updateBounds); };
+    let timer;
+    let moving = false;
+    const cancelUpdate = () => clearTimeout(timer);
+    const startMovement = () => { moving = true; cancelUpdate(); };
+    const scheduleUpdate = () => {
+      cancelUpdate();
+      if (!moving) timer = setTimeout(refreshViewport, 250);
+    };
+    const finishMovement = () => { moving = false; scheduleUpdate(); };
+    const events = { movestart: startMovement, zoomstart: startMovement, moveend: finishMovement, resize: scheduleUpdate };
+    map.on(events);
+    map.whenReady(scheduleUpdate);
+    return () => { cancelUpdate(); map.off(events); map.off('load', scheduleUpdate); };
   }, [map]);
 
   const status = isError
