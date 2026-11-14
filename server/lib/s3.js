@@ -7,7 +7,6 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
-  ListObjectVersionsCommand,
   GetBucketVersioningCommand,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
@@ -172,47 +171,10 @@ async function objectExists (Key) {
   return !!(await headObject(Key));
 }
 
-async function * listObjects (Prefix) {
-  init();
-  let ContinuationToken;
-  do {
-    const page = await client.send(new ListObjectsV2Command({ Bucket: process.env.AWS_S3_BUCKET, Prefix, ContinuationToken }));
-    yield * (page.Contents ?? []);
-    ContinuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
-    if (page.IsTruncated && !ContinuationToken) throw new Error('Storage omitted continuation token');
-  } while (ContinuationToken);
-}
-
-async function * listVersions (Prefix) {
-  init();
-  let KeyMarker;
-  let VersionIdMarker;
-  do {
-    const page = await client.send(new ListObjectVersionsCommand({ Bucket: process.env.AWS_S3_BUCKET, Prefix, KeyMarker, VersionIdMarker }));
-    // Keep each key's entries together across version and marker arrays.
-    yield * [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])].sort((a, b) => a.Key < b.Key ? -1 : a.Key > b.Key ? 1 : 0);
-    KeyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
-    VersionIdMarker = page.NextVersionIdMarker;
-    if (page.IsTruncated && !KeyMarker) throw new Error('Storage omitted version continuation marker');
-  } while (KeyMarker);
-}
-
 async function bucketIsVersioned () {
   init();
   const { Status } = await client.send(new GetBucketVersioningCommand({ Bucket: process.env.AWS_S3_BUCKET }));
   return Status === 'Enabled' || Status === 'Suspended';
-}
-
-async function purgeObject (key, versioned = false) {
-  if (!versioned) return deleteObject(key);
-  // Keep delete markers until contents are removed so hidden keys stay hidden
-  // on a partial failure. Repeat runs also catch late PUT/copy completions.
-  const versions = [];
-  for await (const version of listVersions(key)) {
-    if (version.Key === key) versions.push(version);
-  }
-  versions.sort((a, b) => Number(!Object.hasOwn(a, 'Size')) - Number(!Object.hasOwn(b, 'Size')));
-  for (const version of versions) await deleteObject(key, version.VersionId);
 }
 
 function putObject (Key, filePath, ContentType) {
@@ -239,9 +201,6 @@ export default {
   objectExists,
   headObject,
   readObjectHeader,
-  listObjects,
-  listVersions,
   bucketIsVersioned,
-  purgeObject,
   putObject,
 };

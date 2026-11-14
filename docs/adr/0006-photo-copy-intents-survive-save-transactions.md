@@ -1,20 +1,18 @@
-# Photo copy intents survive garden transactions
+# Resolve garden photo copies once
 
-Write each new garden photo's destination to a durable intent before copying,
-outside the garden transaction so rollback or process death cannot erase it.
-The save holds a lock on that intent until its database transaction finishes;
-reconciliation takes the same lock before checking authoritative photo references
-and durably retiring unreferenced targets before external deletion. A lease alone
-would allow a slow save to commit after cleanup. Failed database reads retain objects for retry.
+Record each garden photo destination before its external copy, outside the save
+transaction, and lock that intent through commit/rollback. Cleanup uses the same
+lock to skip active saves and check committed references. Unreferenced targets
+are durably retired before deletion so a waiting save cannot copy into them.
+Database/storage failures retain retryable work.
 
-Retired intents remain as tombstones and are revisited: a storage operation may
-finish after its database transaction is interrupted. A retired intent fences
-future copies, while repeated deletion collects late completions. Existing
-untracked permanent assets are never scanned or backfilled. This deliberately
-limits copy tracking to garden creation; shared user, gallery and import flows
-keep their existing contracts.
+Confirmed references and successfully deleted orphans leave the queue. We accept
+an occasional orphan if a storage write completes exceptionally late, after its
+cleanup record was resolved, instead of retaining tombstones and checking all
+historical photos indefinitely. Pending checks start after one hour, while saves
+have a 60-second transaction timeout. Unknown permanent assets are never scanned.
 
-Temporary uploads expire after a configurable seven-day default. Signed PUTs last
-15 minutes, and cleanup repeatedly lists staging with pagination, including late
-PUTs. The server validates staged photos only after submission replay, preserving
-ADR 0004 when a successful save has already removed its source upload.
+Temporary uploads use native prefix-scoped expiration on an unversioned bucket,
+with the same configurable object-age cutoff checked by the server. There is no
+upload-token table, policy merger or version-aware fallback sweeper. Submission
+replay still precedes storage validation, preserving ADR 0004 after staging is gone.
