@@ -9,12 +9,13 @@ import { useHead } from '@unhead/react';
 import { v4 as uuid } from 'uuid';
 
 import Api from '../Api';
+import uploadPhoto from '../upload-photo';
 import { isMapPosition } from '../map-location';
 import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
 import usePlotSuggestions from './usePlotSuggestions';
-import { matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
+import { changePlotPhoto, matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
 import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, soils, stages, sunLevels } from './plot-form';
 
 function RefreshGuard () {
@@ -36,7 +37,11 @@ export default function PlotForm () {
   const [restored, setRestored] = useState(false);
   const [pendingPosition, setPendingPosition] = useState(null);
   const handledLocation = useRef(null);
-  const [photoState, setPhotoState] = useState('idle');
+  const [photoFile, setPhotoFile] = useState(null);
+  const uploadController = useRef(null);
+  const submitting = useRef(false);
+  useEffect(() => () => uploadController.current?.abort(), []);
+  const [photoReset, setPhotoReset] = useState(0);
   const [mapOpened, { open: openMap, close: closeMap }] = useDisclosure();
   const capability = useQuery({ queryKey: ['plots', 'capabilities'], queryFn: ({ signal }) => Api.plots.capabilities(signal).then(({ data }) => data), enabled: mounted });
   const form = useForm({
@@ -77,7 +82,32 @@ export default function PlotForm () {
   }, [mounted, capability.data?.canCreatePlot, location.key]);
 
   const mutation = useMutation({
-    mutationFn: Api.plots.create,
+    mutationFn: async ({ draft, attempt, file }) => {
+      let payload = attempt.payload;
+      if (file && !draft.photo) {
+        const controller = new AbortController();
+        uploadController.current = controller;
+        try {
+          const filename = await uploadPhoto({ file, signal: controller.signal });
+          controller.signal.throwIfAborted();
+          if (form.getValues().submissionId !== draft.submissionId) throw new DOMException('Draft replaced', 'AbortError');
+          // Preserve the identification frozen at submit while updating the
+          // draft fingerprint and filename for retries, including after refresh.
+          const completed = preparePlotSubmission({ ...draft, photo: filename, submissionAttempt: null });
+          completed.payload = { ...payload, Photos: [filename] };
+          form.setValues({ photo: filename, submissionAttempt: completed });
+          payload = completed.payload;
+        } catch (error) {
+          if (controller.signal.aborted || error.name === 'AbortError') throw error;
+          const message = error.response?.data?.errors?.map(({ message }) => message).join(' ') || error.response?.data?.message || 'Photo upload failed. Try Create garden again, or remove the photo.';
+          throw Object.assign(new Error(message), { photoUpload: message });
+        } finally {
+          if (uploadController.current === controller) uploadController.current = null;
+        }
+      }
+      return Api.plots.create(payload);
+    },
+    onSettled: () => { submitting.current = false; },
     onSuccess: ({ data }) => {
       queryClient.setQueryData(['plot', data.id], data);
       queryClient.invalidateQueries({ queryKey: ['plots'] });
@@ -85,15 +115,15 @@ export default function PlotForm () {
   });
   const previousAttempt = matchingPlotSubmission(form.values);
   const suggestions = usePlotSuggestions(form.values, mutation.isPending || !!previousAttempt);
-  const attemptedPayload = mutation.isPending ? mutation.variables : previousAttempt?.payload;
+  const attemptedPayload = mutation.isPending ? mutation.variables?.attempt.payload : previousAttempt?.payload;
   const values = {
     ...form.values,
     ...(attemptedPayload
       ? { address: attemptedPayload['Street Address'] ?? '', name: attemptedPayload['Pocket Garden Name'] ?? '' }
       : suggestions.identification),
   };
-  const needsPhoto = values.photoWasSelected && !values.photo && photoState === 'idle';
-  const blockedPhoto = photoState === 'uploading' || photoState === 'error' || needsPhoto;
+  const needsPhoto = values.photoWasSelected && !values.photo && !photoFile;
+  const uploadingPhoto = mutation.isPending && !!mutation.variables?.file && !form.values.photo;
   const dirty = hasDraftContent(values) && !mutation.isSuccess;
 
   function discard () {
@@ -108,9 +138,12 @@ export default function PlotForm () {
     form.insertListItem('plants', { ...plant, key: uuid(), quantity: '', notes: '' });
   }
 
-  function photoChanged (state) {
-    setPhotoState(state);
-    form.setFieldValue('photoWasSelected', state !== 'idle');
+  const photoSubmissionId = values.submissionId;
+  function photoSelected (file) {
+    if (form.getValues().submissionId !== photoSubmissionId || mutation.isPending || pendingPosition) return;
+    setPhotoFile(file);
+    form.setValues({ ...changePlotPhoto(form.getValues(), ''), photoWasSelected: !!file });
+    form.clearFieldError('photo');
   }
 
   const map = <GardenMap mode='pick' disabled={mutation.isPending || !!pendingPosition} position={values.position} onPositionChange={(position) => { if (!mutation.isPending && !pendingPosition) form.setFieldValue('position', position); }} />;
@@ -127,12 +160,13 @@ export default function PlotForm () {
         <Alert color='yellow' title='You have an unfinished garden' role='alert' mb='lg'>
           <Text>The map location ({pendingPosition.latitude.toFixed(5)}, {pendingPosition.longitude.toFixed(5)}) is for a different garden. Keep your existing draft, or discard it and start a new garden at this pin.</Text>
           <Group mt='sm'>
-            <Button onClick={clearIncomingPosition}>Keep existing draft</Button>
+            <Button disabled={mutation.isPending} onClick={clearIncomingPosition}>Keep existing draft</Button>
             <Button
-              color='red' variant='outline' onClick={() => {
+              disabled={mutation.isPending} color='red' variant='outline' onClick={() => {
+                if (submitting.current) return;
                 form.setValues({ ...createPlotDraft(), position: pendingPosition });
                 form.clearErrors();
-                setPhotoState('idle');
+                setPhotoFile(null);
                 setRestored(false);
                 clearIncomingPosition();
               }}
@@ -143,19 +177,34 @@ export default function PlotForm () {
       )}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing='xl'>
         <form onSubmit={form.onSubmit((draft) => {
-          if (blockedPhoto || pendingPosition) return;
+          if (submitting.current || mutation.isPending || needsPhoto || pendingPosition) return;
+          submitting.current = true;
           const attempt = preparePlotSubmission(draft, suggestions.result);
           form.setFieldValue('submissionAttempt', attempt);
           // Per-call callbacks belong to this mounted form. A save that outlives
           // navigation still updates the cache without clearing a newer draft.
-          mutation.mutate(attempt.payload, {
+          mutation.mutate({ draft, attempt, file: photoFile }, {
             onSuccess: ({ data }) => {
+              if (form.getValues().submissionId !== draft.submissionId) return;
               hydrated.current = false;
               removeSaved();
               form.resetDirty();
               navigate(`/plots/${data.id}`, { replace: true, state: { created: true } });
             },
-            onError: (errors) => form.setErrors(plotFormErrors(errors)),
+            onError: (errors) => {
+              if (form.getValues().submissionId !== draft.submissionId || errors.name === 'AbortError') return;
+              if (errors.photoUpload) { form.setFieldError('photo', errors.photoUpload); return; }
+              const fields = plotFormErrors(errors);
+              if (fields.photo) {
+                // A structured photo error means this attempt did not save.
+                // Keep draft identity and all other fields, but release the
+                // stale uploader and require reattachment or explicit opt-out.
+                form.setValues({ ...changePlotPhoto(form.getValues(), ''), photoWasSelected: true });
+                setPhotoFile(null);
+                setPhotoReset((current) => current + 1);
+              }
+              form.setErrors(fields);
+            },
           });
         })}
         >
@@ -174,8 +223,8 @@ export default function PlotForm () {
                   <Textarea label='Where exactly is it?' description='Street side, plot order, or a fixed landmark, such as the second tree well north of the blue gate.' required autosize minRows={2} {...form.getInputProps('locator')} />
                   <TextInput label='Garden title' description={values.nameEdited ? 'Custom title. Other changes will keep it.' : 'Suggested from the address and exact location. You can edit it.'} {...form.getInputProps('name')} value={values.name} onChange={(event) => { form.setFieldValue('nameEdited', true); form.setFieldValue('name', event.currentTarget.value); }} />
                   {values.nameEdited && suggestions.title && <Button variant='subtle' size='compact-sm' onClick={() => form.setFieldValue('nameEdited', false)}>Reset to suggested title</Button>}
-                  <PhotoInput label='Reference photo' description='Optional. A photo that helps somebody recognise this garden.' disabled={mutation.isPending} {...form.getInputProps('photo')} onUploadStateChange={photoChanged} />
-                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => form.setFieldValue('photoWasSelected', false)}>Continue without photo</Button></Alert>}
+                  <PhotoInput key={`${values.submissionId}:${photoReset}`} label='Reference photo' deferred description='Optional. The photo uploads when you create the garden. Reattach it after refresh if you have not submitted yet.' disabled={mutation.isPending || !!pendingPosition} {...form.getInputProps('photo')} onChange={(filename) => { if (form.getValues().submissionId === photoSubmissionId) form.setValues(changePlotPhoto(form.getValues(), filename)); }} onFileChange={photoSelected} />
+                  {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => { form.setFieldValue('photoWasSelected', false); form.clearFieldError('photo'); }}>Continue without photo</Button></Alert>}
                 </Stack>
               </Fieldset>
               <Fieldset legend='3 · Permission and care'>
@@ -220,9 +269,8 @@ export default function PlotForm () {
                   {values.stage !== 'potential' && <Text>Plants: {values.plants.map(({ label }) => label).join(', ') || 'Not recorded'}</Text>}
                 </Stack>
               </Fieldset>
-              <Button type='submit' color='green' size='lg' loading={mutation.isPending} disabled={blockedPhoto}>Create garden</Button>
-              {photoState === 'uploading' && <Text role='status'>Wait for the photo to finish uploading.</Text>}
-              {photoState === 'error' && <Text c='red'>Retry or remove the photo before saving.</Text>}
+              <Button type='submit' color='green' size='lg' loading={mutation.isPending} disabled={needsPhoto}>Create garden</Button>
+              {uploadingPhoto && <Text role='status'>Uploading photo before saving your garden.</Text>}
               <Button variant='subtle' onClick={discard}>Cancel and discard draft</Button>
             </Stack>
           </Fieldset>

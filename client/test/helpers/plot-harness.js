@@ -54,6 +54,7 @@ export async function setupPlotTests (t) {
   // Import the client renderer after installing the DOM so React enables input events.
   const { createRoot } = await import('react-dom/client');
   const { MantineProvider } = await import('@mantine/core');
+  const { ModalsProvider } = await import('@mantine/modals');
   const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
   const { MemoryRouter, Route, Routes, useLocation, useNavigate } = await import('react-router');
   const { createHead, UnheadProvider } = await import('@unhead/react/server');
@@ -65,6 +66,7 @@ export async function setupPlotTests (t) {
   t.after(() => vite.close());
   const { default: PlotForm } = await vite.ssrLoadModule('/src/Plots/PlotForm.jsx');
   const { default: Home } = await vite.ssrLoadModule('/src/Home.jsx');
+  const { default: PhotoInput } = await vite.ssrLoadModule('/src/Components/PhotoInput.jsx');
   const { default: Api } = await vite.ssrLoadModule('/src/Api.js');
   t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true } }));
   // Keep real modal portals so the plant form is outside the garden form in
@@ -72,7 +74,7 @@ export async function setupPlotTests (t) {
   const theme = { components: { Modal: { defaultProps: { transitionProps: { duration: 0 } } } } };
 
   async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true } = {}) {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { gcTime: Infinity } } });
     client.setQueryData(['plots', 'capabilities'], { canCreatePlot });
     for (const [key, data] of queryData) client.setQueryData(key, data);
     const container = dom.window.document.createElement('div');
@@ -98,13 +100,14 @@ export async function setupPlotTests (t) {
     }
     await interact(() => root.render(h(QueryClientProvider, { client },
       h(MantineProvider, { theme },
-        h(UnheadProvider, { value: createHead() },
+        h(ModalsProvider, null, h(UnheadProvider, { value: createHead() },
           h(MemoryRouter, { initialEntries: [initialEntry] },
             h(Location),
             h(Routes, null,
               h(Route, { path: '/plots/new', element: h(PlotForm) }),
+              h(Route, { path: '/photo-input', element: h(PhotoInput, { label: 'Profile photo' }) }),
               showHome && h(Route, { path: '/plots/:plotId', element: h(Home) }),
-              h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') }))))))));
+              h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') })))))))));
     const field = (label) => {
       const element = [...dom.window.document.querySelectorAll('label')].find((element) => element.textContent.replace(/\s*\*$/, '').trim() === label);
       const input = element && dom.window.document.getElementById(element.htmlFor);
@@ -133,9 +136,15 @@ export async function setupPlotTests (t) {
       }),
       click: (text) => interact(() => button(text).click()),
       submit: () => interact(() => container.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))),
-      upload: () => interact(() => {
-        const input = container.querySelector('input[type=file]');
+      dropPhoto: () => interact(() => {
         const file = new dom.window.File(['photo'], 'garden.jpg', { type: 'image/jpeg' });
+        const event = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'dataTransfer', { value: { files: [file], items: [{ kind: 'file', type: file.type, getAsFile: () => file }], types: ['Files'] } });
+        container.querySelector('input[type=file]').parentElement.dispatchEvent(event);
+      }),
+      upload: (selectedFile) => interact(() => {
+        const input = container.querySelector('input[type=file]');
+        const file = selectedFile ?? new dom.window.File(['photo'], 'garden.jpg', { type: 'image/jpeg' });
         Object.defineProperty(input, 'files', { configurable: true, value: [file] });
         input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
       }),
