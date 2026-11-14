@@ -94,6 +94,23 @@ To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs
 
 ## Photo upload retention and reconciliation
 
+Upload issuance requires an active signed-in user. The explicit development-only
+anonymous garden opt-in also enables anonymous local photo uploads; production
+never honors that opt-in. Issuance is limited to 30 URLs per hour per user (per IP
+for anonymous development) using a bounded in-process cache. This limit applies
+per server process; a multi-process deployment needs a shared limiter or matching
+edge limits for one global allowance.
+
+Uploads must declare a positive integer `byteSize` up to **10 MiB** and one of
+`image/jpeg`, `image/png`, `image/webp`, `image/gif`. The signed PUT binds both
+Content-Type and Content-Length; browsers supply Content-Length from the File.
+Before attaching an upload, shared photo/profile handling checks actual object
+size and image signature bytes using a 16-byte range read. The read and copy are
+conditional on the object's ETag to reject concurrent source replacement. This
+checks supported format signatures, not full image decoding or malware scanning.
+SVG, HTML and other active-content formats are not accepted. Trusted imports
+without MIME metadata must still contain a supported image within the size limit.
+
 `PHOTO_UPLOAD_RETENTION_DAYS` defaults to **7** (integer 1–365). Use the same value
 in the application, cleanup job and native `_uploads/` bucket policy. Signed PUTs
 last 15 minutes. Tokens expire from issuance; storage expiration uses object age.

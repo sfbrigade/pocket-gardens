@@ -45,12 +45,13 @@ function init () {
   }
 }
 
-function copyObject (CopySource, Key) {
+function copyObject (CopySource, Key, CopySourceIfMatch) {
   init();
   return client.send(
     new CopyObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET,
       CopySource,
+      CopySourceIfMatch,
       Key,
     })
   );
@@ -131,16 +132,17 @@ function getSignedAssetUrl (Key, expiresIn = 60) {
   );
 }
 
-function getSignedUploadUrl (ContentType, Key) {
+function getSignedUploadUrl (ContentType, Key, ContentLength) {
   init();
   return getSignedS3Url(
     signerClient ?? client,
     new PutObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET,
       ContentType,
+      ContentLength,
       Key,
     }),
-    { expiresIn: uploadUrlSeconds }
+    { expiresIn: uploadUrlSeconds, signableHeaders: new Set(['content-type', 'content-length']) }
   );
 }
 
@@ -158,6 +160,12 @@ async function headObject (Key) {
     if (err.$metadata?.httpStatusCode === 404 || ['NotFound', 'NoSuchKey'].includes(err.name)) return null;
     throw err;
   }
+}
+
+async function readObjectHeader (Key, IfMatch) {
+  init();
+  const { Body } = await client.send(new GetObjectCommand({ Bucket: process.env.AWS_S3_BUCKET, Key, Range: 'bytes=0-15', IfMatch }));
+  return Buffer.from(await Body.transformToByteArray());
 }
 
 async function objectExists (Key) {
@@ -230,6 +238,7 @@ export default {
   getSignedUploadUrl,
   objectExists,
   headObject,
+  readObjectHeader,
   listObjects,
   listVersions,
   bucketIsVersioned,

@@ -1,18 +1,25 @@
 import crypto from 'crypto';
 import { StatusCodes } from 'http-status-codes';
-import mime from 'mime-types';
+import rateLimit from '@fastify/rate-limit';
 import { z } from 'zod';
 
 import s3 from '#lib/s3.js';
-import { uploadExpiresAt } from '#lib/upload-policy.js';
+import { maxPhotoBytes, photoTypes, uploadsPerHour, uploadExpiresAt } from '#lib/upload-policy.js';
+import { allowsAnonymousPlotCreation } from '#models/plot.js';
 
 export default async function (fastify, opts) {
+  await fastify.register(rateLimit, { global: false, hook: 'preHandler', max: uploadsPerHour, timeWindow: '1 hour', cache: 10000, keyGenerator: (request) => request.user?.id ?? request.ip });
   fastify.post('/',
     {
+      onRequest: async (request, reply) => {
+        if (!allowsAnonymousPlotCreation()) return fastify.requireUser(request, reply);
+      },
+      config: { rateLimit: {} },
       schema: {
         description: 'Returns a signed URL for asset upload to storage.',
         body: z.object({
-          contentType: z.string(),
+          contentType: z.enum(Object.keys(photoTypes)),
+          byteSize: z.number().int().positive().max(maxPhotoBytes),
         }),
         response: {
           [StatusCodes.OK]: z.object({
@@ -25,12 +32,13 @@ export default async function (fastify, opts) {
       }
     },
     async function (request, reply) {
-      const { contentType } = request.body;
-      const filename = `${crypto.randomUUID()}.${mime.extension(contentType)}`;
+      const { contentType, byteSize } = request.body;
+      const filename = `${crypto.randomUUID()}.${photoTypes[contentType]}`;
       const expiresAt = uploadExpiresAt();
+      // Sign first, then persist before returning the URL. A signing failure
+      // creates no token, and a database failure never releases the URL.
+      const url = await s3.getSignedUploadUrl(contentType, `_uploads/${filename}`, byteSize);
       await fastify.prisma.assetUpload.create({ data: { filename, expiresAt } });
-      // Store the issued token before making a signed PUT available.
-      const url = await s3.getSignedUploadUrl(contentType, `_uploads/${filename}`);
       const data = {
         filename,
         expiresAt: expiresAt.toISOString(),

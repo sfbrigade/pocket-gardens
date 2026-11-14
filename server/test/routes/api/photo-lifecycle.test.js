@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { PutBucketVersioningCommand, S3Client } from '@aws-sdk/client-s3';
@@ -19,7 +20,8 @@ test('durable photo lifecycle and reconciliation', async (t) => {
   const payload = (filenames) => ({ submissionId: randomUUID(), Latitude: 37.77, Longitude: -122.43, 'Location Description': 'Keep these details', Photos: filenames });
   const create = (body) => app.inject({ method: 'POST', url: '/api/plots', headers, payload: body });
   async function stage () {
-    const response = await app.inject({ method: 'POST', url: '/api/assets', payload: { contentType: 'image/jpeg' } });
+    const { size } = await stat(new URL('../../fixtures/assets/640x480.jpg', import.meta.url));
+    const response = await app.inject({ method: 'POST', url: '/api/assets', headers, payload: { contentType: 'image/jpeg', byteSize: size } });
     assert.equal(response.statusCode, 200);
     const { filename, url, expiresAt } = response.json();
     assert.equal(new URL(url).searchParams.get('X-Amz-Expires'), '900');

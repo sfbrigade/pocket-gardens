@@ -48,7 +48,7 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
                     <Image src={s.file.preview} alt='' />
                     <CloseButton disabled={disabled} aria-label='Remove photo' onClick={(event) => { event.stopPropagation(); onRemove(s); }} className={classes.remove} />
                     <Loader className={classes.spinner} />
-                    {s.status === 'error' && <Box p='xs'><Text c='red' role='alert'>Photo upload failed.</Text><Button disabled={disabled} type='button' size='xs' onClick={(event) => { event.stopPropagation(); onRetry(s); }}>Retry upload</Button></Box>}
+                    {s.status === 'error' && <Box p='xs'><Text c='red' role='alert'>{s.error?.response?.data?.errors?.map(({ message }) => message).join(' ') || s.error?.response?.data?.message || 'Photo upload failed.'}</Text><Button disabled={disabled} type='button' size='xs' onClick={(event) => { event.stopPropagation(); onRetry(s); }}>Retry upload</Button></Box>}
                   </Box>
                 ));
               } else if (statuses.length === 0 && _value) {
@@ -59,7 +59,7 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
                   </Box>
                 );
               } else if (statuses.length === 0 && !_value) {
-                return children || <Text className='clickable' inherit={false} fz='sm' my='sm'>Drag-and-drop a photo file here, or click here to browse and select a file.</Text>;
+                return children || <Text className='clickable' inherit={false} fz='sm' my='sm'>Drag-and-drop a photo file here, or click here to browse and select a file. JPEG, PNG, WebP or GIF, up to 10 MiB.</Text>;
               }
             }}
           </DropzoneUploader>

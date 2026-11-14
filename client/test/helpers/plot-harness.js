@@ -139,9 +139,9 @@ export async function setupPlotTests (t) {
         Object.defineProperty(event, 'dataTransfer', { value: { files: [file], items: [{ kind: 'file', type: file.type, getAsFile: () => file }], types: ['Files'] } });
         container.querySelector('input[type=file]').parentElement.dispatchEvent(event);
       }),
-      upload: () => interact(() => {
+      upload: (selectedFile) => interact(() => {
         const input = container.querySelector('input[type=file]');
-        const file = new dom.window.File(['photo'], 'garden.jpg', { type: 'image/jpeg' });
+        const file = selectedFile ?? new dom.window.File(['photo'], 'garden.jpg', { type: 'image/jpeg' });
         Object.defineProperty(input, 'files', { configurable: true, value: [file] });
         input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
       }),

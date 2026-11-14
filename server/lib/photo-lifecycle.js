@@ -22,8 +22,7 @@ export async function preparePlotPhotos (prisma, filenames) {
 export async function lockPlotUploads (tx, filenames) {
   for (const filename of [...new Set(filenames)].sort()) {
     const [upload] = await tx.$queryRaw`SELECT * FROM "AssetUpload" WHERE "filename" = ${filename} FOR UPDATE`;
-    const object = await s3.headObject(`_uploads/${filename}`);
-    if (!upload || upload.expiresAt <= new Date() || !object || object.LastModified <= new Date(Date.now() - uploadRetentionDays() * dayMs)) {
+    if (!upload || upload.expiresAt <= new Date()) {
       throw new PhotoUnavailable();
     }
   }
