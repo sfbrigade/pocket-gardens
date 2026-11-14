@@ -1,5 +1,5 @@
 import s3 from '#lib/s3.js';
-import { dayMs, maxPhotoBytes, photoTypes, uploadRetentionDays } from '#lib/upload-policy.js';
+import { maxPhotoBytes, photoTypes } from '#lib/upload-policy.js';
 
 export class PhotoUploadError extends Error {
   constructor (message, field) {
@@ -23,8 +23,8 @@ export async function validatePhotoUpload (filename, field) {
   const key = `_uploads/${filename}`;
   const object = await s3.headObject(key);
   const invalid = (message) => new PhotoUploadError(message, field);
-  if (!object || object.LastModified <= new Date(Date.now() - uploadRetentionDays() * dayMs)) {
-    throw invalid('This photo is missing or has expired. Reattach it or continue without a photo.');
+  if (!object) {
+    throw invalid('This photo is missing. Reattach it or continue without a photo.');
   }
   if (!object.ContentLength || object.ContentLength > maxPhotoBytes) throw invalid('Choose a photo up to 10 MiB.');
   let header;

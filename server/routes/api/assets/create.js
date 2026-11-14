@@ -33,7 +33,6 @@ export default async function (fastify, opts) {
     async function (request, reply) {
       const { contentType, byteSize } = request.body;
       const filename = `${crypto.randomUUID()}.${photoTypes[contentType]}`;
-      // Issuance is stateless; staging retention is based on object age.
       const url = await s3.getSignedUploadUrl(contentType, `_uploads/${filename}`, byteSize);
       const data = {
         filename,

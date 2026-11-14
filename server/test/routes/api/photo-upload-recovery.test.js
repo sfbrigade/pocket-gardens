@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { GetBucketLifecycleConfigurationCommand, PutBucketLifecycleConfigurationCommand, S3Client } from '@aws-sdk/client-s3';
 import { assetExists, authenticate, build, upload } from '#test/helper.js';
 import s3 from '#lib/s3.js';
-import { dayMs } from '#lib/upload-policy.js';
 import { PrismaClient, PrismaPg } from '#prisma/client.js';
 
 test('photo upload recovery and immediate cleanup', async (t) => {
@@ -38,33 +36,28 @@ test('photo upload recovery and immediate cleanup', async (t) => {
     }
   });
 
-  await t.test('expiry uses object age, and replay precedes all storage access', async (t) => {
-    const now = Date.now();
-    t.mock.method(Date, 'now', () => now);
+  await t.test('missing uploads can be replaced, older uploads remain usable, and replay skips storage', async (t) => {
     const head = s3.headObject;
     const old = await stage();
     t.mock.method(s3, 'headObject', async (key) => {
       const object = await head(key);
-      return key === `_uploads/${old}` && object ? { ...object, LastModified: new Date(now - 7 * dayMs) } : object;
+      return key === `_uploads/${old}` && object ? { ...object, LastModified: new Date('2020-01-01') } : object;
     });
-    const body = payload([old]);
-    for (const Photos of [[old], [`${randomUUID()}.jpg`]]) {
-      const response = await create({ ...body, Photos });
-      assert.equal(response.statusCode, 422);
-      assert.equal(response.json().errors[0].path, 'Photos');
-      assert.equal(await prisma.plot.count({ where: { submissionId: body.submissionId } }), 0);
-    }
-    const replacement = await stage();
-    const saved = await create({ ...body, Photos: [replacement] });
+    const body = payload([`${randomUUID()}.jpg`]);
+    const response = await create(body);
+    assert.equal(response.statusCode, 422);
+    assert.equal(response.json().errors[0].path, 'Photos');
+    assert.equal(await prisma.plot.count({ where: { submissionId: body.submissionId } }), 0);
+    const saved = await create({ ...body, Photos: [old] });
     assert.equal(saved.statusCode, 201);
-    assert.equal(await assetExists(`_uploads/${replacement}`), false);
+    assert.equal(await assetExists(`_uploads/${old}`), false);
     t.mock.method(s3, 'headObject', async () => { throw new Error('Replay must not read staging'); });
-    const retry = await create({ ...body, Photos: [replacement] });
+    const retry = await create({ ...body, Photos: [old] });
     assert.equal(retry.statusCode, 200);
     assert.deepEqual(retry.json(), saved.json());
   });
 
-  await t.test('storage failures leave recent staging available for retry', async (t) => {
+  await t.test('storage failures leave staging available for retry', async (t) => {
     const filename = await stage();
     const body = payload([filename]);
     t.mock.method(console, 'error', () => {});
@@ -122,17 +115,5 @@ test('photo upload recovery and immediate cleanup', async (t) => {
     assert.equal((await create(body)).statusCode, 201);
     assert.ok(await assetExists(orphan), 'failed cleanup is best effort; no recurring worker removes it');
     assert.ok(await assetExists(unrelated));
-  });
-
-  await t.test('disposable storage accepts the native staging rule without covering permanent paths', async () => {
-    const client = new S3Client({ endpoint: process.env.AWS_S3_ENDPOINT, region: process.env.AWS_S3_REGION, forcePathStyle: true, credentials: { accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_S3_SECRET_ACCESS_KEY } });
-    try {
-      const rule = { ID: 'pocket-gardens-staging-expiration', Status: 'Enabled', Filter: { Prefix: '_uploads/' }, Expiration: { Days: 7 } };
-      await client.send(new PutBucketLifecycleConfigurationCommand({ Bucket: process.env.AWS_S3_BUCKET, LifecycleConfiguration: { Rules: [rule] } }));
-      const { Rules } = await client.send(new GetBucketLifecycleConfigurationCommand({ Bucket: process.env.AWS_S3_BUCKET }));
-      assert.deepEqual(Rules, [rule]);
-    } finally {
-      client.destroy();
-    }
   });
 });
