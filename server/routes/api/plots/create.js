@@ -76,7 +76,7 @@ export default async function (fastify, opts) {
           // Another concurrent request may have committed and removed staging.
           const winner = await findSubmission(fastify.prisma, submissionId);
           if (winner) return replay(winner);
-          throw new PhotoUploadError('This photo is missing or has expired. Reattach it or continue without a photo.', 'Photos');
+          throw new PhotoUploadError('This photo is missing. Reattach it or continue without a photo.', 'Photos');
         }
         throw error;
       }
