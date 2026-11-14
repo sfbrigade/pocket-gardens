@@ -94,6 +94,13 @@ To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs
 
 ## Photo upload retention and reconciliation
 
+The garden form keeps the selected photo and preview locally until **Create
+garden** is pressed. Selection, removal and draft discard do not initiate uploads.
+Unsubmitted files need reattachment after refresh; the other fields still recover.
+After uploading, the filename and exact submission payload are saved in the draft
+before the garden request. A failed/lost save response can be retried after refresh
+without uploading again. Profile and gallery photo inputs still upload immediately.
+
 Upload issuance requires an active signed-in user. The explicit development-only
 anonymous garden opt-in also enables anonymous local photo uploads; production
 never honors that opt-in. Issuance is limited to 30 URLs per hour per user (per IP
