@@ -15,7 +15,7 @@ import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
 import usePlotSuggestions from './usePlotSuggestions';
-import { matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
+import { changePlotPhoto, matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
 import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, soils, stages, sunLevels } from './plot-form';
 
 function RefreshGuard () {
@@ -142,7 +142,7 @@ export default function PlotForm () {
   function photoSelected (file) {
     if (form.getValues().submissionId !== photoSubmissionId || mutation.isPending || pendingPosition) return;
     setPhotoFile(file);
-    form.setValues({ photoWasSelected: !!file, submissionAttempt: null });
+    form.setValues({ ...changePlotPhoto(form.getValues(), ''), photoWasSelected: !!file });
     form.clearFieldError('photo');
   }
 
@@ -199,7 +199,7 @@ export default function PlotForm () {
                 // A structured photo error means this attempt did not save.
                 // Keep draft identity and all other fields, but release the
                 // stale uploader and require reattachment or explicit opt-out.
-                form.setValues({ photo: '', photoWasSelected: true, submissionAttempt: null });
+                form.setValues({ ...changePlotPhoto(form.getValues(), ''), photoWasSelected: true });
                 setPhotoFile(null);
                 setPhotoReset((current) => current + 1);
               }
@@ -223,7 +223,7 @@ export default function PlotForm () {
                   <Textarea label='Where exactly is it?' description='Street side, plot order, or a fixed landmark, such as the second tree well north of the blue gate.' required autosize minRows={2} {...form.getInputProps('locator')} />
                   <TextInput label='Garden title' description={values.nameEdited ? 'Custom title. Other changes will keep it.' : 'Suggested from the address and exact location. You can edit it.'} {...form.getInputProps('name')} value={values.name} onChange={(event) => { form.setFieldValue('nameEdited', true); form.setFieldValue('name', event.currentTarget.value); }} />
                   {values.nameEdited && suggestions.title && <Button variant='subtle' size='compact-sm' onClick={() => form.setFieldValue('nameEdited', false)}>Reset to suggested title</Button>}
-                  <PhotoInput key={`${values.submissionId}:${photoReset}`} label='Reference photo' deferred description='Optional. The photo uploads when you create the garden. Reattach it after refresh if you have not submitted yet.' disabled={mutation.isPending || !!pendingPosition} {...form.getInputProps('photo')} onChange={(filename) => { if (form.getValues().submissionId === photoSubmissionId) form.setFieldValue('photo', filename); }} onFileChange={photoSelected} />
+                  <PhotoInput key={`${values.submissionId}:${photoReset}`} label='Reference photo' deferred description='Optional. The photo uploads when you create the garden. Reattach it after refresh if you have not submitted yet.' disabled={mutation.isPending || !!pendingPosition} {...form.getInputProps('photo')} onChange={(filename) => { if (form.getValues().submissionId === photoSubmissionId) form.setValues(changePlotPhoto(form.getValues(), filename)); }} onFileChange={photoSelected} />
                   {needsPhoto && <Alert color='yellow' title='Reattach your photo'>Your other fields are restored. Choose the photo again or continue without it.<Button variant='subtle' onClick={() => { form.setFieldValue('photoWasSelected', false); form.clearFieldError('photo'); }}>Continue without photo</Button></Alert>}
                 </Stack>
               </Fieldset>

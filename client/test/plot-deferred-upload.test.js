@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createPlotDraft } from '../src/Plots/plot-form.js';
+import { preparePlotSubmission } from '../src/Plots/plot-submission.js';
 import { draftStorageKey, interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
 
 const filename = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg';
@@ -237,6 +238,32 @@ test('garden photos upload only when submitted', async (t) => {
   }
 
   for (const choice of ['reattach', 'continue']) {
+    await t.test(`expired photo keeps attempted suggestions after refresh: ${choice}`, async (t) => {
+      const original = { ...draft(), addressEdited: false, photo: filename, photoWasSelected: true };
+      const address = '440 5th Avenue, San Francisco';
+      original.submissionAttempt = preparePlotSubmission(original, { position: original.position, address });
+      const sent = original.submissionAttempt.payload;
+      dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
+      t.mock.method(globalThis, 'fetch', async () => { throw new Error('Address lookup unavailable'); });
+      t.mock.method(Api.assets, 'create', async () => response(replacement));
+      const create = t.mock.method(Api.plots, 'create', async () => { throw Object.assign(new Error('Expired'), { Photos: 'Photo expired' }); });
+      let view = await mount(t);
+      await waitFor(() => assert.equal(view.field('Address or cross street').value, address));
+      await view.submit();
+      await waitFor(() => assert.match(view.container.textContent, /Reattach your photo/));
+      assert.equal(view.field('Address or cross street').value, address);
+      assert.equal(view.field('Garden title').value, sent['Pocket Garden Name']);
+      await view.unmount();
+      view = await mount(t);
+      await waitFor(() => assert.equal(view.field('Address or cross street').value, address));
+      if (choice === 'reattach') await view.upload();
+      else await view.click('Continue without photo');
+      create.mock.mockImplementation(async () => ({ data: { id: 'pg_preserved' } }));
+      await view.submit();
+      await waitFor(() => assert.equal(view.path, '/plots/pg_preserved'));
+      assert.deepEqual(JSON.parse(JSON.stringify(create.mock.calls[1].arguments[0])), JSON.parse(JSON.stringify({ ...sent, Photos: choice === 'reattach' ? [replacement] : undefined })));
+    });
+
     await t.test(`expired completed photo recovery: ${choice}`, async (t) => {
       const original = { ...draft(), photo: filename, photoWasSelected: true, name: 'My title', nameEdited: true };
       dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
