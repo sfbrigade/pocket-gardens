@@ -10,7 +10,7 @@ $ dokku enter <name of app> web
 $ dokku letsencrypt:enable <name of app>
 ```
 
-Photo uploads also require the lifecycle migrations, native staging retention
-configuration and a scheduled reconciliation worker. See
-[photo upload operations](../server/README.md#photo-upload-retention-and-reconciliation)
-for dry-run, storage setup and rollout steps. These steps are not applied automatically.
+For temporary photo cleanup, configure the native storage expiration rule in
+[photo upload operations](../server/README.md#photo-uploads-and-temporary-retention).
+No application cleanup worker needs scheduling. Storage settings are not applied
+automatically by deployment.

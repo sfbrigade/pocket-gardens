@@ -173,14 +173,13 @@ function formatPlotPhotos (photos) {
 /**
  * Persist a Photos filename list with setAsset, then reload the plot with photos.
  */
-export async function syncPlotPhotos (tx, plotId, filenames, { newPhotoIds, ...assetOptions } = {}) {
+export async function syncPlotPhotos (tx, plotId, filenames, assetOptions) {
   const handlers = await syncPhotos({
     delegate: tx.plotPhoto,
     PhotoClass: PlotPhoto,
     parentFk: 'plotId',
     parentId: plotId,
     filenames,
-    newPhotoIds,
     assetOptions,
   });
   await runPhotoHandlers(handlers);

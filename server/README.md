@@ -92,7 +92,7 @@ Re-running import or migrate skips parents that already have photo rows. Use `--
 
 To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs/latest/).
 
-## Photo upload retention and reconciliation
+## Photo uploads and temporary retention
 
 Garden photos stay local until **Create garden** is pressed. Unsubmitted files
 need reattachment after refresh; other fields recover. Once uploaded, the filename
@@ -113,9 +113,9 @@ Direct imports without MIME metadata must still contain a supported image.
 
 ### Storage setup
 
-Supported storage is an **unversioned S3-compatible bucket with native lifecycle
-expiration**. There is no application staging sweeper or version-purge fallback.
-The copy-cleanup command refuses buckets with enabled or suspended versioning.
+Temporary cleanup uses the storage provider's native lifecycle expiration. The
+example below assumes an **unversioned S3-compatible bucket**; it does not provide
+cleanup of historical versions in a versioned bucket.
 
 `PHOTO_UPLOAD_RETENTION_DAYS` defaults to **7** (integer 1–365). Apply the same age
 in the bucket's native rule. The server checks the object's LastModified value;
@@ -140,42 +140,20 @@ Preserve unrelated bucket rules and verify the saved configuration; this example
 is one rule, not a replacement for the entire bucket policy. Permanent paths must
 not receive this blanket expiry. See [AWS lifecycle configuration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/how-to-set-lifecycle-configuration-intro.html).
 
-### Copy cleanup queue
+### Save cleanup
 
-`PhotoCopyIntent` is prepared before the garden transaction/storage copy and locked
-through saving. Cleanup takes the same lock, skips active saves, and checks exact
-committed photo references. A confirmed reference leaves its file intact and
-removes its queue record. An unreferenced destination is durably retired before
-deletion; its record is removed after deletion succeeds. Failures retain the record
-with `checks`/`lastError` for retry. Resolved work is not rechecked daily, and no
-permanent tombstones or unknown/imported permanent objects are scanned.
+Successful saves attempt to delete their temporary uploads. Failed save
+transactions attempt to delete their permanent copy targets while retaining
+staging for retry. Cleanup errors are logged and do not turn a committed garden
+save into a failure. An uncertain commit retains both copies until a retry can
+recover the saved garden.
 
-The first check is due one hour after preparation (saves have a 60-second timeout).
-An exceptionally late storage write after cleanup finishes can leave an orphan;
-this rare leak is an accepted tradeoff instead of indefinite reconciliation. See
-[ADR 0006](../docs/adr/0006-photo-copy-intents-survive-save-transactions.md).
+Cleanup is best effort: a crash, failed deletion or unresolved commit may leave an
+unreferenced permanent object. We accept that storage leak instead of maintaining
+a durable queue or scheduled worker. There is no automatic permanent-object scan.
 
-From the repository root, with the intended database/storage environment:
-
-```sh
-npm run photos:cleanup:dry -w server
-# After reviewing the printed target and decisions:
-npm run photos:cleanup -w server -- --apply
-```
-
-Dry-run is the default and changes no records/objects. The command uses paginated
-queue reads, idempotent deletion and exits nonzero on errors. Database outages
-retain copies. Inspect pending/failed work with:
-
-```sql
-SELECT "key", "checks", "lastError", "nextCheckAt"
-FROM "PhotoCopyIntent" ORDER BY "nextCheckAt", "key";
-```
-
-Deploy with normal Prisma migrations/generation, including
-`20261113010000_simplify_photo_cleanup`, which drops the old upload registry. Prior
-migration files remain unchanged. After verifying storage setup on nonproduction,
-schedule `node bin/reconcile-photos.js --apply` hourly from the deployed server
-workspace with the application's environment. Retain logs and alert on failures.
-Storage policy installation, migrations, deployment and scheduling are separate
-rollout steps; none are executed automatically by this change.
+Use normal Prisma migrations/generation when deploying. The migration
+`20261114000000_remove_photo_copy_queue` removes the earlier cleanup table; prior
+migration files are preserved for databases that already applied them. Install
+the native temporary-upload expiration rule separately. No application cleanup
+job needs scheduling.
