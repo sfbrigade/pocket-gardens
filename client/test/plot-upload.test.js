@@ -212,3 +212,28 @@ test('completed and expired photo refresh recovery preserves the garden draft', 
     assert.equal(view.container.querySelector('img'), null);
   });
 });
+
+test('photo format and size errors remain actionable in the garden form', async (t) => {
+  const { dom, Api, mount, readDraft } = await setupPlotTests(t);
+  await t.test('unsupported files and server validation preserve draft recovery', async (t) => {
+    dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify({ ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 }, locator: 'Gate', addressEdited: true }));
+    const sign = t.mock.method(Api.assets, 'create', async () => Promise.reject(Object.assign(new Error('Rejected'), { response: { data: { errors: [{ message: 'Choose a photo up to 10 MiB.' }] } } })));
+    const view = await mount(t);
+    await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Gate'));
+    const svg = new dom.window.File(['<svg/>'], 'unsafe.svg', { type: 'image/svg+xml' });
+    await view.upload(svg);
+    await waitFor(() => assert.match(view.container.textContent, /File type must be/));
+    assert.equal(sign.mock.calls.length, 0, 'unsupported formats never request a signed URL');
+    const large = new dom.window.File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.jpg', { type: 'image/jpeg' });
+    await view.upload(large);
+    await waitFor(() => assert.match(view.container.textContent, /File is larger/));
+    assert.equal(sign.mock.calls.length, 0);
+    await view.upload();
+    await waitFor(() => assert.match(view.container.textContent, /Choose a photo up to 10 MiB/));
+    assert.equal(view.field('Where exactly is it?').value, 'Gate');
+    assert.equal(view.button('Create garden').disabled, true);
+    await view.click('Remove photo');
+    assert.equal(readDraft().photoWasSelected, false);
+    assert.equal(view.button('Create garden').disabled, false);
+  });
+});
