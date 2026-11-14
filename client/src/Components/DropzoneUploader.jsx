@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 
 import uploadPhoto from '../upload-photo';
 
-function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, onUploading, onUploadError, deferred = false, onSelected }) {
+function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected }) {
   const [statuses, setStatuses] = useState([]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
   const disabledRef = useRef(disabled);
@@ -33,7 +33,6 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
     const controller = new AbortController();
     uploads.current.set(status.id, controller);
     setStatuses((current) => current.map((entry) => entry.id === status.id ? { ...entry, status: 'uploading', error: null } : entry));
-    onUploading?.(status);
     try {
       const filename = await mutation.mutateAsync({ file: status.file, signal: controller.signal });
       if (controller.signal.aborted || !uploads.current.has(status.id)) return;
@@ -44,7 +43,6 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
       if (controller.signal.aborted || !uploads.current.has(status.id)) return;
       const failed = { ...status, status: 'error', error };
       setStatuses((current) => current.map((entry) => entry.id === status.id ? failed : entry));
-      onUploadError?.(failed);
     } finally {
       if (uploads.current.get(status.id) === controller) uploads.current.delete(status.id);
     }
