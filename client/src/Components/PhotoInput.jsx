@@ -5,7 +5,7 @@ import classNames from 'classnames';
 import DropzoneUploader from './DropzoneUploader';
 import classes from './PhotoInput.module.css';
 
-function PhotoInput ({ children, description, disabled, error, id, label, name, onChange, onUploadStateChange, defaultValue, value, valueUrl, deferred = false, onFileChange }) {
+function PhotoInput ({ children, description, disabled, error, id, label, name, onChange, defaultValue, value, valueUrl, deferred = false, onFileChange }) {
   const [_value, handleChange] = useUncontrolled({
     value,
     defaultValue,
@@ -16,12 +16,10 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
   function onRemoved () {
     handleChange('');
     onFileChange?.(null);
-    onUploadStateChange?.('idle');
   }
 
   function onUploaded (status) {
     handleChange(status.filename);
-    onUploadStateChange?.('uploaded');
   }
 
   return (
@@ -36,8 +34,6 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
             disabled={disabled || (!!_value && _value !== '')}
             onRemoved={onRemoved}
             onUploaded={onUploaded}
-            onUploading={() => onUploadStateChange?.('uploading')}
-            onUploadError={() => onUploadStateChange?.('error')}
           >
             {({ statuses, onRemove, onRetry }) => {
               if (statuses.length > 0) {
