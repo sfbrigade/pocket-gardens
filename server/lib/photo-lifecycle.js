@@ -1,25 +1,37 @@
+import { randomUUID } from 'node:crypto';
 import s3 from '#lib/s3.js';
 import { dayMs, PhotoUnavailable, uploadExpiresAt, uploadRetentionDays } from '#lib/upload-policy.js';
 
-// Lock upload tokens in deterministic order for the entire save transaction.
-// Imports stage directly, so an untracked filename is admitted only while its
-// actual object is recent. No shared asset consumer has to change its contract.
-export async function lockPlotUploads (prisma, tx, filenames) {
+// All durable preparation finishes before acquiring the save connection. No
+// outer-client query may run while that transaction holds a pooled connection.
+export async function preparePlotPhotos (prisma, filenames) {
   for (const filename of [...new Set(filenames)].sort()) {
     await prisma.assetUpload.upsert({ where: { filename }, create: { filename, expiresAt: uploadExpiresAt() }, update: {} });
+  }
+  const photos = filenames.map((upload) => {
+    const id = randomUUID();
+    return { id, upload, key: `plot_photos/${id}/file/${upload}` };
+  });
+  if (photos.length) {
+    await prisma.photoCopyIntent.createMany({ data: photos.map(({ key, upload }) => ({ key, upload, nextCheckAt: new Date(Date.now() + 60 * 60 * 1000) })) });
+  }
+  return photos.map(({ id }) => id);
+}
+
+// Lock in deterministic order for the entire save, using its connection only.
+export async function lockPlotUploads (tx, filenames) {
+  for (const filename of [...new Set(filenames)].sort()) {
     const [upload] = await tx.$queryRaw`SELECT * FROM "AssetUpload" WHERE "filename" = ${filename} FOR UPDATE`;
     const object = await s3.headObject(`_uploads/${filename}`);
-    if (upload.expiresAt <= new Date() || !object || object.LastModified <= new Date(Date.now() - uploadRetentionDays() * dayMs)) {
+    if (!upload || upload.expiresAt <= new Date() || !object || object.LastModified <= new Date(Date.now() - uploadRetentionDays() * dayMs)) {
       throw new PhotoUnavailable();
     }
   }
 }
 
-export async function recordCopyIntent (prisma, tx, key) {
-  const upload = key.split('/').at(-1);
-  await prisma.photoCopyIntent.create({ data: { key, upload, nextCheckAt: new Date(Date.now() + 60 * 60 * 1000) } });
+export async function lockCopyIntent (tx, key) {
   const [intent] = await tx.$queryRaw`SELECT * FROM "PhotoCopyIntent" WHERE "key" = ${key} FOR UPDATE`;
-  if (intent.retired) throw new Error('Photo copy was retired before saving');
+  if (!intent || intent.retired) throw new Error('Photo copy is not available for saving');
 }
 
 // Only this narrow namespace is tracked. Never infer ownership by scanning

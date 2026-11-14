@@ -8,6 +8,7 @@ import { assetExists, authenticate, build, upload } from '#test/helper.js';
 import s3 from '#lib/s3.js';
 import { expireStagingUploads, reconcilePhotoCopies } from '#lib/photo-lifecycle.js';
 import { dayMs } from '#lib/upload-policy.js';
+import { PrismaClient, PrismaPg } from '#prisma/client.js';
 
 const later = (days) => new Date(Date.now() + days * dayMs);
 
@@ -26,6 +27,27 @@ test('durable photo lifecycle and reconciliation', async (t) => {
     await upload([['640x480.jpg', filename]]);
     return filename;
   }
+
+  await t.test('concurrent photo saves succeed with a single database connection', async (t) => {
+    const files = [await stage(), await stage()];
+    const pooled = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL, max: 1 }) });
+    const original = app.prisma;
+    t.mock.method(console, 'error', () => {});
+    app.prisma = new Proxy(pooled, {
+      get (target, key) {
+        if (key === '$transaction') return (callback) => target.$transaction(callback, { timeout: 1000 });
+        return Reflect.get(target, key);
+      },
+    });
+    try {
+      const results = await Promise.all(files.map((file) => create(payload([file]))));
+      assert.deepEqual(results.map(({ statusCode }) => statusCode), [201, 201]);
+      for (const file of files) assert.equal(await assetExists(`_uploads/${file}`), false);
+    } finally {
+      app.prisma = original;
+      await pooled.$disconnect();
+    }
+  });
 
   await t.test('missing and expired tokens return a photo field error; edits keep the submission identity', async () => {
     const filename = await stage();
@@ -54,7 +76,7 @@ test('durable photo lifecycle and reconciliation', async (t) => {
     t.mock.method(console, 'error', () => {});
     t.mock.method(s3, 'headObject', async () => { throw new Error('Storage unavailable'); });
     assert.equal((await create(payload([filename]))).statusCode, 500);
-    assert.equal(await prisma.photoCopyIntent.count(), 0);
+    assert.equal(await prisma.photoCopyIntent.count(), 1, 'preallocated intent survives failed validation without copying');
   });
 
   await t.test('partial copies survive rollback and cleanup failure, then reconcile idempotently', async (t) => {

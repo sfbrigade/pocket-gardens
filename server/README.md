@@ -111,8 +111,8 @@ saves. It tracks garden-create copies only; unknown/imported permanent objects
 are never scanned. See [ADR 0006](../docs/adr/0006-photo-copy-intents-survive-save-transactions.md)
 for the durability and locking decision. Copy intents and upload-token records
 remain as tombstones: **do not prune them**, because storage writes can finish
-late. Budget for their database growth and for the extra connection used to record
-copy intent during a save transaction.
+late. Budget for their database growth. Upload rows and copy targets are prepared
+before the save transaction so saves never need a second pooled connection.
 
 ### Inspect and schedule cleanup
 
