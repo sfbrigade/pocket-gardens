@@ -58,6 +58,10 @@ export class User extends Base {
     super(Prisma.UserScalarFieldEnum, data);
   }
 
+  toJSON () {
+    return User.ResponseSchema.parse(this);
+  }
+
   get pictureUrl () {
     return this.getAssetUrl('picture');
   }
