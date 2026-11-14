@@ -3,29 +3,30 @@ import { useMutation } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone-esm';
 import { v4 as uuid } from 'uuid';
 
-import Api from '../Api';
+import uploadPhoto from '../upload-photo';
 
-function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, onUploading, onUploadError }) {
+function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, onUploading, onUploadError, deferred = false, onSelected }) {
   const [statuses, setStatuses] = useState([]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
   const disabledRef = useRef(disabled);
   useEffect(() => { disabledRef.current = disabled; }, [disabled]);
+  const active = useRef(false);
   const uploads = useRef(new Map());
   const previews = useRef(new Map());
   const mutation = useMutation({
-    mutationFn: async ({ file, signal }) => {
-      const { data } = await Api.assets.create({ filename: file.name, contentType: file.type || 'application/octet-stream', byteSize: file.size }, signal);
-      await Api.assets.upload(data.url, data.headers, file, signal);
-      return data.filename;
-    },
+    mutationFn: uploadPhoto,
     retry: false,
   });
 
-  useEffect(() => () => {
-    for (const controller of uploads.current.values()) controller.abort();
-    for (const url of previews.current.values()) URL.revokeObjectURL(url);
-    uploads.current.clear();
-    previews.current.clear();
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      for (const controller of uploads.current.values()) controller.abort();
+      for (const url of previews.current.values()) URL.revokeObjectURL(url);
+      uploads.current.clear();
+      previews.current.clear();
+    };
   }, []);
 
   async function upload (status) {
@@ -50,16 +51,17 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
   }
 
   function onDropAccepted (files) {
-    if (disabledRef.current) return;
+    if (!active.current || disabledRef.current) return;
     setRejectedFiles([]);
     const next = files.map((file) => {
       const id = uuid();
       const preview = URL.createObjectURL(file);
       previews.current.set(id, preview);
-      return { id, file: Object.assign(file, { preview }), status: 'pending', filename: null };
+      return { id, file: Object.assign(file, { preview }), status: deferred ? 'selected' : 'pending', filename: null };
     });
     setStatuses(next);
-    for (const status of next) upload(status);
+    if (deferred) onSelected?.(files[0]);
+    else for (const status of next) upload(status);
   }
 
   function onRemove (status) {

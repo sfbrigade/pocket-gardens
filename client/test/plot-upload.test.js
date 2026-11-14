@@ -1,239 +1,83 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createPlotDraft } from '../src/Plots/plot-form.js';
-import { draftStorageKey, interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
+import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
 
-test('garden photo upload lifecycle', async (t) => {
-  const { dom, Api, mount, readDraft, revokePreview } = await setupPlotTests(t);
+// Profile and gallery photo inputs keep their immediate-upload behavior.
+test('shared photo inputs upload immediately', async (t) => {
+  const { dom, Api, mount, revokePreview } = await setupPlotTests(t);
   const filename = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg';
-  t.beforeEach(() => dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify({
-    ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 }, locator: 'Near gate', addressEdited: true,
-  })));
-  t.mock.method(Api.assets, 'create', async () => ({ data: { filename, url: '/qa-upload', headers: {} } }));
+  const signed = { data: { filename, url: '/upload', headers: {} } };
+  t.mock.method(Api.assets, 'create', async () => signed);
 
-  await t.test('uploading and failed uploads block saving; retry attaches the successful upload', async (t) => {
+  await t.test('selection starts uploading; failed uploads can be retried', async (t) => {
     const first = Promise.withResolvers();
     const retry = Promise.withResolvers();
     let attempt = 0;
     const upload = t.mock.method(Api.assets, 'upload', () => (++attempt === 1 ? first.promise : retry.promise));
-    const create = t.mock.method(Api.plots, 'create', async () => ({ data: { id: 'pg_with-photo' } }));
-    const view = await mount(t);
-    await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Near gate'));
+    const view = await mount(t, { initialEntry: '/photo-input' });
     await view.upload();
     await waitFor(() => assert.equal(upload.mock.calls.length, 1));
-    assert.equal(view.button('Create garden').disabled, true);
-    await view.submit();
-    assert.equal(create.mock.calls.length, 0);
-
-    await interact(() => first.reject(new Error('Upload unavailable')));
+    await interact(() => first.reject(new Error('Unavailable')));
     await waitFor(() => assert.match(view.container.textContent, /Photo upload failed/));
-    assert.equal(view.button('Create garden').disabled, true);
-    await view.submit();
-    assert.equal(create.mock.calls.length, 0);
     await view.click('Retry upload');
     await waitFor(() => assert.equal(upload.mock.calls.length, 2));
     await interact(() => retry.resolve());
-    await waitFor(() => assert.equal(view.button('Create garden').disabled, false));
-    assert.equal(readDraft().photo, filename);
-    await view.submit();
-    await waitFor(() => assert.equal(view.path, '/plots/pg_with-photo'));
-    assert.deepEqual(create.mock.calls[0].arguments[0].Photos, [filename]);
-  });
-
-  await t.test('removal aborts the upload and a late completion cannot reattach the photo', async (t) => {
-    const pending = Promise.withResolvers();
-    const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
-    const view = await mount(t);
-    await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Near gate'));
-    await view.upload();
-    await waitFor(() => assert.equal(upload.mock.calls.length, 1));
-    const signal = upload.mock.calls[0].arguments[3];
+    await waitFor(() => assert.doesNotMatch(view.container.textContent, /Photo upload failed/));
     const preview = view.container.querySelector('img').getAttribute('src');
-    const mutation = view.client.getMutationCache().getAll()[0];
-    assert.equal(signal.aborted, false);
     await view.click('Remove photo');
-    assert.equal(signal.aborted, true);
-    assert.ok(revokePreview.mock.calls.some(({ arguments: args }) => args[0] === preview));
-    assert.equal(readDraft().photo, '');
-    assert.equal(readDraft().photoWasSelected, false);
-    assert.equal(view.button('Create garden').disabled, false);
-
-    // The transport deliberately ignores abort and succeeds late.
-    await interact(() => pending.resolve());
-    await waitFor(() => assert.equal(mutation.state.status, 'success'));
-    assert.equal(readDraft().photo, '');
-    assert.equal(view.container.querySelector('button[aria-label="Remove photo"]'), null);
-  });
-
-  await t.test('refresh during upload preserves fields and requires reattachment or an explicit opt-out', async (t) => {
-    const pending = Promise.withResolvers();
-    const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
-    const first = await mount(t);
-    await waitFor(() => assert.equal(first.field('Where exactly is it?').value, 'Near gate'));
-    await first.upload();
-    await waitFor(() => assert.equal(upload.mock.calls.length, 1));
-    const mutation = first.client.getMutationCache().getAll()[0];
-    const signal = upload.mock.calls[0].arguments[3];
-    await first.unmount();
-    assert.equal(signal.aborted, true);
-    const refreshed = await mount(t);
-    await waitFor(() => assert.match(refreshed.container.textContent, /Reattach your photo/));
-    assert.equal(refreshed.field('Where exactly is it?').value, 'Near gate');
-    assert.equal(refreshed.button('Create garden').disabled, true);
-    await refreshed.click('Continue without photo');
-    await waitFor(() => assert.equal(refreshed.button('Create garden').disabled, false));
-    await interact(() => pending.resolve());
-    await waitFor(() => assert.equal(mutation.state.status, 'success'));
-    assert.equal(readDraft().photo, '');
-    assert.equal(readDraft().photoWasSelected, false);
-  });
-});
-
-test('photo work belongs to its garden draft', async (t) => {
-  const { dom, Api, mount, readDraft, revokePreview } = await setupPlotTests(t);
-  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ features: [] }) }));
-  t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'old.jpg', url: '/upload', headers: {} } }));
-  for (const choice of ['Keep existing draft', 'Discard draft and start here']) {
-    await t.test(`drop while choosing: ${choice}`, async (t) => {
-      const original = { ...createPlotDraft(), locator: 'Old garden', addressEdited: true };
-      dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
-      const upload = t.mock.method(Api.assets, 'upload', async () => {});
-      const view = await mount(t, { initialEntry: { pathname: '/plots/new', state: { mapPosition: { latitude: 37.79, longitude: -122.41 } } } });
-      await waitFor(() => assert.match(view.container.textContent, /You have an unfinished garden/));
-      await view.dropPhoto();
-      // Flush the dropzone's asynchronous file extraction.
-      await interact(() => new Promise((resolve) => setTimeout(resolve, 30)));
-      assert.equal(upload.mock.calls.length, 0, 'the choice prompt must disable div drop handlers');
-      assert.deepEqual(readDraft(), original);
-      await view.click(choice);
-      if (choice === 'Keep existing draft') assert.equal(readDraft().submissionId, original.submissionId);
-      else assert.notEqual(readDraft().submissionId, original.submissionId);
-    });
-  }
-  for (const outcome of ['success', 'failure']) {
-    for (const choice of ['Keep existing draft', 'Discard draft and start here']) {
-      await t.test(`in-flight ${outcome} after ${choice}`, async (t) => {
-        const original = { ...createPlotDraft(), locator: 'Old garden', addressEdited: true };
-        dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
-        const pending = Promise.withResolvers();
-        const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
-        const view = await mount(t);
-        await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Old garden'));
-        await view.upload();
-        await waitFor(() => assert.equal(upload.mock.calls.length, 1));
-        const signal = upload.mock.calls[0].arguments[3];
-        const preview = view.container.querySelector('img').getAttribute('src');
-        await view.navigate('/plots/new', { state: { mapPosition: { latitude: 37.79, longitude: -122.41 } } });
-        await waitFor(() => assert.match(view.container.textContent, /You have an unfinished garden/));
-        await view.click(choice);
-        const replaced = choice.startsWith('Discard');
-        assert.equal(signal.aborted, replaced);
-        if (replaced) assert.ok(revokePreview.mock.calls.some(({ arguments: args }) => args[0] === preview));
-        await view.change('Garden title', 'My title');
-        await interact(() => outcome === 'success' ? pending.resolve() : pending.reject(new Error('Late failure')));
-        await waitFor(() => assert.equal(view.client.isMutating(), 0));
-        assert.equal(readDraft().name, 'My title');
-        assert.equal(readDraft().photo, !replaced && outcome === 'success' ? 'old.jpg' : '');
-        if (replaced) {
-          assert.equal(readDraft().photoWasSelected, false);
-          assert.doesNotMatch(view.container.textContent, /Photo upload failed/);
-        }
-      });
-    }
-  }
-});
-
-test('completed and expired photo refresh recovery preserves the garden draft', async (t) => {
-  const { dom, Api, mount, readDraft, revokePreview } = await setupPlotTests(t);
-  const oldPhoto = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg';
-  const newPhoto = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jpg';
-  for (const choice of ['reattach', 'continue']) {
-    await t.test(`expired photo: ${choice}`, async (t) => {
-      const original = {
-        ...createPlotDraft(),
-        position: { latitude: 37.77, longitude: -122.43 },
-        locator: 'Near gate',
-        address: 'My address',
-        addressEdited: true,
-        name: 'My title',
-        nameEdited: true,
-        photo: oldPhoto,
-        photoWasSelected: true,
-      };
-      dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
-      const create = t.mock.method(Api.plots, 'create', async () => { throw Object.assign(new Error('Photo unavailable'), { Photos: 'This photo is missing or has expired. Reattach it or continue without a photo.' }); });
-      t.mock.method(Api.assets, 'create', async () => ({ data: { filename: newPhoto, url: '/upload', headers: {} } }));
-      t.mock.method(Api.assets, 'upload', async () => {});
-      let view = await mount(t);
-      await waitFor(() => assert.match(view.container.textContent, /Photo uploaded and attached/));
-      assert.equal(view.button('Create garden').disabled, false, 'a completed restored photo can be saved/replayed');
-      await view.submit();
-      await waitFor(() => assert.match(view.container.textContent, /missing or has expired/));
-      assert.equal(readDraft().photo, '');
-      assert.equal(readDraft().photoWasSelected, true);
-      assert.equal(readDraft().submissionId, original.submissionId);
-      assert.equal(view.field('Garden title').value, original.name);
-      assert.equal(view.field('Address or cross street').value, original.address);
-      assert.equal(view.field('Where exactly is it?').value, original.locator);
-      assert.equal(view.button('Create garden').disabled, true);
-      await view.unmount();
-      view = await mount(t);
-      await waitFor(() => assert.match(view.container.textContent, /Reattach your photo/));
-      assert.equal(readDraft().submissionId, original.submissionId);
-      if (choice === 'reattach') {
-        await view.upload();
-        await waitFor(() => assert.equal(readDraft().photo, newPhoto));
-      } else await view.click('Continue without photo');
-      create.mock.restore();
-      const save = t.mock.method(Api.plots, 'create', async () => ({ data: { id: 'pg_recovered' } }));
-      await view.submit();
-      await waitFor(() => assert.equal(view.path, '/plots/pg_recovered'));
-      const sent = save.mock.calls[0].arguments[0];
-      assert.equal(sent.submissionId, original.submissionId);
-      assert.equal(sent['Pocket Garden Name'], original.name);
-      assert.equal(sent['Street Address'], original.address);
-      assert.deepEqual(sent.Photos, choice === 'reattach' ? [newPhoto] : undefined);
-    });
-  }
-
-  await t.test('an expired uploaded preview is released before reattachment', async (t) => {
-    dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify({ ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 }, locator: 'Gate', addressEdited: true }));
-    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: oldPhoto, url: '/upload', headers: {} } }));
-    t.mock.method(Api.assets, 'upload', async () => {});
-    t.mock.method(Api.plots, 'create', async () => { throw Object.assign(new Error('Photo unavailable'), { Photos: 'Photo expired' }); });
-    const view = await mount(t);
-    await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Gate'));
-    await view.upload();
-    await waitFor(() => assert.equal(readDraft().photo, oldPhoto));
-    const preview = view.container.querySelector('img').getAttribute('src');
-    await view.submit();
-    await waitFor(() => assert.equal(readDraft().photo, ''));
-    assert.ok(revokePreview.mock.calls.some(({ arguments: args }) => args[0] === preview));
     assert.equal(view.container.querySelector('img'), null);
+    assert.ok(revokePreview.mock.calls.some(({ arguments: args }) => args[0] === preview));
   });
-});
 
-test('photo format and size errors remain actionable in the garden form', async (t) => {
-  const { dom, Api, mount, readDraft } = await setupPlotTests(t);
-  await t.test('unsupported files and server validation preserve draft recovery', async (t) => {
-    dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify({ ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 }, locator: 'Gate', addressEdited: true }));
-    const sign = t.mock.method(Api.assets, 'create', async () => Promise.reject(Object.assign(new Error('Rejected'), { response: { data: { errors: [{ message: 'Choose a photo up to 10 MiB.' }] } } })));
-    const view = await mount(t);
-    await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Gate'));
-    const svg = new dom.window.File(['<svg/>'], 'unsafe.svg', { type: 'image/svg+xml' });
-    await view.upload(svg);
+  for (const outcome of ['success', 'failure']) {
+    await t.test(`removal aborts an immediate upload and ignores late ${outcome}`, async (t) => {
+      const pending = Promise.withResolvers();
+      const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
+      const view = await mount(t, { initialEntry: '/photo-input' });
+      await view.upload();
+      await waitFor(() => assert.equal(upload.mock.calls.length, 1));
+      const signal = upload.mock.calls[0].arguments[3];
+      const preview = view.container.querySelector('img').getAttribute('src');
+      const mutation = view.client.getMutationCache().getAll()[0];
+      await view.click('Remove photo');
+      assert.equal(signal.aborted, true);
+      assert.ok(revokePreview.mock.calls.some(({ arguments: args }) => args[0] === preview));
+      await interact(() => outcome === 'success' ? pending.resolve() : pending.reject(new Error('Late failure')));
+      await waitFor(() => assert.equal(mutation.state.status, 'error'));
+      assert.equal(view.container.querySelector('img'), null);
+      assert.doesNotMatch(view.container.textContent, /Photo upload failed/);
+      assert.equal(view.container.querySelector('input[type=file]').disabled, false);
+    });
+  }
+
+  await t.test('unmount during signing prevents a late response from starting the PUT', async (t) => {
+    const pending = Promise.withResolvers();
+    const sign = t.mock.method(Api.assets, 'create', () => pending.promise);
+    const upload = t.mock.method(Api.assets, 'upload', async () => {});
+    const view = await mount(t, { initialEntry: '/photo-input' });
+    await view.upload();
+    await waitFor(() => assert.equal(sign.mock.calls.length, 1));
+    const signal = sign.mock.calls[0].arguments[1];
+    const mutation = view.client.getMutationCache().getAll()[0];
+    await view.unmount();
+    assert.equal(signal.aborted, true);
+    await interact(() => pending.resolve(signed));
+    await waitFor(() => assert.equal(mutation.state.status, 'error'));
+    assert.equal(upload.mock.calls.length, 0);
+  });
+
+  await t.test('format, size and server errors remain actionable', async (t) => {
+    const sign = t.mock.method(Api.assets, 'create', async () => { throw Object.assign(new Error('Rejected'), { response: { data: { errors: [{ message: 'Choose a photo up to 10 MiB.' }] } } }); });
+    const view = await mount(t, { initialEntry: '/photo-input' });
+    await view.upload(new dom.window.File(['<svg/>'], 'unsafe.svg', { type: 'image/svg+xml' }));
     await waitFor(() => assert.match(view.container.textContent, /File type must be/));
-    assert.equal(sign.mock.calls.length, 0, 'unsupported formats never request a signed URL');
-    const large = new dom.window.File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.jpg', { type: 'image/jpeg' });
-    await view.upload(large);
+    assert.equal(sign.mock.calls.length, 0);
+    await view.upload(new dom.window.File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.jpg', { type: 'image/jpeg' }));
     await waitFor(() => assert.match(view.container.textContent, /File is larger/));
     assert.equal(sign.mock.calls.length, 0);
     await view.upload();
     await waitFor(() => assert.match(view.container.textContent, /Choose a photo up to 10 MiB/));
-    assert.equal(view.field('Where exactly is it?').value, 'Gate');
-    assert.equal(view.button('Create garden').disabled, true);
     await view.click('Remove photo');
-    assert.equal(readDraft().photoWasSelected, false);
-    assert.equal(view.button('Create garden').disabled, false);
+    assert.equal(view.container.querySelector('img'), null);
   });
 });
