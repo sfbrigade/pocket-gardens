@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { MapContainer } from 'react-leaflet/MapContainer';
 import { TileLayer } from 'react-leaflet/TileLayer';
 import { Marker } from 'react-leaflet/Marker';
+import { Circle } from 'react-leaflet/Circle';
+import { CircleMarker } from 'react-leaflet/CircleMarker';
 import { Popup } from 'react-leaflet/Popup';
 import { useMap, useMapEvents } from 'react-leaflet/hooks';
 import { DomEvent, Icon, latLng, latLngBounds } from 'leaflet';
@@ -133,8 +135,10 @@ function NearbyGardens ({ position }) {
 function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot, mode, disabled, viewportSize }) {
   const [message, setMessage] = useState('');
   const [locating, setLocating] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
   const [nearbyPosition] = useDebouncedValue(position, 800);
   const controls = useRef(null);
+  const locationRequested = useRef(false);
   const map = useMapEvents({
     dblclick: ({ latlng, originalEvent }) => {
       // Markers stop bubbling in Leaflet; also exclude controls and popup content.
@@ -146,13 +150,25 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
       if (mode === 'pick' && !disabled && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng });
     },
     locationfound: ({ latlng, accuracy }) => {
+      const requested = locationRequested.current;
+      locationRequested.current = false;
       setLocating(false);
-      if (!latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) { setMessage('Your location is outside this map. Choose a point on the map instead.'); return; }
+      if (!latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) { setUserLocation(null); setMessage('Your location is outside this map. Choose a point on the map instead.'); return; }
+      setUserLocation({ center: latlng, accuracy });
       setMessage(`Location found, accurate to about ${Math.round(accuracy)} metres.`);
-      map.setView(latlng, 17);
-      if (mode === 'pick' && !disabled) onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng, accuracy });
+      // Only a button request should recenter the map or place the garden pin.
+      if (requested && !disabled) {
+        map.setView(latlng, 17);
+        if (mode === 'pick') onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng, accuracy });
+      }
     },
-    locationerror: () => { setLocating(false); setMessage('Could not use your location. Check location access or choose a point on the map.'); },
+    locationerror: () => {
+      locationRequested.current = false;
+      map.stopLocate();
+      setLocating(false);
+      setUserLocation(null);
+      setMessage('Could not use your location. Check location access or choose a point on the map.');
+    },
   });
   useEffect(() => {
     // Reserve double-click for creation only when that shortcut is available.
@@ -174,7 +190,17 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
     <>
       <Paper ref={controls} className='garden-map-controls' p='xs' shadow='sm' style={{ position: 'absolute', right: 12, top: 12, zIndex: 1000, maxWidth: 260 }}>
         <Stack gap='xs'>
-          <Button size='compact-md' disabled={disabled} loading={locating} variant='light' onClick={() => { setLocating(true); setMessage('Finding your location…'); map.locate({ enableHighAccuracy: true, timeout: 10000 }); }}>Use my location</Button>
+          <Button
+            size='compact-md' disabled={disabled} loading={locating} variant='light' onClick={() => {
+              locationRequested.current = true;
+              setLocating(true);
+              setMessage('Finding your location…');
+              map.stopLocate();
+              map.locate({ watch: true, enableHighAccuracy: true, timeout: 10000 });
+            }}
+          >
+            Use my location
+          </Button>
           {mode === 'explore' && onCreatePlot && <Text size='sm'>Double-click empty map space to start a garden here, or use Create a garden.</Text>}
           {mode === 'pick' && <><Button size='compact-md' disabled={disabled} variant='default' onClick={() => { const point = map.getCenter(); onPositionChange?.({ latitude: point.lat, longitude: point.lng }); }}>Place pin at map center</Button><Text size='sm'>Tap the map to place a pin. Drag the pin to adjust it.</Text></>}
           {message && <Text size='sm' role='status'>{message}</Text>}
@@ -183,6 +209,12 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
             : <Text size='sm' role='status'>Checking nearby gardens…</Text>)}
         </Stack>
       </Paper>
+      {userLocation && (
+        <>
+          <Circle center={userLocation.center} radius={userLocation.accuracy} interactive={false} pathOptions={{ color: '#4285f4', weight: 1, opacity: 0.3, fillOpacity: 0.12 }} />
+          <CircleMarker center={userLocation.center} radius={8} interactive={false} pathOptions={{ color: '#fff', weight: 3, fillColor: '#4285f4', fillOpacity: 1 }} />
+        </>
+      )}
       {position && <Marker
         position={[position.latitude, position.longitude]} icon={gardenIcon} draggable={!disabled} title='New garden location' eventHandlers={{
           dragend: ({ target }) => {
