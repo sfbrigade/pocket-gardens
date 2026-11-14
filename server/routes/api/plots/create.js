@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import { preparePlotPhotos, lockCopyIntent } from '#lib/photo-lifecycle.js';
 import { PhotoUploadError } from '#lib/photo-upload.js';
 import { StatusCodes } from 'http-status-codes';
 import { createPlotPlants } from '#models/plot-plant.js';
@@ -47,7 +46,6 @@ export default async function (fastify, opts) {
     let callbackCompleted = false;
     let record;
     try {
-      const newPhotoIds = await preparePlotPhotos(fastify.prisma, Photos ?? []);
       record = await fastify.prisma.$transaction(async (tx) => {
         const created = await tx.plot.create({
           data: {
@@ -61,12 +59,8 @@ export default async function (fastify, opts) {
         await createPlotPlants(tx, created, request.body.plants);
         if (Photos !== undefined) {
           await syncPlotPhotos(tx, created.id, Photos, {
-            newPhotoIds,
             retainUpload: true,
-            onCopyTarget: async (key) => {
-              await lockCopyIntent(tx, key);
-              copied.push(key);
-            },
+            onCopyTarget: (key) => copied.push(key),
           });
         }
         const details = await reloadPlotDetails(tx, created.id);

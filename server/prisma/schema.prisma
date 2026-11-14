@@ -309,17 +309,3 @@ model MaintenanceRecordPhoto {
 
   @@index([maintenanceRecordId])
 }
-
-// Written outside the garden transaction before its external copy. No FK: an
-// intent must survive rollback or process death. Resolved records leave the
-// queue; retired records only remain while a failed delete is being retried.
-model PhotoCopyIntent {
-  key           String   @id
-  retired       Boolean  @default(false)
-  checks        Int      @default(0)
-  lastError     String?
-  nextCheckAt   DateTime @default(now())
-  createdAt     DateTime @default(now())
-
-  @@index([nextCheckAt])
-}

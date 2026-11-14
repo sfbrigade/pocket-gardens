@@ -7,7 +7,6 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
-  GetBucketVersioningCommand,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl as getSignedS3Url } from '@aws-sdk/s3-request-presigner';
@@ -65,11 +64,10 @@ function createBucket (Bucket) {
   );
 }
 
-function deleteObject (Key, VersionId) {
+function deleteObject (Key) {
   init();
   return client.send(
     new DeleteObjectCommand({
-      VersionId,
       Bucket: process.env.AWS_S3_BUCKET,
       Key,
     })
@@ -171,12 +169,6 @@ async function objectExists (Key) {
   return !!(await headObject(Key));
 }
 
-async function bucketIsVersioned () {
-  init();
-  const { Status } = await client.send(new GetBucketVersioningCommand({ Bucket: process.env.AWS_S3_BUCKET }));
-  return Status === 'Enabled' || Status === 'Suspended';
-}
-
 function putObject (Key, filePath, ContentType) {
   init();
   const params = {
@@ -201,6 +193,5 @@ export default {
   objectExists,
   headObject,
   readObjectHeader,
-  bucketIsVersioned,
   putObject,
 };
