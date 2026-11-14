@@ -24,6 +24,7 @@ export async function syncPhotos ({
   filenames,
   photos,
   assetOptions,
+  newPhotoIds,
 }) {
   const desired = (photos ?? filenames ?? []).filter((item) => (
     (typeof item === 'object' && item !== null) || (typeof item === 'string' && item.length > 0)
@@ -58,7 +59,7 @@ export async function syncPhotos ({
     }
 
     const row = await delegate.create({
-      data: { [parentFk]: parentId, position: i },
+      data: { ...(newPhotoIds?.[i] ? { id: newPhotoIds[i] } : {}), [parentFk]: parentId, position: i },
     });
     const photo = new PhotoClass(row);
     const handler = photo.setAsset('file', filename, assetOptions);
