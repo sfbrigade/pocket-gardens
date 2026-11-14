@@ -58,10 +58,7 @@ export default async function (fastify, opts) {
         });
         await createPlotPlants(tx, created, request.body.plants);
         if (Photos !== undefined) {
-          await syncPlotPhotos(tx, created.id, Photos, {
-            retainUpload: true,
-            onCopyTarget: (key) => copied.push(key),
-          });
+          await syncPlotPhotos(tx, created.id, Photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
         }
         const details = await reloadPlotDetails(tx, created.id);
         callbackCompleted = true;
