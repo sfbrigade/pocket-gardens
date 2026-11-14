@@ -94,16 +94,96 @@ To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs
 
 ## Photo upload retention and reconciliation
 
-`PHOTO_UPLOAD_RETENTION_DAYS=7` controls temporary upload recovery. The native
-`_uploads/` bucket policy must use the same value. Garden-copy cleanup is durable
-and runs through a separate job; it never scans unknown permanent assets.
+`PHOTO_UPLOAD_RETENTION_DAYS` defaults to **7** (integer 1–365). Use the same value
+in the application, cleanup job and native `_uploads/` bucket policy. Signed PUTs
+last 15 minutes. Tokens expire from issuance; storage expiration uses object age.
+Changing retention does not rewrite existing token expiry. Late PUTs are collected
+by repeated cleanup. Permanent paths are excluded from staging expiration.
+
+Garden saves replay successful submissions before checking staging. A missing or
+expired photo returns a `Photos` field error; users can reattach or continue
+without it while keeping their draft identity and other fields. Recent uploads
+survive failed saves; staging deletion failure does not turn a saved garden into
+a failed save.
+
+Copy reconciliation checks exact committed photo references and skips active
+saves. It tracks garden-create copies only; unknown/imported permanent objects
+are never scanned. See [ADR 0006](../docs/adr/0006-photo-copy-intents-survive-save-transactions.md)
+for the durability and locking decision. Copy intents and upload-token records
+remain as tombstones: **do not prune them**, because storage writes can finish
+late. Budget for their database growth and for the extra connection used to record
+copy intent during a save transaction.
+
+### Inspect and schedule cleanup
+
+With the intended database/storage environment loaded, run from the repository
+root:
 
 ```sh
 npm run photos:cleanup:dry -w server
-# Destructive operator step after inspecting the dry-run:
+# Default is also dry-run. Execute deletion only after reviewing its output:
 npm run photos:cleanup -w server -- --apply
 ```
 
-See [operations and rollout](../docs/photo-upload-operations.md) before configuring
-storage or scheduling this job. The policy generator only prepares a merged JSON
-document; nothing installs a bucket policy automatically.
+The command prints its endpoint, bucket, versioning, retention and object
+decisions. Dry-run changes no database records or storage objects. Cleanup uses
+pagination and handles versioned/suspended buckets, including noncurrent versions
+and delete markers. It deletes exact keys and preserves recent import staging.
+
+Schedule `node bin/reconcile-photos.js --apply` hourly from the deployed server
+workspace, with the application's database, storage and retention environment.
+Confirm the image's working directory before configuring a Dokku scheduler. Use
+one worker, retain logs and alert on nonzero exits. Copy intents become due after
+one hour, then daily after successful checks; failures stay due. Database outages
+retain objects. Storage/object-lock/permission failures are retryable.
+
+Inspect copy failures with:
+
+```sql
+SELECT "key", "retired", "checks", "lastError", "nextCheckAt"
+FROM "PhotoCopyIntent" ORDER BY "nextCheckAt", "key";
+```
+
+### Prepare storage policy and deploy
+
+Back up the target database, apply migration
+`20261113000000_photo_upload_lifecycle`, generate Prisma and deploy the matching
+server/client code. Keep uploads disabled until cleanup and retention are verified.
+Keep the additive ledger tables if rolling back the application.
+
+To prepare native expiration, download and back up the bucket's current lifecycle
+configuration, then generate a merged proposal from the repository root:
+
+```sh
+aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET" > existing-lifecycle.json
+PHOTO_UPLOAD_RETENTION_DAYS=7 node server/bin/photo-lifecycle-policy.js existing-lifecycle.json > proposed-lifecycle.json
+diff -u existing-lifecycle.json proposed-lifecycle.json
+```
+
+For compatible storage, supply the correct `--endpoint-url`. Start with
+`{"Rules":[]}` only if the provider explicitly reports `NoSuchLifecycleConfiguration`;
+an access/network failure is not an empty policy. The generator never contacts
+storage and preserves unrelated rules, replacing only its two owned rule IDs.
+Verify all added filters are exactly `_uploads/`, current/noncurrent retention
+matches the application, and delete-marker/multipart cleanup is scoped correctly.
+
+After reviewing the proposal, re-download current rules and regenerate if they
+changed. Install and read back the merged configuration as a separate operator
+step:
+
+```sh
+aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration file://proposed-lifecycle.json
+aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET"
+```
+
+Verify in a disposable bucket first, including versioned objects and delete
+markers. Native expiry is asynchronous; noncurrent retention starts when a
+version becomes noncurrent. If native lifecycle is unsupported, the scheduled
+server job also expires staging. Reconciliation is required either way to collect
+unreferenced permanent copies. See [AWS lifecycle configuration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/how-to-set-lifecycle-configuration-intro.html)
+and [versioned expiration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-expire-general-considerations.html).
+
+Before enabling production uploads, verify dry-run targets, abandonment, failed
+saves, retry behavior and preservation of committed photos on nonproduction.
+Production migration, policy installation, scheduling and provider permissions
+require separate execution; native lifecycle timing has not been validated here.

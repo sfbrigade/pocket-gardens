@@ -11,5 +11,5 @@ The web process runs `npm start -w server`, which applies pending Prisma migrati
 
 Photo uploads also require the additive lifecycle migration, staging retention
 configuration and a scheduled reconciliation worker. See
-[photo upload operations](photo-upload-operations.md) for dry-run, merged-policy
+[photo upload operations](../server/README.md#photo-upload-retention-and-reconciliation) for dry-run, merged-policy
 preparation and later rollout steps. These steps are not applied automatically.
