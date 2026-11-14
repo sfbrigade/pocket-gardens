@@ -112,7 +112,7 @@ class Base {
       if (value) prevPath = path.join(assetDirPath, value);
       if (newValue) {
         newPath = path.join(assetDirPath, newValue);
-        await onCopyTarget?.(newPath);
+        onCopyTarget?.(newPath);
         try {
           await s3.copyObject(path.join(process.env.AWS_S3_BUCKET, '_uploads', newValue), newPath, sourceETag);
         } catch (error) {

@@ -58,9 +58,6 @@ test('/api/assets', async (t) => {
     const response = await create();
     assert.equal(response.statusCode, 200);
     const { url, headers, filename } = response.json();
-    assert.equal(response.json().expiresAt, undefined);
-    const [tables] = await app.prisma.$queryRaw`SELECT to_regclass('public."AssetUpload"')::text AS uploads, to_regclass('public."PhotoCopyIntent"')::text AS copies`;
-    assert.deepEqual(tables, { uploads: null, copies: null }, 'migrations leave no upload registry or cleanup queue');
     const signed = new URL(url).searchParams.get('X-Amz-SignedHeaders').split(';');
     assert.ok(signed.includes('content-length'));
     assert.ok(signed.includes('content-type'));

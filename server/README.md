@@ -118,9 +118,9 @@ example below assumes an **unversioned S3-compatible bucket**; it does not provi
 cleanup of historical versions in a versioned bucket.
 
 `PHOTO_UPLOAD_RETENTION_DAYS` defaults to **7** (integer 1–365). Apply the same age
-in the bucket's native rule. The server checks the object's LastModified value;
-no upload-token registry is stored. Existing successful submissions replay before
-any staging checks. Expired/missing photos return a field error for reattachment.
+in the bucket's native rule. The server checks the object's LastModified value.
+Existing successful submissions replay before any staging checks.
+Expired/missing photos return a field error for reattachment.
 Late PUTs eventually expire based on their new object age. Native expiry is
 asynchronous, so server rejection may precede physical object deletion.
 
@@ -149,11 +149,4 @@ save into a failure. An uncertain commit retains both copies until a retry can
 recover the saved garden.
 
 Cleanup is best effort: a crash, failed deletion or unresolved commit may leave an
-unreferenced permanent object. We accept that storage leak instead of maintaining
-a durable queue or scheduled worker. There is no automatic permanent-object scan.
-
-Use normal Prisma migrations/generation when deploying. The migration
-`20261114000000_remove_photo_copy_queue` removes the earlier cleanup table; prior
-migration files are preserved for databases that already applied them. Install
-the native temporary-upload expiration rule separately. No application cleanup
-job needs scheduling.
+unreferenced permanent object. Cleanup failures are logged for manual investigation.
