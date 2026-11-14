@@ -4,7 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import { z } from 'zod';
 
 import s3 from '#lib/s3.js';
-import { maxPhotoBytes, photoTypes, uploadsPerHour, uploadExpiresAt } from '#lib/upload-policy.js';
+import { maxPhotoBytes, photoTypes, uploadsPerHour } from '#lib/upload-policy.js';
 import { allowsAnonymousPlotCreation } from '#models/plot.js';
 
 export default async function (fastify, opts) {
@@ -25,7 +25,6 @@ export default async function (fastify, opts) {
           [StatusCodes.OK]: z.object({
             filename: z.string(),
             url: z.string(),
-            expiresAt: z.string(),
             headers: z.object({}).catchall(z.string()),
           }),
         },
@@ -34,14 +33,10 @@ export default async function (fastify, opts) {
     async function (request, reply) {
       const { contentType, byteSize } = request.body;
       const filename = `${crypto.randomUUID()}.${photoTypes[contentType]}`;
-      const expiresAt = uploadExpiresAt();
-      // Sign first, then persist before returning the URL. A signing failure
-      // creates no token, and a database failure never releases the URL.
+      // Issuance is stateless; staging retention is based on object age.
       const url = await s3.getSignedUploadUrl(contentType, `_uploads/${filename}`, byteSize);
-      await fastify.prisma.assetUpload.create({ data: { filename, expiresAt } });
       const data = {
         filename,
-        expiresAt: expiresAt.toISOString(),
         url,
         headers: {
           'Content-Type': contentType,

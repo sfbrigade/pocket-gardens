@@ -1,31 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import s3 from '#lib/s3.js';
-import { dayMs, PhotoUnavailable, uploadExpiresAt, uploadRetentionDays } from '#lib/upload-policy.js';
 
 // All durable preparation finishes before acquiring the save connection. No
 // outer-client query may run while that transaction holds a pooled connection.
 export async function preparePlotPhotos (prisma, filenames) {
-  for (const filename of [...new Set(filenames)].sort()) {
-    await prisma.assetUpload.upsert({ where: { filename }, create: { filename, expiresAt: uploadExpiresAt() }, update: {} });
-  }
   const photos = filenames.map((upload) => {
     const id = randomUUID();
-    return { id, upload, key: `plot_photos/${id}/file/${upload}` };
+    return { id, key: `plot_photos/${id}/file/${upload}` };
   });
   if (photos.length) {
-    await prisma.photoCopyIntent.createMany({ data: photos.map(({ key, upload }) => ({ key, upload, nextCheckAt: new Date(Date.now() + 60 * 60 * 1000) })) });
+    await prisma.photoCopyIntent.createMany({ data: photos.map(({ key }) => ({ key, nextCheckAt: new Date(Date.now() + 60 * 60 * 1000) })) });
   }
   return photos.map(({ id }) => id);
-}
-
-// Lock in deterministic order for the entire save, using its connection only.
-export async function lockPlotUploads (tx, filenames) {
-  for (const filename of [...new Set(filenames)].sort()) {
-    const [upload] = await tx.$queryRaw`SELECT * FROM "AssetUpload" WHERE "filename" = ${filename} FOR UPDATE`;
-    if (!upload || upload.expiresAt <= new Date()) {
-      throw new PhotoUnavailable();
-    }
-  }
 }
 
 export async function lockCopyIntent (tx, key) {
@@ -41,9 +27,9 @@ async function referenced (tx, key) {
   return !!(await tx.plotPhoto.findFirst({ where: { id: match[1], file: match[2] } }));
 }
 
-export async function reconcilePhotoCopies (prisma, { dryRun = true, now = new Date(), versioned = false, report = () => {} } = {}) {
+export async function reconcilePhotoCopies (prisma, { dryRun = true, now = new Date(), report = () => {} } = {}) {
   const summary = { retained: 0, deleted: 0, skipped: 0, failed: 0 };
-  // Keyset pagination bounds memory and includes failed/retired work on later runs.
+  // Resolved records leave the queue; keyset pagination also works after deletion.
   let cursor;
   while (true) {
     const intents = await prisma.photoCopyIntent.findMany({ where: { nextCheckAt: { lte: now }, ...(cursor ? { key: { gt: cursor } } : {}) }, orderBy: { key: 'asc' }, take: 100 });
@@ -57,65 +43,27 @@ export async function reconcilePhotoCopies (prisma, { dryRun = true, now = new D
           // outage aborts cleanup. Fence future copies durably before issuing
           // a delete that could outlive this database connection.
           const keep = await referenced(tx, intent.key);
-          if (!dryRun && !keep) await tx.photoCopyIntent.update({ where: { key: intent.key }, data: { retired: true } });
+          if (!dryRun) {
+            if (keep) await tx.photoCopyIntent.delete({ where: { key: intent.key } });
+            else await tx.photoCopyIntent.update({ where: { key: intent.key }, data: { retired: true } });
+          }
           return keep ? 'retain' : 'delete';
         });
         if (action === 'skip') { summary.skipped++; continue; }
         report({ key: intent.key, action, dryRun });
-        if (!dryRun) {
-          if (action === 'delete') await s3.purgeObject(intent.key, versioned);
-          await prisma.photoCopyIntent.update({ where: { key: intent.key }, data: { checks: { increment: 1 }, lastError: null, nextCheckAt: new Date(now.getTime() + dayMs) } });
+        if (!dryRun && action === 'delete') {
+          await s3.deleteObject(intent.key);
+          await prisma.photoCopyIntent.deleteMany({ where: { key: intent.key } });
         }
         summary[action === 'retain' ? 'retained' : 'deleted']++;
       } catch (error) {
         summary.failed++;
         report({ key: intent.key, action: 'retry', error: error.message });
         // If this write also fails, exit nonzero. The original intent survives.
-        if (!dryRun) await prisma.photoCopyIntent.update({ where: { key: intent.key }, data: { lastError: error.message, checks: { increment: 1 } } });
+        if (!dryRun) await prisma.photoCopyIntent.updateMany({ where: { key: intent.key }, data: { lastError: error.message, checks: { increment: 1 } } });
       }
     }
     cursor = intents.at(-1).key;
-  }
-  return summary;
-}
-
-async function * stagingCandidates (versioned) {
-  if (!versioned) { yield * s3.listObjects('_uploads/'); return; }
-  // Finish listing every version of a key before deleting any of them. Deleting
-  // the version used as a continuation marker before fetching the next page can
-  // invalidate provider pagination. Grouping also checks each key only once.
-  let candidate;
-  for await (const object of s3.listVersions('_uploads/')) {
-    if (candidate && object.Key !== candidate.Key) { yield candidate; candidate = undefined; }
-    if (!candidate || object.LastModified < candidate.LastModified) candidate = object;
-  }
-  if (candidate) yield candidate;
-}
-
-export async function expireStagingUploads (prisma, { dryRun = true, now = new Date(), versioned = false, report = () => {} } = {}) {
-  const cutoff = new Date(now.getTime() - uploadRetentionDays() * dayMs);
-  const summary = { deleted: 0, retained: 0, failed: 0 };
-  // Version listing also finds keys whose only current entry is a delete marker.
-  const objects = stagingCandidates(versioned);
-  for await (const object of objects) {
-    const key = object.Key;
-    if (!key?.startsWith('_uploads/') || key.slice(9).includes('/') || !object.LastModified || object.LastModified > cutoff) continue;
-    try {
-      await prisma.$transaction(async (tx) => {
-        const filename = key.slice(9);
-        const [upload] = await tx.$queryRaw`SELECT * FROM "AssetUpload" WHERE "filename" = ${filename} FOR UPDATE SKIP LOCKED`;
-        // Distinguish a locked token from an untracked import.
-        if (!upload && await tx.assetUpload.findUnique({ where: { filename } })) { summary.retained++; return; }
-        const current = await s3.headObject(key);
-        if ((upload && upload.expiresAt > now) || (current?.LastModified > cutoff)) { summary.retained++; return; }
-        report({ key, action: 'expire', dryRun });
-        if (!dryRun) await s3.purgeObject(key, versioned);
-        summary.deleted++;
-      }, { timeout: 60000 });
-    } catch (error) {
-      summary.failed++;
-      report({ key, action: 'retry', error: error.message });
-    }
   }
   return summary;
 }

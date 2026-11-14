@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { preparePlotPhotos, lockPlotUploads, lockCopyIntent } from '#lib/photo-lifecycle.js';
-import { PhotoUnavailable } from '#lib/upload-policy.js';
+import { preparePlotPhotos, lockCopyIntent } from '#lib/photo-lifecycle.js';
+import { PhotoUploadError } from '#lib/photo-upload.js';
 import { StatusCodes } from 'http-status-codes';
 import { createPlotPlants } from '#models/plot-plant.js';
 import { z } from 'zod';
@@ -60,7 +60,6 @@ export default async function (fastify, opts) {
         });
         await createPlotPlants(tx, created, request.body.plants);
         if (Photos !== undefined) {
-          await lockPlotUploads(tx, Photos);
           await syncPlotPhotos(tx, created.id, Photos, {
             newPhotoIds,
             retainUpload: true,
@@ -82,11 +81,11 @@ export default async function (fastify, opts) {
           const winner = await findSubmission(fastify.prisma, submissionId);
           if (winner) return replay(winner);
         }
-        if (error instanceof PhotoUnavailable || ['NoSuchKey', 'NotFound'].includes(error.name)) {
+        if (['NoSuchKey', 'NotFound'].includes(error.name)) {
           // Another concurrent request may have committed and removed staging.
           const winner = await findSubmission(fastify.prisma, submissionId);
           if (winner) return replay(winner);
-          return reply.code(StatusCodes.UNPROCESSABLE_ENTITY).send({ statusCode: 422, errors: [{ path: 'Photos', message: new PhotoUnavailable().message }] });
+          throw new PhotoUploadError('This photo is missing or has expired. Reattach it or continue without a photo.', 'Photos');
         }
         throw error;
       }

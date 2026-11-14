@@ -14,15 +14,15 @@ test('/api/assets', async (t) => {
   const userHeaders = await authenticate(app, 'regular.user@test.com', 'test');
   const create = (payload = valid, headers = userHeaders) => app.inject({ method: 'POST', url: '/api/assets', payload, headers });
 
-  await t.test('anonymous issuance is denied without creating durable rows', async () => {
+  await t.test('anonymous issuance is denied before signing or creating cleanup work', async () => {
     assert.equal((await create(valid, {})).statusCode, 401);
-    assert.equal(await app.prisma.assetUpload.count(), 0);
+    assert.equal(await app.prisma.photoCopyIntent.count(), 0);
   });
 
   await t.test('inactive users cannot issue uploads', async () => {
     await app.prisma.user.update({ where: { email: 'regular.user@test.com' }, data: { deactivatedAt: new Date() } });
     assert.equal((await create()).statusCode, 403);
-    assert.equal(await app.prisma.assetUpload.count(), 0);
+    assert.equal(await app.prisma.photoCopyIntent.count(), 0);
   });
 
   await t.test('anonymous development opt-in never permits production issuance', async () => {
@@ -32,7 +32,7 @@ test('/api/assets', async (t) => {
       process.env.ALLOW_ANONYMOUS_PLOT_SUBMISSION = 'true';
       process.env.NODE_ENV = 'production';
       assert.equal((await create(valid, {})).statusCode, 401);
-      assert.equal(await app.prisma.assetUpload.count(), 0);
+      assert.equal(await app.prisma.photoCopyIntent.count(), 0);
       process.env.NODE_ENV = 'development';
       assert.equal((await create(valid, {})).statusCode, 200);
     } finally {
@@ -49,20 +49,23 @@ test('/api/assets', async (t) => {
     for (const byteSize of [undefined, 0, -1, 1.5, '100', 10 * 1024 * 1024 + 1]) {
       assert.equal((await create({ ...valid, byteSize })).statusCode, 422);
     }
-    assert.equal(await app.prisma.assetUpload.count(), 0);
+    assert.equal(await app.prisma.photoCopyIntent.count(), 0);
   });
 
-  await t.test('a signing failure leaves no unused durable token', async (t) => {
+  await t.test('a signing failure creates no cleanup work', async (t) => {
     t.mock.method(console, 'error', () => {});
     t.mock.method(s3, 'getSignedUploadUrl', async () => { throw new Error('Signing unavailable'); });
     assert.equal((await create()).statusCode, 500);
-    assert.equal(await app.prisma.assetUpload.count(), 0);
+    assert.equal(await app.prisma.photoCopyIntent.count(), 0);
   });
 
   await t.test('signed URLs bind actual type and length; matching uploads work', async () => {
     const response = await create();
     assert.equal(response.statusCode, 200);
     const { url, headers, filename } = response.json();
+    assert.equal(response.json().expiresAt, undefined);
+    const [table] = await app.prisma.$queryRaw`SELECT to_regclass('public."AssetUpload"')::text AS name`;
+    assert.equal(table.name, null, 'upload issuance has no persistent token registry');
     const signed = new URL(url).searchParams.get('X-Amz-SignedHeaders').split(';');
     assert.ok(signed.includes('content-length'));
     assert.ok(signed.includes('content-type'));
@@ -119,8 +122,9 @@ test('/api/assets', async (t) => {
     assert.equal(await app.prisma.plot.count({ where: { locationDescription: 'Changing source' } }), 0);
   });
 
-  await t.test('issuance is rate limited per signed-in user before another row is inserted', async (t) => {
+  await t.test('issuance is rate limited per signed-in user before signing another URL', async (t) => {
     t.mock.method(console, 'error', () => {});
+    const signing = t.mock.method(s3, 'getSignedUploadUrl');
     const other = await authenticate(app, 'admin.user@test.com', 'test');
     let response;
     for (let i = 0; i < 31; i++) {
@@ -129,9 +133,9 @@ test('/api/assets', async (t) => {
       assert.equal(response.statusCode, 200);
     }
     assert.equal(response.statusCode, 429);
-    const rows = await app.prisma.assetUpload.count();
+    const calls = signing.mock.calls.length;
     assert.equal((await create()).statusCode, 429);
-    assert.equal(await app.prisma.assetUpload.count(), rows);
+    assert.equal(signing.mock.calls.length, calls);
     assert.equal((await create(valid, other)).statusCode, 200, 'another account has its own allowance');
   });
 

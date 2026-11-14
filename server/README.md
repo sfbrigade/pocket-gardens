@@ -94,127 +94,88 @@ To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs
 
 ## Photo upload retention and reconciliation
 
-The garden form keeps the selected photo and preview locally until **Create
-garden** is pressed. Selection, removal and draft discard do not initiate uploads.
-Unsubmitted files need reattachment after refresh; the other fields still recover.
-After uploading, the filename and exact submission payload are saved in the draft
-before the garden request. A failed/lost save response can be retried after refresh
-without uploading again. Profile and gallery photo inputs still upload immediately.
+Garden photos stay local until **Create garden** is pressed. Unsubmitted files
+need reattachment after refresh; other fields recover. Once uploaded, the filename
+and exact payload are saved in the draft so a failed or lost save response can be
+retried without uploading again. Profile/gallery inputs still upload immediately.
 
-Upload issuance requires an active signed-in user. The explicit development-only
-anonymous garden opt-in also enables anonymous local photo uploads; production
-never honors that opt-in. Issuance is limited to 30 URLs per hour per user (per IP
-for anonymous development) using a bounded in-process cache. This limit applies
-per server process; a multi-process deployment needs a shared limiter or matching
-edge limits for one global allowance.
+Issuance requires an active signed-in user, except the explicit development-only
+anonymous garden opt-in. Production never honors that opt-in. The limit is 30 URLs
+per hour per user (per IP in anonymous development), per server process. Multiple
+processes need a shared/edge limiter for a single global allowance.
 
-Uploads must declare a positive integer `byteSize` up to **10 MiB** and one of
-`image/jpeg`, `image/png`, `image/webp`, `image/gif`. The signed PUT binds both
-Content-Type and Content-Length; browsers supply Content-Length from the File.
-Before attaching an upload, shared photo/profile handling checks actual object
-size and image signature bytes using a 16-byte range read. The read and copy are
-conditional on the object's ETag to reject concurrent source replacement. This
-checks supported format signatures, not full image decoding or malware scanning.
-SVG, HTML and other active-content formats are not accepted. Trusted imports
-without MIME metadata must still contain a supported image within the size limit.
+Uploads declare `byteSize` up to **10 MiB** and one of `image/jpeg`, `image/png`,
+`image/webp`, `image/gif`. Signed PUTs bind Content-Type and Content-Length and last
+15 minutes. Attachment checks actual size and signature bytes with a 16-byte
+range read, then pins the copy to the object's ETag. This is format-signature
+validation, not full image decoding or malware scanning. SVG/HTML are not accepted.
+Direct imports without MIME metadata must still contain a supported image.
 
-`PHOTO_UPLOAD_RETENTION_DAYS` defaults to **7** (integer 1–365). Use the same value
-in the application, cleanup job and native `_uploads/` bucket policy. Signed PUTs
-last 15 minutes. Tokens expire from issuance; storage expiration uses object age.
-Changing retention does not rewrite existing token expiry. Late PUTs are collected
-by repeated cleanup. Permanent paths are excluded from staging expiration.
+### Storage setup
 
-Garden saves replay successful submissions before checking staging. A missing or
-expired photo returns a `Photos` field error; users can reattach or continue
-without it while keeping their draft identity and other fields. Recent uploads
-survive failed saves; staging deletion failure does not turn a saved garden into
-a failed save.
+Supported storage is an **unversioned S3-compatible bucket with native lifecycle
+expiration**. There is no application staging sweeper or version-purge fallback.
+The copy-cleanup command refuses buckets with enabled or suspended versioning.
 
-Copy reconciliation checks exact committed photo references and skips active
-saves. It tracks garden-create copies only; unknown/imported permanent objects
-are never scanned. See [ADR 0006](../docs/adr/0006-photo-copy-intents-survive-save-transactions.md)
-for the durability and locking decision. Copy intents and upload-token records
-remain as tombstones: **do not prune them**, because storage writes can finish
-late. Budget for their database growth. Upload rows and copy targets are prepared
-before the save transaction so saves never need a second pooled connection.
+`PHOTO_UPLOAD_RETENTION_DAYS` defaults to **7** (integer 1–365). Apply the same age
+in the bucket's native rule. The server checks the object's LastModified value;
+no upload-token registry is stored. Existing successful submissions replay before
+any staging checks. Expired/missing photos return a field error for reattachment.
+Late PUTs eventually expire based on their new object age. Native expiry is
+asynchronous, so server rejection may precede physical object deletion.
 
-### Inspect and schedule cleanup
+Before enabling uploads, use the provider's management UI to verify versioning is
+disabled and append this prefix-scoped rule, adjusting Days to match the server:
 
-With the intended database/storage environment loaded, run from the repository
-root:
+```json
+{
+  "ID": "pocket-gardens-staging-expiration",
+  "Status": "Enabled",
+  "Filter": { "Prefix": "_uploads/" },
+  "Expiration": { "Days": 7 }
+}
+```
+
+Preserve unrelated bucket rules and verify the saved configuration; this example
+is one rule, not a replacement for the entire bucket policy. Permanent paths must
+not receive this blanket expiry. See [AWS lifecycle configuration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/how-to-set-lifecycle-configuration-intro.html).
+
+### Copy cleanup queue
+
+`PhotoCopyIntent` is prepared before the garden transaction/storage copy and locked
+through saving. Cleanup takes the same lock, skips active saves, and checks exact
+committed photo references. A confirmed reference leaves its file intact and
+removes its queue record. An unreferenced destination is durably retired before
+deletion; its record is removed after deletion succeeds. Failures retain the record
+with `checks`/`lastError` for retry. Resolved work is not rechecked daily, and no
+permanent tombstones or unknown/imported permanent objects are scanned.
+
+The first check is due one hour after preparation (saves have a 60-second timeout).
+An exceptionally late storage write after cleanup finishes can leave an orphan;
+this rare leak is an accepted tradeoff instead of indefinite reconciliation. See
+[ADR 0006](../docs/adr/0006-photo-copy-intents-survive-save-transactions.md).
+
+From the repository root, with the intended database/storage environment:
 
 ```sh
 npm run photos:cleanup:dry -w server
-# Default is also dry-run. Execute deletion only after reviewing its output:
+# After reviewing the printed target and decisions:
 npm run photos:cleanup -w server -- --apply
 ```
 
-The command prints its endpoint, bucket, versioning, retention and object
-decisions. Dry-run changes no database records or storage objects. Cleanup uses
-pagination and handles versioned/suspended buckets, including noncurrent versions
-and delete markers. It deletes exact keys and preserves recent import staging.
-
-Schedule `node bin/reconcile-photos.js --apply` hourly from the deployed server
-workspace, with the application's database, storage and retention environment.
-Confirm the image's working directory before configuring a Dokku scheduler. Use
-one worker, retain logs and alert on nonzero exits. Copy intents become due after
-one hour, then daily after successful checks; failures stay due. Database outages
-retain objects. Storage/object-lock/permission failures are retryable.
-
-Inspect copy failures with:
+Dry-run is the default and changes no records/objects. The command uses paginated
+queue reads, idempotent deletion and exits nonzero on errors. Database outages
+retain copies. Inspect pending/failed work with:
 
 ```sql
-SELECT "key", "retired", "checks", "lastError", "nextCheckAt"
+SELECT "key", "checks", "lastError", "nextCheckAt"
 FROM "PhotoCopyIntent" ORDER BY "nextCheckAt", "key";
 ```
 
-### Prepare storage policy and deploy
-
-Back up the target database, apply migration
-`20261113000000_photo_upload_lifecycle`, generate Prisma and deploy the matching
-server/client code. Keep uploads disabled until cleanup and retention are verified.
-Keep the additive ledger tables if rolling back the application.
-
-To prepare native expiration, download and back up the bucket's current lifecycle
-configuration, then generate a merged proposal from the repository root:
-
-```sh
-aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET" > existing-lifecycle.json
-PHOTO_UPLOAD_RETENTION_DAYS=7 node server/bin/photo-lifecycle-policy.js existing-lifecycle.json > proposed-lifecycle.json
-diff -u existing-lifecycle.json proposed-lifecycle.json
-```
-
-For compatible storage, supply the correct `--endpoint-url`. Start with
-`{"Rules":[]}` only if the provider explicitly reports `NoSuchLifecycleConfiguration`;
-an access/network failure is not an empty policy. The generator never contacts
-storage and preserves unrelated rules, replacing only its two owned rule IDs.
-Verify all added filters are exactly `_uploads/`, current/noncurrent retention
-matches the application, and delete-marker/multipart cleanup is scoped correctly.
-
-After reviewing the proposal, re-download current rules and regenerate if they
-changed. Install and read back the merged configuration as a separate operator
-step. The generated JSON contains only `Rules`; AWS's GET-only
-`TransitionDefaultMinimumObjectSize` must be preserved as a separate CLI option.
-The array below requires Bash or Zsh.
-
-```bash
-photo_transition_args=()
-photo_transition_minimum=$(node -p "JSON.parse(require('node:fs').readFileSync('existing-lifecycle.json', 'utf8')).TransitionDefaultMinimumObjectSize || ''")
-if [ -n "$photo_transition_minimum" ]; then
-  photo_transition_args=(--transition-default-minimum-object-size "$photo_transition_minimum")
-fi
-aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration file://proposed-lifecycle.json "${photo_transition_args[@]}"
-aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET"
-```
-
-Verify in a disposable bucket first, including versioned objects and delete
-markers. Native expiry is asynchronous; noncurrent retention starts when a
-version becomes noncurrent. If native lifecycle is unsupported, the scheduled
-server job also expires staging. Reconciliation is required either way to collect
-unreferenced permanent copies. See [AWS lifecycle configuration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/how-to-set-lifecycle-configuration-intro.html)
-and [versioned expiration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-expire-general-considerations.html).
-
-Before enabling production uploads, verify dry-run targets, abandonment, failed
-saves, retry behavior and preservation of committed photos on nonproduction.
-Production migration, policy installation, scheduling and provider permissions
-require separate execution; native lifecycle timing has not been validated here.
+Deploy with normal Prisma migrations/generation, including
+`20261113010000_simplify_photo_cleanup`, which drops the old upload registry. Prior
+migration files remain unchanged. After verifying storage setup on nonproduction,
+schedule `node bin/reconcile-photos.js --apply` hourly from the deployed server
+workspace with the application's environment. Retain logs and alert on failures.
+Storage policy installation, migrations, deployment and scheduling are separate
+rollout steps; none are executed automatically by this change.
