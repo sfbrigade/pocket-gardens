@@ -41,7 +41,8 @@ test('policy preparation preserves unrelated bucket rules and is repeatable with
     assert.equal(await readFile(file, 'utf8'), original);
     const proposed = JSON.parse(stdout);
     assert.deepEqual(proposed.Rules[0], unrelated);
-    assert.equal(proposed.TransitionDefaultMinimumObjectSize, existing.TransitionDefaultMinimumObjectSize);
+    assert.deepEqual(Object.keys(proposed), ['Rules'], 'AWS LifecycleConfiguration accepts Rules only; GET metadata belongs in separate CLI options');
+    assert.equal(JSON.parse(await readFile(file, 'utf8')).TransitionDefaultMinimumObjectSize, existing.TransitionDefaultMinimumObjectSize, 'the original transition setting remains available for installation');
     const added = proposed.Rules.slice(1);
     assert.equal(added.length, 2);
     assert.ok(added.every(({ Filter }) => Filter.Prefix === '_uploads/'));

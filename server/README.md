@@ -186,10 +186,17 @@ matches the application, and delete-marker/multipart cleanup is scoped correctly
 
 After reviewing the proposal, re-download current rules and regenerate if they
 changed. Install and read back the merged configuration as a separate operator
-step:
+step. The generated JSON contains only `Rules`; AWS's GET-only
+`TransitionDefaultMinimumObjectSize` must be preserved as a separate CLI option.
+The array below requires Bash or Zsh.
 
-```sh
-aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration file://proposed-lifecycle.json
+```bash
+photo_transition_args=()
+photo_transition_minimum=$(node -p "JSON.parse(require('node:fs').readFileSync('existing-lifecycle.json', 'utf8')).TransitionDefaultMinimumObjectSize || ''")
+if [ -n "$photo_transition_minimum" ]; then
+  photo_transition_args=(--transition-default-minimum-object-size "$photo_transition_minimum")
+fi
+aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration file://proposed-lifecycle.json "${photo_transition_args[@]}"
 aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET"
 ```
 

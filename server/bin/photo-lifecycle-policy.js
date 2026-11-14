@@ -13,4 +13,4 @@ const ids = ['pocket-gardens-staging-expiration', 'pocket-gardens-staging-marker
 const rules = current.Rules.filter(({ ID }) => !ids.includes(ID));
 rules.push({ ID: ids[0], Status: 'Enabled', Filter: { Prefix: '_uploads/' }, Expiration: { Days: days }, NoncurrentVersionExpiration: { NoncurrentDays: days }, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } });
 rules.push({ ID: ids[1], Status: 'Enabled', Filter: { Prefix: '_uploads/' }, Expiration: { ExpiredObjectDeleteMarker: true } });
-console.log(JSON.stringify({ ...current, Rules: rules }, null, 2));
+console.log(JSON.stringify({ Rules: rules }, null, 2));
