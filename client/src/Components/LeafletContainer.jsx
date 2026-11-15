@@ -17,6 +17,7 @@ import 'leaflet/dist/leaflet.css';
 
 import { bufferedBounds, containsBounds, hasCoordinates, plotsQueryOptions, plotStageLabel } from '../plots';
 import { isMapPosition, SAN_FRANCISCO_BOUNDS } from '../map-location';
+import { readExploreView, saveExploreView } from '../map-view';
 
 const gardenIcon = new Icon({
   iconUrl: markerIcon,
@@ -133,6 +134,7 @@ function NearbyGardens ({ position }) {
 }
 
 function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot, mode, disabled, viewportSize }) {
+  const restoredView = useRef(mode === 'explore' ? readExploreView() : null);
   const [message, setMessage] = useState('');
   const [locating, setLocating] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
@@ -140,6 +142,10 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
   const controls = useRef(null);
   const locationRequested = useRef(false);
   const map = useMapEvents({
+    dragstart: () => { restoredView.current = null; },
+    moveend: () => {
+      if (mode === 'explore') { const point = map.getCenter(); saveExploreView({ center: [point.lat, point.lng], zoom: map.getZoom(), plotId: selectedPlot?.id || null }); }
+    },
     dblclick: ({ latlng, originalEvent }) => {
       // Markers stop bubbling in Leaflet; also exclude controls and popup content.
       if (originalEvent?.target?.closest?.('.leaflet-marker-icon, .leaflet-control, .leaflet-popup, .garden-map-controls')) return;
@@ -180,8 +186,11 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
   }, []);
   useEffect(() => {
     const point = position ? [position.latitude, position.longitude] : selectedPlot ? [selectedPlot.Latitude, selectedPlot.Longitude] : null;
-    if (point && point.every(Number.isFinite) && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(point)) map.setView(point, 17);
-  }, [map, position?.latitude, position?.longitude, selectedPlot?.id]);
+    if (point && point.every(Number.isFinite) && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(point)) {
+      if (mode !== 'explore' || restoredView.current?.plotId !== selectedPlot?.id) map.setView(point, 17);
+      restoredView.current = null;
+    }
+  }, [map, mode, position?.latitude, position?.longitude, selectedPlot?.id]);
   useEffect(() => {
     map.invalidateSize();
   }, [map, viewportSize?.width, viewportSize?.height]);
@@ -230,10 +239,11 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
 }
 
 function LeafletContainer ({ mode = 'explore', disabled = false, position, onPositionChange, onCreatePlot, selectedPlot, onSelectPlot, viewportSize }) {
+  const restored = mode === 'explore' ? readExploreView() : null;
   return (
     <MapContainer
-      center={[37.7749, -122.4194]}
-      zoom={13}
+      center={restored?.center || [37.7749, -122.4194]}
+      zoom={restored?.zoom || 13}
       // Picker views can unmount mid-zoom; Leaflet's zoom callback outlives the removed map.
       zoomAnimation={mode !== 'pick'}
       minZoom={13}

@@ -485,4 +485,24 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.match(view.container.textContent, /Permanent photo erasure is pending/));
     assert.deepEqual(update.mock.calls[1].arguments[1], attempted);
   });
+
+  await t.test('a garden closing after an uncertain save still permits replay; discard creates a new draft', async (t) => {
+    const plot = { id: 'recPlotClosed', stage: 'archived' };
+    const { newMaintenanceDraft, maintenancePayload } = await import('../src/Maintenance/maintenance-draft.js');
+    const draft = { ...newMaintenanceDraft('2026-09-02'), notes: 'Previously attempted visit' };
+    draft.attempt = maintenancePayload(draft, plot.id);
+    dom.window.sessionStorage.setItem(draftKey(plot.id), JSON.stringify(draft));
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'closed-save', ...payload } }));
+    const view = await mount(t, { initialEntry: '/plots/recPlotClosed/updates/new', queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.match(view.container.textContent, /Retry the prior save/));
+    assert.equal(view.button('Try again').disabled, false);
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.equal(create.mock.calls.length, 1);
+    await view.click('Add another update');
+    t.mock.method(dom.window, 'confirm', () => true);
+    const before = JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId;
+    await view.click('Discard local draft');
+    await waitFor(() => assert.notEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId, before));
+  });
 });

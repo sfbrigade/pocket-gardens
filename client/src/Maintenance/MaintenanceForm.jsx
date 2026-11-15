@@ -130,6 +130,15 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
     });
   }
 
+  function discard () {
+    if (saving || !window.confirm(draft.attempt ? 'A previous save might have succeeded. Discard this local draft? This will not delete any saved update; review garden history before starting again.' : 'Discard this unsaved local draft?')) return;
+    try { window.sessionStorage.removeItem(storageKey); } catch {}
+    setDraft(initialRecord ? draftFromRecord(initialRecord) : newMaintenanceDraft(capabilities.data.today));
+    mutation.reset();
+    setFormError('');
+    setConflicted(false);
+  }
+
   function cancel () {
     if (saving) return;
     if (hasDraftContent && !window.confirm(draft.attempt ? 'The save may have succeeded. Keep this draft and return to garden history?' : 'Leave this update? Your draft will be kept in this tab.')) return;
@@ -193,12 +202,12 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
             </Checkbox.Group>
           )}
           {draft.uploadsPending && <Alert color='yellow'>A previous photo upload was interrupted. Reattach unfinished photos or continue without them.</Alert>}
-          <MaintenancePhotos photos={draft.photos} disabled={locked} onUploadStateChange={setUploadState} onChange={(photos) => setDraft((value) => ({ ...value, photos: typeof photos === 'function' ? photos(value.photos) : photos }))} />
+          <MaintenancePhotos key={draft.submissionId} photos={draft.photos} disabled={locked} onUploadStateChange={setUploadState} onChange={(photos) => setDraft((value) => ({ ...value, photos: typeof photos === 'function' ? photos(value.photos) : photos }))} />
           {quick && <Button variant='subtle' disabled={locked} onClick={() => navigate(location.pathname, { replace: true })}>Add more details</Button>}
           {!quick && <Textarea label='Anything to add?' value={draft.notes} disabled={locked} onChange={(event) => { const notes = event.currentTarget.value; setDraft((draft) => ({ ...draft, notes })); }} autosize minRows={3} />}
           {conflicted && <Alert color='yellow'>Your draft has been preserved. <Button type='button' variant='subtle' loading={reloading} onClick={loadLatest}>Load latest update</Button></Alert>}
           {error && <Alert color='red' role='alert'>{error}{draft.attempt && <Text size='sm'>Retry sends the same attempted update. Review garden history if you no longer want to retry.</Text>}</Alert>}
-          <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : editing ? 'Save changes' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button></Group>
+          <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : editing ? 'Save changes' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button><Button variant='subtle' color='red' disabled={saving} onClick={discard}>Discard local draft</Button></Group>
         </Stack>
       </form>
     </Container>
