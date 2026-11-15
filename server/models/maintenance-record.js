@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import { PlantCreateFieldsSchema, plantFieldsFromBody } from '#models/plant.js';
 import { activities, observations, today } from '#lib/maintenance-policy.js';
 import { errorCodes } from 'fastify';
 import { z } from 'zod';
@@ -25,17 +27,19 @@ const ActivitySchema = z.array(z.string().trim().min(1)).min(1).superRefine((act
 });
 
 const PlantInputSchema = z.strictObject({
-  plantId: z.string().uuid(),
-  quantity: z.number().int().positive().optional(),
-});
+  plantId: z.string().uuid().optional(),
+  newPlant: PlantCreateFieldsSchema.pick({ plantName: true, commonName: true, latinName: true }).optional(),
+  quantity: z.number().int().positive().max(2147483647).optional(),
+}).refine(({ plantId, newPlant }) => !!plantId !== !!newPlant, 'Select an existing plant or explicitly add a new plant');
 
 const PlantsInputSchema = z.array(PlantInputSchema).superRefine((plants, ctx) => {
   const seen = new Set();
-  plants.forEach(({ plantId }, index) => {
-    if (seen.has(plantId)) {
+  plants.forEach((entry, index) => {
+    const key = entry.plantId || JSON.stringify(entry.newPlant);
+    if (seen.has(key)) {
       ctx.addIssue({ code: 'custom', message: 'Duplicate plant', path: [index] });
     }
-    seen.add(plantId);
+    seen.add(key);
   });
 });
 
@@ -248,9 +252,10 @@ export async function validateMaintenanceRecordLinks (tx, body, recordId) {
   })) {
     throw invalidLink('volunteerId', 'Volunteer not found');
   }
-  if (body.plants?.length && await tx.plant.count({
-    where: { id: { in: body.plants.map(({ plantId }) => plantId) } },
-  }) !== body.plants.length) {
+  const plantIds = body.plants?.flatMap(({ plantId }) => plantId ? [plantId] : []) ?? [];
+  if (plantIds.length && await tx.plant.count({
+    where: { id: { in: plantIds } },
+  }) !== plantIds.length) {
     throw invalidLink('plants', 'Plant not found');
   }
   const photoIds = body.photos?.flatMap((photo) => photo.id ? [photo.id] : []) ?? [];
@@ -263,16 +268,12 @@ export async function validateMaintenanceRecordLinks (tx, body, recordId) {
 
 export async function syncMaintenanceRecordPlants (tx, recordId, plants) {
   await tx.maintenanceRecordPlant.deleteMany({ where: { maintenanceRecordId: recordId } });
-  if (plants.length) {
-    await tx.maintenanceRecordPlant.createMany({
-      data: plants.map(({ plantId, quantity }, index) => ({
-        maintenanceRecordId: recordId,
-        plantId,
-        quantity,
-        slot: index + 1,
-      })),
-    });
+  const rows = [];
+  for (const [index, entry] of plants.entries()) {
+    const plantId = entry.plantId || (await tx.plant.create({ data: { airtableId: `pg_${crypto.randomUUID()}`, ...plantFieldsFromBody(entry.newPlant) } })).id;
+    rows.push({ maintenanceRecordId: recordId, plantId, quantity: entry.quantity, slot: index + 1 });
   }
+  if (rows.length) await tx.maintenanceRecordPlant.createMany({ data: rows });
 }
 
 export async function syncMaintenanceRecordPhotos (tx, recordId, photos, assetOptions) {

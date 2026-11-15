@@ -5,7 +5,7 @@ import { isNotEmpty, useForm } from '@mantine/form';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import Api from '../Api';
 
-export default function PlantPicker ({ onSelect, disabled }) {
+export default function PlantPicker ({ onSelect, disabled, saveLabel = 'garden' }) {
   const [search, setSearch] = useState('');
   const [debounced] = useDebouncedValue(search.trim(), 300);
   const [adding, setAdding] = useState(false);
@@ -58,7 +58,7 @@ export default function PlantPicker ({ onSelect, disabled }) {
         }}
         >
           <Stack>
-            <Alert color='gray'>Review the directory matches first. This plant will be added to the directory when you save the garden.</Alert>
+            <Alert color='gray'>Review the directory matches first. This plant will be added to the directory when you save the {saveLabel}.</Alert>
             <TextInput label='Plant name' required {...newPlant.getInputProps('plantName')} />
             <TextInput label='Common name' {...newPlant.getInputProps('commonName')} />
             <TextInput label='Scientific name' {...newPlant.getInputProps('latinName')} />

@@ -101,4 +101,19 @@ test('maintenance update workflows', async (t) => {
     copy.mock.restore();
     assert.equal((await create(payload)).statusCode, 201);
   });
+
+  await t.test('new plant names commit with the visit, replay once, and leave inventory unchanged', async () => {
+    const payload = draft({ activity: ['Planted'], plants: [{ newPlant: { plantName: 'Visit-only native' }, quantity: 3 }] });
+    const before = await app.prisma.plotPlant.count();
+    const response = await create(payload);
+    assert.equal(response.statusCode, 201, response.payload);
+    assert.equal(response.json().plants[0].name, 'Visit-only native');
+    assert.equal(response.json().plants[0].quantity, 3);
+    assert.equal((await create(payload)).statusCode, 200);
+    assert.equal(await app.prisma.plant.count({ where: { plantName: 'Visit-only native' } }), 1);
+    assert.equal(await app.prisma.plotPlant.count(), before);
+    const invalid = draft({ plants: [{ newPlant: { plantName: 'Should roll back' } }, { plantId: '00000000-0000-4000-8000-000000000000' }] });
+    assert.equal((await create(invalid)).statusCode, 422);
+    assert.equal(await app.prisma.plant.count({ where: { plantName: 'Should roll back' } }), 0);
+  });
 });

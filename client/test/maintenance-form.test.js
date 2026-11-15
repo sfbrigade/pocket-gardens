@@ -109,4 +109,21 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.deepEqual(create.mock.calls[0].arguments[0].photos, [{ upload: '55555555-aaaa-4555-8555-555555555555.jpg' }]);
     assert.equal(create.mock.calls[0].arguments[0].notes, 'New growth');
   });
+
+  await t.test('selected catalogue plants and quantities are attached to the visit', async (t) => {
+    const plot = { id: 'recPlotPlants', stage: 'active' };
+    const plantId = 'a1111111-1111-4111-8111-111111111111';
+    t.mock.method(Api.plants, 'index', async () => ({ data: [{ id: plantId, plantName: 'Golden yarrow' }], headers: {} }));
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'plant-save', ...payload } }));
+    const view = await mount(t, { initialEntry: '/plots/recPlotPlants/updates/new', queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.ok(view.field('Planted')));
+    await interact(() => view.field('Planted').click());
+    await view.change('Find a plant', 'Golden');
+    await waitFor(() => assert.match(dom.window.document.body.textContent, /Golden yarrow/));
+    await view.selectPlantOption('Golden yarrow');
+    await view.change('Quantity for Golden yarrow', '2');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.deepEqual(create.mock.calls[0].arguments[0].plants, [{ plantId, quantity: 2 }]);
+  });
 });
