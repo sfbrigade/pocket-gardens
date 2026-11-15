@@ -13,6 +13,7 @@ test('maintenance update workflows', async (t) => {
   t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
   const create = (payload) => app.inject({ method: 'POST', url: '/api/maintenance-records', headers, payload });
   const edit = (id, payload) => app.inject({ method: 'PATCH', url: `/api/maintenance-records/${id}`, headers, payload });
+  const remove = (id, version) => app.inject({ method: 'DELETE', url: `/api/maintenance-records/${id}`, headers, payload: { version } });
 
   await t.test('each kind of contribution is valid independently and credits the administrator', async () => {
     for (const content of [{ notes: 'Visit note' }, { activity: ['Watered'] }, { observations: ['Nothing stood out'] }]) {
@@ -181,5 +182,44 @@ test('maintenance update workflows', async (t) => {
     assert.equal((await app.prisma.maintenanceRecord.findUnique({ where: { id: saved.id } })).version, 1);
     assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), photos: [] })).statusCode, 422);
     assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 302);
+  });
+
+  await t.test('record deletion retains photos, hides normal reads, and never revives on create replay', async () => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const payload = draft({ photos: [{ upload: filename }] });
+    const saved = (await create(payload)).json();
+    assert.equal((await remove(saved.id, 1)).statusCode, 204);
+    assert.equal((await remove(saved.id, 1)).statusCode, 204);
+    const row = await app.prisma.maintenanceRecord.findUnique({ where: { id: saved.id }, include: { photos: true } });
+    assert.ok(row.deletedAt);
+    assert.equal(row.version, 2);
+    assert.equal(row.photos.length, 1);
+    assert.equal(row.photos[0].pendingRemovalAt, null);
+    assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
+    assert.equal((await app.inject({ url: `/api/maintenance-records/${saved.id}` })).statusCode, 404);
+    assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 404);
+    assert.equal((await create(payload)).statusCode, 410);
+    assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), notes: 'Revive' })).statusCode, 404);
+    assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 1);
+  });
+
+  await t.test('stale deletes conflict; edit/delete races never erase a newer correction silently', async () => {
+    const saved = (await create(draft())).json();
+    assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), notes: 'New correction' })).statusCode, 200);
+    assert.equal((await remove(saved.id, 1)).statusCode, 409);
+    const responses = await Promise.all([
+      remove(saved.id, 2),
+      edit(saved.id, { version: 2, mutationId: crypto.randomUUID(), notes: 'Concurrent edit' }),
+    ]);
+    const row = await app.prisma.maintenanceRecord.findUnique({ where: { id: saved.id } });
+    if (row.deletedAt) {
+      assert.equal(responses[0].statusCode, 204);
+      assert.ok([404, 409].includes(responses[1].statusCode));
+    } else {
+      assert.equal(responses[0].statusCode, 409);
+      assert.equal(responses[1].statusCode, 200);
+      assert.equal(row.notes, 'Concurrent edit');
+    }
   });
 });

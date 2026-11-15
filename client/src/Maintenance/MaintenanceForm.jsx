@@ -86,6 +86,13 @@ function MaintenanceComposer ({ plotId, recordId, initialRecord }) {
     });
   }
 
+  function discard () {
+    if (saving || !window.confirm(draft.attempt ? 'A previous save might have succeeded. Discard this local draft? This will not delete any saved update; review garden history before starting again.' : 'Discard this unsaved local draft?')) return;
+    try { window.sessionStorage.removeItem(storageKey); } catch {}
+    setDraft(initialRecord ? draftFromRecord(initialRecord) : newMaintenanceDraft(capabilities.data.today));
+    setError(''); setConflicted(false);
+  }
+
   function cancel () {
     if (saving) return;
     if ((draft.notes || draft.activity.length || draft.observations.length || draft.photos.length || draft.plants.length || photoBusy || draft.attempt) && !window.confirm(draft.attempt ? 'The save may have succeeded. Keep this draft and return to garden history?' : 'Leave this update? Your draft will be kept in this tab.')) return;
@@ -125,12 +132,12 @@ function MaintenanceComposer ({ plotId, recordId, initialRecord }) {
           {!quick && <Text fw={500}>What did you see?</Text>}
           {!quick && <Stack gap='xs'>{capabilities.data.observations.map((observation) => <Checkbox key={observation} label={observation} checked={draft.observations.includes(observation)} disabled={locked} onChange={() => setDraft({ ...draft, observations: toggleObservation(draft.observations, observation) })} />)}</Stack>}
           {draft.uploadsPending && <Alert color='yellow'>A previous photo upload was interrupted. Reattach unfinished photos or continue without them.</Alert>}
-          <MaintenancePhotos photos={draft.photos} disabled={locked} onBusyChange={setPhotoBusy} onChange={(photos) => setDraft((value) => ({ ...value, photos: typeof photos === 'function' ? photos(value.photos) : photos }))} />
+          <MaintenancePhotos key={draft.submissionId} photos={draft.photos} disabled={locked} onBusyChange={setPhotoBusy} onChange={(photos) => setDraft((value) => ({ ...value, photos: typeof photos === 'function' ? photos(value.photos) : photos }))} />
           {quick && <Button variant='subtle' disabled={locked} onClick={() => navigate(location.pathname, { replace: true })}>Add more details</Button>}
           {!quick && <Textarea label='Anything to add?' value={draft.notes} disabled={locked} onChange={(event) => setDraft({ ...draft, notes: event.currentTarget.value })} autosize minRows={3} />}
           {conflicted && <Alert color='yellow'>Your draft has been preserved. <Button variant='subtle' onClick={async () => { if (!window.confirm('Replace this unsaved draft with the latest saved update?')) return; try { const { data } = await Api.maintenance.get(recordId); setDraft(draftFromRecord(data)); setConflicted(false); setError(''); } catch (failure) { setError(maintenanceError(failure)); if (failure.response?.status === 404) setDeleted(true); } }}>Load latest update</Button></Alert>}
           {error && <Alert color='red' role='alert'>{error}{draft.attempt && <Text size='sm'>Retry sends the same attempted update. Review garden history if you no longer want to retry.</Text>}</Alert>}
-          <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : editing ? 'Save changes' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button></Group>
+          <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : editing ? 'Save changes' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button><Button variant='subtle' color='red' disabled={saving} onClick={discard}>Discard local draft</Button></Group>
         </Stack>
       </form>
     </Container>

@@ -145,6 +145,9 @@ const Api = {
     },
   },
   maintenance: {
+    remove (id, version) {
+      return instance.delete(`/api/maintenance-records/${id}`, { data: { version } });
+    },
     update (id, data) {
       return instance.patch(`/api/maintenance-records/${id}`, data);
     },

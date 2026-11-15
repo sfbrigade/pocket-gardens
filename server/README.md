@@ -111,3 +111,5 @@ npm run maintenance:cleanup-photos --workspace server
 ```
 
 The command processes up to 100 rows per invocation (including photos whose parent is later soft-deleted), exits nonzero while rows remain pending, and is safe to repeat. Run manually during local development; production must schedule this command periodically, for example every five minutes through the deployment host's scheduler, before enabling photo-removal UI. No additional queue service is needed. Previously issued signed links can remain usable for up to 15 minutes; maintenance redirects use private/no-store caching. Keep Airtable imports disabled after app cutover so imports cannot overwrite corrections or restore erased evidence.
+
+Deleting an entire maintenance update is different from removing an individual photo: `DELETE /api/maintenance-records/:id` with `{ "version": <loaded version> }` soft-deletes the record and retains its still-attached evidence. Repeating deletion is harmless. Normal reads and new photo links return not-found for deleted records, and original create requests cannot revive them. No restore or permanent-record-erasure endpoint is provided.

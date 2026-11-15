@@ -38,7 +38,7 @@ export default function MaintenancePhotos ({ photos, onChange, disabled, onBusyC
       <DropzoneUploader multiple append maxFiles={Math.max(0, 4 - restored.length)} disabled={disabled || restored.length >= 4} onStatusChange={notify} onUploaded={({ filename }) => onChange((current) => [...current, { upload: filename }])} onRemoved={({ filename }) => onChange((current) => current.filter((photo) => photo.upload !== filename))}>
         {({ statuses, onRemove, onRetry, rejectedFiles }) => (
           <Stack gap='xs'>
-            {!disabled && photos.length < 4 && <Text role='button' tabIndex={0}>Take or choose photos (JPEG, PNG, WebP, GIF)</Text>}
+            {!disabled && statuses.length + restored.length < 4 && <Button type='button' variant='light'>Take or choose photos (JPEG, PNG, WebP, GIF)</Button>}
             {statuses.map((status) => (
               <Group key={status.id}>
                 <Image src={status.file.preview} alt='Selected visit photo' w={100} h={80} fit='cover' />

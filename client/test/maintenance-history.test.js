@@ -55,4 +55,21 @@ test('garden history loads on the Updates tab and preserves the selected garden'
     await view.click('Try again');
     await waitFor(() => assert.match(view.container.textContent, /Newer visit.*Older visit/s));
   });
+
+  await t.test('soft deletion needs confirmation and refreshes the active history', async (t) => {
+    const plot = { id: 'recPlotDelete', stage: 'active', plants: [] };
+    const record = { id: 'record-delete', version: 3, date: '2026-09-02', credit: 'Pocket Gardens team', activity: [], observations: [], notes: 'A visit to remove', plants: [], photos: [], createdAt: '2026-09-02T12:00:00Z' };
+    let deleted = false;
+    t.mock.method(Api.maintenance, 'index', async () => ({ data: deleted ? [] : [record], headers: {} }));
+    const remove = t.mock.method(Api.maintenance, 'remove', async () => { deleted = true; return {}; });
+    const view = await mount(t, { initialEntry: '/plots/recPlotDelete?tab=updates', showHome: true, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.match(view.container.textContent, /A visit to remove/));
+    await view.click('Delete update');
+    await view.click('Keep update');
+    assert.equal(remove.mock.calls.length, 0);
+    await view.click('Delete update');
+    await view.click('Delete this update');
+    await waitFor(() => assert.match(view.container.textContent, /No updates recorded yet/));
+    assert.deepEqual(remove.mock.calls[0].arguments, [record.id, 3]);
+  });
 });
