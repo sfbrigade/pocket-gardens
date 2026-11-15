@@ -316,10 +316,11 @@ test('/api/maintenance-records', async (t) => {
       url: `/api/maintenance-records/${RECORD_ALPHA_ID}`,
       headers,
       payload: {
+        version: 1,
+        mutationId: crypto.randomUUID(),
         date: '2026-08-21',
         notes: null,
         estNextVisit: null,
-        volunteerId: null,
         plants: [{ plantId: PLANT_BETA_ID, quantity: 5 }],
       },
     });
@@ -328,7 +329,7 @@ test('/api/maintenance-records', async (t) => {
     assert.strictEqual(data.date, '2026-08-21');
     assert.strictEqual(data.notes, null);
     assert.strictEqual(data.estNextVisit, null);
-    assert.strictEqual(data.volunteerId, null);
+    assert.strictEqual(data.volunteerId, PERSON_ALPHA_ID);
     assert.deepStrictEqual(data.plants, [{ plantId: PLANT_BETA_ID, quantity: 5, name: 'Lavender' }]);
 
     const oldUpdatedAt = new Date('2000-01-01T00:00:00.000Z');
@@ -340,7 +341,7 @@ test('/api/maintenance-records', async (t) => {
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_ALPHA_ID}`,
       headers,
-      payload: { plants: [] },
+      payload: { version: data.version, mutationId: crypto.randomUUID(), plants: [] },
     });
     assert.strictEqual(cleared.statusCode, StatusCodes.OK);
     const clearedData = JSON.parse(cleared.payload);
@@ -362,7 +363,7 @@ test('/api/maintenance-records', async (t) => {
         method: 'PATCH',
         url: `/api/maintenance-records/${RECORD_BETA_ID}`,
         headers,
-        payload,
+        payload: { version: 1, mutationId: crypto.randomUUID(), ...payload },
       });
       assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
     }
@@ -392,7 +393,11 @@ test('/api/maintenance-records', async (t) => {
       method: 'PATCH',
       url: `/api/maintenance-records/${original.id}`,
       headers,
-      payload: { photos: [{ id: original.photos[1].id }, { upload: third }] },
+      payload: {
+        version: original.version,
+        mutationId: crypto.randomUUID(),
+        photos: [{ id: original.photos[1].id }, { upload: third }],
+      },
     });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
@@ -406,7 +411,7 @@ test('/api/maintenance-records', async (t) => {
       method: 'PATCH',
       url: `/api/maintenance-records/${original.id}`,
       headers,
-      payload: { photos: [] },
+      payload: { version: data.version, mutationId: crypto.randomUUID(), photos: [] },
     });
     assert.deepStrictEqual(JSON.parse(cleared.payload).photos, []);
   });
@@ -420,7 +425,7 @@ test('/api/maintenance-records', async (t) => {
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_BETA_ID}`,
       headers,
-      payload: { photos: [{ id: photo.id }] },
+      payload: { version: 1, mutationId: crypto.randomUUID(), photos: [{ id: photo.id }] },
     });
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
     assert.deepStrictEqual(JSON.parse(response.payload).errors, [{

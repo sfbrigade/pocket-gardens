@@ -26,7 +26,28 @@ export function selectObservations (previous, next) {
 }
 
 export function maintenancePayload (draft, plotId) {
-  return { submissionId: draft.submissionId, plotId, date: draft.date, activity: draft.activity, observations: draft.observations, notes: draft.notes.trim(), photos: draft.photos.map(({ url, ...photo }) => photo), plants: draft.plants.map(({ label, ...plant }) => plant) };
+  return { submissionId: draft.submissionId, plotId, ...editableMaintenanceFields(draft) };
+}
+
+export function editableMaintenanceFields (draft) {
+  return {
+    date: draft.date,
+    activity: draft.activity,
+    observations: draft.observations,
+    notes: draft.notes.trim(),
+    photos: draft.photos.map(({ id, upload }) => id ? { id } : { upload }),
+    plants: draft.plants.map(({ plantId, newPlant, quantity }) => ({ ...(plantId ? { plantId } : { newPlant }), ...(quantity == null || quantity === '' ? {} : { quantity }) })),
+  };
+}
+
+export function draftFromRecord (record) {
+  const draft = { ...newMaintenanceDraft(''), date: record.date || '', notes: record.notes || '', activity: record.activity, observations: record.observations, plants: record.plants, photos: record.photos, version: record.version };
+  return { ...draft, baseline: editableMaintenanceFields(draft) };
+}
+
+export function editMaintenancePayload (draft) {
+  const changes = Object.fromEntries(Object.entries(editableMaintenanceFields(draft)).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(draft.baseline[key])));
+  return { version: draft.version, mutationId: crypto.randomUUID(), ...changes };
 }
 
 export function maintenanceError (error) {

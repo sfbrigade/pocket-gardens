@@ -15,6 +15,23 @@ export default function MaintenancePhotos ({ photos, onChange, disabled, onUploa
   return (
     <Stack gap='xs'>
       <Text fw={500}>Photos — up to four, 10 MiB each</Text>
+      {photos.map((photo, index) => (
+        <Group key={`order-${photo.id || photo.upload}`}>
+          <Text size='sm'>Photo {index + 1}</Text>
+          {['up', 'down'].map((direction) => (
+            <Button
+              key={direction} variant='subtle' size='compact-xs' disabled={disabled || (direction === 'up' ? index === 0 : index === photos.length - 1)} onClick={() => {
+                const next = [...photos];
+                const other = index + (direction === 'up' ? -1 : 1);
+                [next[index], next[other]] = [next[other], next[index]];
+                onChange(next);
+              }}
+            >
+              Move photo {index + 1} {direction}
+            </Button>
+          ))}
+        </Group>
+      ))}
       {restored.map((photo, index) => (
         <Group key={photo.id || photo.upload}>
           {photo.url ? <Image src={photo.url} alt={`Existing visit photo ${index + 1}`} w={100} h={80} fit='cover' /> : <Text>Uploaded photo {index + 1} is attached.</Text>}

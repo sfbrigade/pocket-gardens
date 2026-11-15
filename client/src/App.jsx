@@ -64,6 +64,7 @@ function App () {
                           <Route path='/plots/new' element={<PlotForm />} />
                           <Route path='/plots/:plotId' element={<Home />} />
                           <Route path='/plots/:plotId/updates/new' element={<MaintenanceForm />} />
+                          <Route path='/plots/:plotId/updates/:recordId/edit' element={<MaintenanceForm />} />
                           <Route path='/login' element={<Login />} />
                           <Route path='/auth/verify-email' element={<EmailLink key='verify-email' action='verify-email' />} />
                           <Route path='/auth/magic-link' element={<EmailLink key='magic-link' action='magic-link' />} />

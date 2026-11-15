@@ -286,4 +286,55 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.match(view.container.textContent, /Update saved/));
     assert.deepEqual(create.mock.calls[0].arguments[0].plants, [{ plantId, quantity: 2 }]);
   });
+
+  await t.test('legacy edits submit only changed fields and preserve the undated record', async (t) => {
+    const plot = { id: 'recPlotLegacy', stage: 'archived' };
+    const record = { id: 'legacy', gardenId: plot.id, version: 1, date: null, notes: null, activity: [], observations: [], photos: [], plants: [] };
+    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, ...payload, id, version: 2 } }));
+    const view = await mount(t, { initialEntry: '/plots/recPlotLegacy/updates/legacy/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('When did this happen?').value, ''));
+    await view.change('Anything to add?', 'Clarified historical note');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    const payload = update.mock.calls[0].arguments[1];
+    assert.equal(payload.notes, 'Clarified historical note');
+    assert.equal(payload.version, 1);
+    assert.ok(payload.mutationId);
+    assert.equal(payload.date, undefined);
+    assert.equal(payload.activity, undefined);
+    assert.equal(payload.plants, undefined);
+  });
+
+  await t.test('a version conflict keeps the draft until the user chooses to reload', async (t) => {
+    const plot = { id: 'recPlotConflict', stage: 'active' };
+    const record = { id: 'conflict', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Original', activity: [], observations: [], photos: [], plants: [] };
+    t.mock.method(Api.maintenance, 'update', async () => { throw Object.assign(new Error('Conflict'), { response: { status: 409, data: { message: 'Changed by another editor' } } }); });
+    t.mock.method(Api.maintenance, 'get', async () => ({ data: { ...record, version: 2, notes: 'Latest saved note' } }));
+    t.mock.method(dom.window, 'confirm', () => true);
+    const view = await mount(t, { initialEntry: '/plots/recPlotConflict/updates/conflict/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Original'));
+    await view.change('Anything to add?', 'My unsaved correction');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Your draft has been preserved/));
+    assert.equal(view.field('Anything to add?').value, 'My unsaved correction');
+    await view.click('Load latest update');
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Latest saved note'));
+  });
+
+  await t.test('removing existing photos requires saved-edit confirmation and reports pending erasure', async (t) => {
+    const plot = { id: 'recPlotRemove', stage: 'active' };
+    const record = { id: 'remove-photo', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Evidence', activity: [], observations: [], photos: [{ id: 'photo-one', url: '/photo.jpg' }], plants: [] };
+    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, photos: payload.photos, version: 2, cleanupPending: true } }));
+    const confirm = t.mock.method(dom.window, 'confirm', () => false);
+    const view = await mount(t, { initialEntry: '/plots/recPlotRemove/updates/remove-photo/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.match(view.container.textContent, /Remove attached photo 1/));
+    await view.click('Remove attached photo 1');
+    await view.submit();
+    assert.equal(update.mock.calls.length, 0);
+    confirm.mock.restore();
+    t.mock.method(dom.window, 'confirm', () => true);
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Permanent photo erasure is pending/));
+    assert.deepEqual(update.mock.calls[0].arguments[1].photos, []);
+  });
 });

@@ -9,16 +9,6 @@ import MaintenanceRecordPhoto from '#models/maintenance-record-photo.js';
 
 const DateSchema = z.iso.date({ error: 'Invalid date' });
 
-const ActivitySchema = z.array(z.string().trim().min(1)).min(1).superRefine((activities, ctx) => {
-  const seen = new Set();
-  activities.forEach((activity, index) => {
-    if (seen.has(activity)) {
-      ctx.addIssue({ code: 'custom', message: 'Duplicate activity', path: [index] });
-    }
-    seen.add(activity);
-  });
-});
-
 const PlantInputSchema = z.strictObject({
   plantId: z.string().uuid().optional(),
   newPlant: PlantCreateFieldsSchema.pick({ plantName: true, commonName: true, latinName: true }).optional(),
@@ -51,6 +41,7 @@ export const MaintenanceRecordSchema = z.strictObject({
   id: z.string().uuid(),
   observations: z.array(z.string()),
   credit: z.string(),
+  gardenId: z.string().nullable(),
   version: z.number().int(),
   editedAt: z.iso.datetime().nullable(),
   date: DateSchema.nullable(),
@@ -67,13 +58,6 @@ export const MaintenanceRecordSchema = z.strictObject({
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
-
-const OptionalFields = {
-  volunteerId: z.string().uuid().nullable().optional(),
-  notes: z.string().nullable().optional(),
-  planting: z.string().nullable().optional(),
-  estNextVisit: DateSchema.nullable().optional(),
-};
 
 export const MaintenanceRecordCreateSchema = z.strictObject({
   submissionId: z.string().uuid(),
@@ -99,15 +83,18 @@ export function hasMaintenanceContent (body) {
 }
 
 export const MaintenanceRecordUpdateSchema = z.strictObject({
-  date: DateSchema.optional(),
-  activity: ActivitySchema.optional(),
-  plotId: z.string().uuid().optional(),
-  ...OptionalFields,
+  version: z.number().int().positive(),
+  mutationId: z.string().uuid(),
+  date: DateSchema.refine((value) => value <= today(), 'Choose a date no later than today').optional(),
+  activity: z.array(z.string().trim().min(1)).optional(),
+  observations: z.array(z.enum(observations)).optional(),
+  notes: z.string().nullable().optional(),
+  planting: z.string().nullable().optional(),
+  estNextVisit: DateSchema.nullable().optional(),
   plants: PlantsInputSchema.optional(),
   photos: uniquePhotos(z.union([ExistingPhotoSchema, NewPhotoSchema])).optional(),
-}).refine((body) => Object.keys(body).length > 0, {
-  message: 'At least one field is required',
-  path: ['body'],
+}).refine((body) => Object.keys(body).some((key) => !['version', 'mutationId'].includes(key)), {
+  message: 'At least one changed field is required', path: ['body'],
 });
 
 export const MaintenanceRecordListQuerySchema = z.strictObject({
@@ -137,6 +124,7 @@ export const MAINTENANCE_RECORD_SELECT = {
   plotId: true,
   plot: {
     select: {
+      airtableId: true,
       name: true,
       streetAddress: true,
     },
@@ -175,6 +163,7 @@ export function formatMaintenanceRecord (record) {
   return {
     id: record.id,
     observations: record.observations,
+    gardenId: record.plot?.airtableId || null,
     credit: maintenanceCredit(record),
     version: record.version,
     editedAt: record.editedAt ? formatTimestamp(record.editedAt) : null,
@@ -245,7 +234,7 @@ export async function validateMaintenanceRecordLinks (tx, body, recordId) {
   }
   const photoIds = body.photos?.flatMap((photo) => photo.id ? [photo.id] : []) ?? [];
   if (photoIds.length && await tx.maintenanceRecordPhoto.count({
-    where: { maintenanceRecordId: recordId, id: { in: photoIds } },
+    where: { maintenanceRecordId: recordId, pendingRemovalAt: null, id: { in: photoIds } },
   }) !== photoIds.length) {
     throw invalidLink('photos', 'Photo does not belong to this maintenance record');
   }
