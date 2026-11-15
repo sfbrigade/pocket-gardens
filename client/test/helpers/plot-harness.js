@@ -108,6 +108,7 @@ export async function setupPlotTests (t) {
             h(Routes, null,
               h(Route, { path: '/plots/new', element: h(PlotForm) }),
               h(Route, { path: '/plots/:plotId/updates/new', element: h(MaintenanceForm) }),
+              h(Route, { path: '/plots/:plotId/updates/:recordId/edit', element: h(MaintenanceForm) }),
               h(Route, { path: '/photo-input', element: h(PhotoInput, { label: 'Profile photo' }) }),
               showHome && h(Route, { path: '/plots/:plotId', element: h(Home) }),
               h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') })))))))));

@@ -11,6 +11,10 @@ export async function replayMaintenanceCreate (prisma, body, reply) {
   if (!row) return false;
   if (row.deletedAt) reply.code(410).send({ message: 'This update was deleted. It will not be recreated.' });
   else if (row.submissionFingerprint !== maintenanceFingerprint(body)) reply.code(409).send({ message: 'This draft was saved with different values. Review the garden history before starting another update.' });
-  else reply.code(200).send(formatMaintenanceRecord(await findMaintenanceRecordById(prisma, row.id)));
+  else {
+    const current = await findMaintenanceRecordById(prisma, row.id);
+    if (current) reply.code(200).send(formatMaintenanceRecord(current));
+    else reply.code(410).send({ message: 'This update was deleted. It will not be recreated.' });
+  }
   return true;
 }

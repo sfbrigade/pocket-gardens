@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { assetExists, authenticate, build, upload } from '#test/helper.js';
 import s3 from '#lib/s3.js';
+import { cleanupMaintenancePhotos } from '#lib/maintenance-photos.js';
 
 const plotId = '11111111-1111-4111-8111-111111111111';
 const draft = (extra = {}) => ({ submissionId: crypto.randomUUID(), plotId: 'recPlotAlpha', date: '2026-09-02', notes: 'A quiet visit', ...extra });
@@ -11,6 +12,7 @@ test('maintenance update workflows', async (t) => {
   let headers;
   t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
   const create = (payload) => app.inject({ method: 'POST', url: '/api/maintenance-records', headers, payload });
+  const edit = (id, payload) => app.inject({ method: 'PATCH', url: `/api/maintenance-records/${id}`, headers, payload });
 
   await t.test('each kind of contribution is valid independently and credits the administrator', async () => {
     for (const content of [{ notes: 'Visit note' }, { activity: ['Watered'] }, { observations: ['Nothing stood out'] }]) {
@@ -115,5 +117,69 @@ test('maintenance update workflows', async (t) => {
     const invalid = draft({ plants: [{ newPlant: { plantName: 'Should roll back' } }, { plantId: '00000000-0000-4000-8000-000000000000' }] });
     assert.equal((await create(invalid)).statusCode, 422);
     assert.equal(await app.prisma.plant.count({ where: { plantName: 'Should roll back' } }), 0);
+  });
+
+  await t.test('partial legacy corrections preserve missing data and untouched legacy plant rows', async () => {
+    const legacy = 'c4444444-4444-4444-8444-444444444444';
+    const response = await edit(legacy, { version: 1, mutationId: crypto.randomUUID(), notes: 'Clarified legacy note' });
+    assert.equal(response.statusCode, 200, response.payload);
+    assert.equal(response.json().date, null);
+    assert.equal(response.json().plotId, null);
+    assert.equal(response.json().version, 2);
+    assert.ok(response.json().editedAt);
+    assert.deepEqual(response.json().activity, []);
+  });
+
+  await t.test('edits replay their own result and detect stale or concurrently superseded changes', async () => {
+    const payload = draft();
+    const saved = (await create(payload)).json();
+    const body = { version: saved.version, mutationId: crypto.randomUUID(), notes: 'Corrected note' };
+    const responses = await Promise.all([edit(saved.id, body), edit(saved.id, body)]);
+    assert.ok(responses.every(({ statusCode }) => statusCode === 200));
+    assert.equal(responses[0].json().version, 2);
+    assert.equal((await edit(saved.id, { ...body, mutationId: crypto.randomUUID(), notes: 'Stale' })).statusCode, 409);
+    const later = await edit(saved.id, { version: 2, mutationId: crypto.randomUUID(), observations: ['Nothing stood out'] });
+    assert.equal(later.statusCode, 200);
+    assert.equal((await edit(saved.id, body)).statusCode, 409);
+    assert.equal((await edit(saved.id, { version: 3, mutationId: crypto.randomUUID(), plotId })).statusCode, 422);
+    const replay = await create(payload);
+    assert.equal(replay.statusCode, 200);
+    assert.equal(replay.json().notes, 'Corrected note');
+    assert.deepEqual(replay.json().observations, ['Nothing stood out']);
+  });
+
+  await t.test('photo removal commits before erasure and survives storage failure for command retry', async (t) => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const saved = (await create(draft({ photos: [{ upload: filename }] }))).json();
+    const photo = saved.photos[0];
+    const key = photo.url.replace('/api/assets/', '');
+    const remove = t.mock.method(s3, 'deleteObject', async () => { throw new Error('Simulated delete outage'); });
+    const body = { version: 1, mutationId: crypto.randomUUID(), photos: [] };
+    const response = await edit(saved.id, body);
+    assert.equal(response.statusCode, 200, response.payload);
+    assert.deepEqual(response.json().photos, []);
+    assert.equal(response.json().cleanupPending, true);
+    assert.equal(await assetExists(key), true);
+    assert.ok((await app.prisma.maintenanceRecordPhoto.findUnique({ where: { id: photo.id } })).pendingRemovalAt);
+    assert.equal((await app.inject({ url: photo.url })).statusCode, 404);
+    remove.mock.restore();
+    await app.prisma.maintenanceRecord.update({ where: { id: saved.id }, data: { deletedAt: new Date() } });
+    const result = await cleanupMaintenancePhotos(app.prisma, app.log);
+    assert.equal(result.pending, 0);
+    assert.equal(await assetExists(key), false);
+    assert.equal(await app.prisma.maintenanceRecordPhoto.count({ where: { id: photo.id } }), 0);
+  });
+
+  await t.test('a rejected replacement cannot erase old evidence or increment its version', async () => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const saved = (await create(draft({ notes: undefined, photos: [{ upload: filename }] }))).json();
+    const invalid = await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), photos: [{ upload: `${crypto.randomUUID()}.jpg` }] });
+    assert.equal(invalid.statusCode, 422);
+    assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
+    assert.equal((await app.prisma.maintenanceRecord.findUnique({ where: { id: saved.id } })).version, 1);
+    assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), photos: [] })).statusCode, 422);
+    assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 302);
   });
 });
