@@ -14,6 +14,7 @@ import { isMapPosition } from '../map-location';
 import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
+import CarerPicker from './CarerPicker';
 import usePlotSuggestions from './usePlotSuggestions';
 import { changePlotPhoto, matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
 import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, soils, stages, sunLevels } from './plot-form';
@@ -230,7 +231,9 @@ export default function PlotForm () {
               <Fieldset legend='3 · Permission and care'>
                 <Stack><Select label='Permission' data={permissions} allowDeselect={false} {...form.getInputProps('permissionStatus')} />
                   {values.stage !== 'potential' && !['confirmed', 'not_required'].includes(values.permissionStatus) && <Alert color='yellow'>Permission has not been confirmed. You can still record this garden’s current stage.</Alert>}
-                  <Text c='dimmed' size='sm'>Carers can be assigned by staff later.</Text>
+                  {capability.data.canAssignCarers
+                    ? <CarerPicker value={values.carers} onChange={(carers) => form.setFieldValue('carers', carers)} error={form.errors.carers} disabled={mutation.isPending || !!pendingPosition} />
+                    : <Text c='dimmed' size='sm'>Sign in with a staff account to assign registered carers.</Text>}
                   {values.stage === 'active' && <TextInput type='date' label='First planted' description='Optional. An approximate date is fine.' {...form.getInputProps('firstPlanted')} />}
                 </Stack>
               </Fieldset>

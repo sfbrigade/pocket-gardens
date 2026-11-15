@@ -6,6 +6,7 @@ import { firstPlantedIssue, PLOT_STAGES } from '#lib/plot-lifecycle.js';
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import PlotPhoto from '#models/plot-photo.js';
 import { PlotPlantsInputSchema, PlotPlantSchema } from '#models/plot-plant.js';
+import { CarerUserIdsSchema } from '#models/plot-carer.js';
 
 export const PlotStageSchema = z.enum(PLOT_STAGES);
 export const PermissionStatusSchema = z.enum(['unknown', 'needed', 'progress', 'confirmed', 'not_required', 'not_granted']);
@@ -66,6 +67,7 @@ export const PlotFieldsSchema = z.strictObject({
 export const PlotCreateSchema = PlotFieldsSchema.extend({
   submissionId: z.string().uuid().optional(),
   plants: PlotPlantsInputSchema.optional(),
+  carerUserIds: CarerUserIdsSchema.optional(),
   stage: z.enum(['potential', 'preparing', 'active']).default('potential'),
   permissionStatus: PermissionStatusSchema.default('unknown'),
   'Location Description': z.string().trim().min(1, 'Describe exactly where the plot is'),
@@ -137,7 +139,9 @@ export function formatPlot (plot) {
     'Next Visit': plot.nextVisit ?? undefined,
     assignedVolunteers: (plot.assignedVolunteers ?? []).map(({ person }) => ({
       id: person.id,
-      displayName: person.name || [person.firstName, person.lastName].filter(Boolean).join(' ') || 'Volunteer',
+      displayName: person.user
+        ? [person.user.firstName, person.user.lastName].join(' ')
+        : person.name || [person.firstName, person.lastName].filter(Boolean).join(' ') || 'Volunteer',
     })),
     plants: (plot.plants ?? []).map(({ plant, quantity, notes, state }) => ({
       plantId: plant.id,
@@ -160,7 +164,7 @@ export const PLOT_DETAIL_INCLUDE = {
   plants: { orderBy: { id: 'asc' }, include: { plant: true } },
   assignedVolunteers: {
     orderBy: { personId: 'asc' },
-    include: { person: { select: { id: true, name: true, firstName: true, lastName: true } } },
+    include: { person: { select: { id: true, name: true, firstName: true, lastName: true, user: { select: { firstName: true, lastName: true } } } } },
   },
 };
 

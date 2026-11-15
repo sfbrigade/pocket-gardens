@@ -4,6 +4,6 @@ Existing volunteer records own plot assignments and activity history, while plat
 
 Imported volunteers are intended to gain account links over time. The upcoming Better Auth work will determine verification and matching using email and phone; this decision does not treat unverified imported contact text as proof of account ownership or implement that authentication migration.
 
-The account-free plot-submission work can proceed independently. Production community and administrator workflows depend on the separate Better Auth migration and its settled account contract.
+Staff can select multiple active registered users when submitting a plot using the current account system. Each selected account has an explicit, unique link to a volunteer record. Reuse that record when a link already exists; otherwise create an app-owned volunteer record for that account. Never automatically claim an imported record based on matching names, email, or phone. Imported records, assignments, and history remain intact until a separately verified account-linking workflow can reconcile them.
 
-The anonymous development form leaves carer assignment unavailable until that integration is ready. Administrator selection will identify existing platform users; the development milestone does not introduce temporary names-only assignments. Community members can offer their own care, while administrators establish assignments.
+Anonymous development submissions leave carer assignment unavailable. Administrators establish assignments; typed names and community care offers do not establish assignments. The future authentication migration must preserve these explicit links and volunteer identities.

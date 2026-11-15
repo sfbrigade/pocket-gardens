@@ -12,6 +12,8 @@ export function submissionFingerprint (body, fields) {
     permissionStatus: fields.permissionStatus,
   };
   delete normalized.submissionId;
+  if (body.carerUserIds?.length) normalized.carerUserIds = [...body.carerUserIds].sort();
+  else delete normalized.carerUserIds;
   return crypto.createHash('sha256').update(JSON.stringify(Object.fromEntries(Object.entries(normalized).sort()))).digest('hex');
 }
 

@@ -22,6 +22,7 @@ export function createPlotDraft () {
     photo: '',
     photoWasSelected: false,
     permissionStatus: 'unknown',
+    carers: [],
     firstPlanted: '',
     bedType: '',
     area: '',
@@ -34,7 +35,7 @@ export function createPlotDraft () {
 
 export function hasDraftContent (values) {
   return !!(values.position || values.address || values.locator || values.name || values.photoWasSelected ||
-    values.stage !== 'potential' || values.permissionStatus !== 'unknown' || values.firstPlanted ||
+    values.stage !== 'potential' || values.permissionStatus !== 'unknown' || values.carers?.length || values.firstPlanted ||
     values.bedType || values.area !== '' || values.sunExposure || values.soilType || values.environmentalNotes || values.plants.length);
 }
 
@@ -66,6 +67,7 @@ export function plotPayload (values) {
     'Pocket Garden Name': optional(values.name),
     Photos: values.photo ? [values.photo] : undefined,
     permissionStatus: values.permissionStatus,
+    carerUserIds: values.carers?.length ? values.carers.map(({ userId }) => userId).sort() : undefined,
     firstPlanted: values.stage === 'active' ? optional(values.firstPlanted) : undefined,
     'Bed Type': optional(values.bedType),
     'Est. Area (Sq. Ft)': values.area === '' ? undefined : Number(values.area),
@@ -84,6 +86,7 @@ export function plotPayload (values) {
 
 export function plotFormErrors (errors) {
   const names = {
+    carerUserIds: 'carers',
     Latitude: 'position',
     Longitude: 'position',
     'Location Description': 'locator',

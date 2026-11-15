@@ -33,7 +33,7 @@ The record of individual planting events at a plot. It is distinct from the list
 _Avoid_: Current planting inventory as a synonym for planting history.
 
 **Carer**:
-A platform user who looks after a plot.
+A platform user assigned by staff to look after a plot. A plot can have multiple carers. Steward means the same relationship.
 _Avoid_: A submitter or an unverified typed name as a synonym for an assigned carer.
 
 **Care offer**:
