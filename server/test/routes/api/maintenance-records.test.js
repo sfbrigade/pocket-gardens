@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import path from 'path';
 import { StatusCodes } from 'http-status-codes';
 
-import { assetExists, build, upload } from '#test/helper.js';
+import { assetExists, authenticate, build, upload } from '#test/helper.js';
 
 const PLOT_ALPHA_ID = '11111111-1111-4111-8111-111111111111';
 const PLOT_BETA_ID = '22222222-2222-4222-8222-222222222222';
@@ -22,9 +22,23 @@ const validRecord = {
 test('/api/maintenance-records', async (t) => {
   const app = await build(t);
   const { prisma } = app;
+  let headers;
+  t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
+  const inject = (options) => app.inject({ ...options, headers });
+
+
+  await t.test('writes require an active administrator outside anonymous development mode', async () => {
+    const anonymous = await app.inject({ method: 'POST', url: '/api/maintenance-records', payload: validRecord });
+    assert.strictEqual(anonymous.statusCode, 401);
+    const regular = await authenticate(app, 'regular.user@test.com', 'test');
+    const denied = await app.inject({ method: 'PATCH', url: `/api/maintenance-records/${RECORD_ALPHA_ID}`, headers: regular, payload: { notes: 'Change' } });
+    assert.strictEqual(denied.statusCode, 403);
+    await prisma.user.update({ where: { id: '555740af-17e9-48a3-93b8-d5236dfd2c29' }, data: { banned: true } });
+    assert.strictEqual((await inject({ method: 'POST', url: '/api/maintenance-records', payload: validRecord })).statusCode, 403);
+  });
 
   await t.test('GET / returns stable camelCase records newest first', async () => {
-    const response = await app.inject({ url: '/api/maintenance-records' });
+    const response = await inject({ url: '/api/maintenance-records' });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.deepStrictEqual(data.map(({ id }) => id), [
@@ -77,29 +91,29 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('GET / paginates and filters by plot, volunteer, and inclusive dates', async () => {
-    const page1 = await app.inject({ url: '/api/maintenance-records?pageSize=1' });
+    const page1 = await inject({ url: '/api/maintenance-records?pageSize=1' });
     assert.strictEqual(page1.statusCode, StatusCodes.OK);
     assert.strictEqual(JSON.parse(page1.payload).length, 1);
     assert.strictEqual(page1.headers['x-next-offset'], '1');
 
-    const page2 = await app.inject({
+    const page2 = await inject({
       url: `/api/maintenance-records?pageSize=1&offset=${page1.headers['x-next-offset']}`,
     });
     assert.strictEqual(JSON.parse(page2.payload)[0].id, RECORD_BETA_ID);
 
-    const plot = await app.inject({
+    const plot = await inject({
       url: `/api/maintenance-records?plotId=${PLOT_BETA_ID}`,
     });
     assert.deepStrictEqual(JSON.parse(plot.payload).map(({ id }) => id), [
       'c3333333-3333-4333-8333-333333333333',
     ]);
 
-    const volunteer = await app.inject({
+    const volunteer = await inject({
       url: `/api/maintenance-records?volunteerId=${PERSON_ALPHA_ID}`,
     });
     assert.deepStrictEqual(JSON.parse(volunteer.payload).map(({ id }) => id), [RECORD_ALPHA_ID]);
 
-    const dates = await app.inject({
+    const dates = await inject({
       url: '/api/maintenance-records?from=2026-08-20&to=2026-08-20',
     });
     assert.deepStrictEqual(JSON.parse(dates.payload).map(({ id }) => id), [
@@ -119,7 +133,7 @@ test('/api/maintenance-records', async (t) => {
       'from=2026-09-02&to=2026-09-01',
       'unknown=true',
     ]) {
-      const response = await app.inject({ url: `/api/maintenance-records?${query}` });
+      const response = await inject({ url: `/api/maintenance-records?${query}` });
       assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
       assert.ok(JSON.parse(response.payload).errors.length);
     }
@@ -129,7 +143,7 @@ test('/api/maintenance-records', async (t) => {
     const photo = await prisma.maintenanceRecordPhoto.create({
       data: { maintenanceRecordId: RECORD_ALPHA_ID, file: 'visit.jpg', position: 0 },
     });
-    const response = await app.inject({ url: `/api/maintenance-records/${RECORD_ALPHA_ID}` });
+    const response = await inject({ url: `/api/maintenance-records/${RECORD_ALPHA_ID}` });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
     const data = JSON.parse(response.payload);
     assert.deepStrictEqual(data.photos, [{
@@ -137,18 +151,18 @@ test('/api/maintenance-records', async (t) => {
       url: `/api/assets/maintenance_record_photos/${photo.id}/file/visit.jpg`,
     }]);
 
-    const missing = await app.inject({
+    const missing = await inject({
       url: '/api/maintenance-records/00000000-0000-4000-8000-000000000000',
     });
     assert.strictEqual(missing.statusCode, StatusCodes.NOT_FOUND);
-    const invalid = await app.inject({ url: '/api/maintenance-records/not-a-uuid' });
+    const invalid = await inject({ url: '/api/maintenance-records/not-a-uuid' });
     assert.strictEqual(invalid.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
   });
 
   await t.test('POST / creates scalar and related data', async () => {
     const filename = '11111111-aaaa-4111-8111-111111111111.jpg';
     await upload([['640x480.jpg', filename]]);
-    const response = await app.inject({
+    const response = await inject({
       method: 'POST',
       url: '/api/maintenance-records',
       payload: {
@@ -201,7 +215,7 @@ test('/api/maintenance-records', async (t) => {
       { ...validRecord, photos: [{ upload: '../visit.jpg' }] },
     ];
     for (const payload of invalidPayloads) {
-      const response = await app.inject({
+      const response = await inject({
         method: 'POST',
         url: '/api/maintenance-records',
         payload,
@@ -221,7 +235,7 @@ test('/api/maintenance-records', async (t) => {
         plants: [{ plantId: '00000000-0000-4000-8000-000000000000' }],
       },
     ]) {
-      const response = await app.inject({
+      const response = await inject({
         method: 'POST',
         url: '/api/maintenance-records',
         payload,
@@ -232,7 +246,7 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('PATCH /:id updates scalars and replaces or clears plants', async () => {
-    const response = await app.inject({
+    const response = await inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_ALPHA_ID}`,
       payload: {
@@ -256,7 +270,7 @@ test('/api/maintenance-records', async (t) => {
       where: { id: RECORD_ALPHA_ID },
       data: { updatedAt: oldUpdatedAt },
     });
-    const cleared = await app.inject({
+    const cleared = await inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_ALPHA_ID}`,
       payload: { plants: [] },
@@ -276,7 +290,7 @@ test('/api/maintenance-records', async (t) => {
       { unknown: true },
       { plants: [{ plantId: '00000000-0000-4000-8000-000000000000' }] },
     ]) {
-      const response = await app.inject({
+      const response = await inject({
         method: 'PATCH',
         url: `/api/maintenance-records/${RECORD_BETA_ID}`,
         payload,
@@ -297,13 +311,13 @@ test('/api/maintenance-records', async (t) => {
       ['640x480.jpg', second],
       ['640x480.jpg', third],
     ]);
-    const created = await app.inject({
+    const created = await inject({
       method: 'POST',
       url: '/api/maintenance-records',
       payload: { ...validRecord, photos: [{ upload: first }, { upload: second }] },
     });
     const original = JSON.parse(created.payload);
-    const response = await app.inject({
+    const response = await inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${original.id}`,
       payload: { photos: [{ id: original.photos[1].id }, { upload: third }] },
@@ -316,7 +330,7 @@ test('/api/maintenance-records', async (t) => {
       'maintenance_record_photos', original.photos[0].id, 'file', first
     )), false);
 
-    const cleared = await app.inject({
+    const cleared = await inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${original.id}`,
       payload: { photos: [] },
@@ -328,7 +342,7 @@ test('/api/maintenance-records', async (t) => {
     const photo = await prisma.maintenanceRecordPhoto.create({
       data: { maintenanceRecordId: RECORD_ALPHA_ID, file: 'owned.jpg', position: 0 },
     });
-    const response = await app.inject({
+    const response = await inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_BETA_ID}`,
       payload: { photos: [{ id: photo.id }] },
