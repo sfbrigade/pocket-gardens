@@ -11,7 +11,7 @@ export function toggleObservation (selected, value) {
 }
 
 export function maintenancePayload (draft, plotId) {
-  return { submissionId: draft.submissionId, plotId, date: draft.date, activity: draft.activity, observations: draft.observations, notes: draft.notes.trim(), photos: draft.photos, plants: draft.plants.map(({ label, ...plant }) => plant) };
+  return { submissionId: draft.submissionId, plotId, date: draft.date, activity: draft.activity, observations: draft.observations, notes: draft.notes.trim(), photos: draft.photos.map(({ url, ...photo }) => photo), plants: draft.plants.map(({ label, ...plant }) => plant) };
 }
 
 export function maintenanceError (error) {

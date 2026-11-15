@@ -19,7 +19,7 @@ export default function MaintenanceHistory ({ plot }) {
   return (
     <Stack>
       <Title order={3}>Updates &amp; history</Title>
-      {capabilities?.canWrite && ['potential', 'preparing', 'active', 'paused'].includes(plot.stage) && <Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/updates/new`}>Add an update</Button>}
+      {capabilities?.canWrite && ['potential', 'preparing', 'active', 'paused'].includes(plot.stage) && <Group><Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/updates/new?quick=photo`} variant='light'>Photo update</Button><Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/updates/new`}>Add an update</Button></Group>}
       <Text size='sm' c='dimmed'>Visit records describe past events. Garden care summaries and the current plant list are managed separately.</Text>
       {query.isPending && <Loader aria-label='Loading updates' />}
       {(query.isLoadingError || query.isRefetchError) && (

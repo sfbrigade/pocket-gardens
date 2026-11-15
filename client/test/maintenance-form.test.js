@@ -91,4 +91,22 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     });
     await waitFor(() => assert.match(view.container.textContent, /Watered before leaving/));
   });
+
+  await t.test('quick photo saves one photo and can expand into the same detailed draft', async (t) => {
+    const plot = { id: 'recPlotPhoto', stage: 'active', 'Pocket Garden Name': 'Photo garden' };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: '55555555-aaaa-4555-8555-555555555555.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => ({}));
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'photo-save', ...payload } }));
+    const view = await mount(t, { initialEntry: '/plots/recPlotPhoto/updates/new?quick=photo', queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.match(view.container.textContent, /Take or choose photos/));
+    await view.upload();
+    await waitFor(() => assert.match(view.container.textContent, /Ready to save/));
+    await view.click('Add more details');
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, ''));
+    await view.change('Anything to add?', 'New growth');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.deepEqual(create.mock.calls[0].arguments[0].photos, [{ upload: '55555555-aaaa-4555-8555-555555555555.jpg' }]);
+    assert.equal(create.mock.calls[0].arguments[0].notes, 'New growth');
+  });
 });

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticate, build } from '#test/helper.js';
+import { assetExists, authenticate, build, upload } from '#test/helper.js';
+import s3 from '#lib/s3.js';
 
 const plotId = '11111111-1111-4111-8111-111111111111';
 const draft = (extra = {}) => ({ submissionId: crypto.randomUUID(), plotId: 'recPlotAlpha', date: '2026-09-02', notes: 'A quiet visit', ...extra });
@@ -47,5 +48,36 @@ test('maintenance update workflows', async (t) => {
     await app.prisma.plot.update({ where: { id: plotId }, data: { stage: 'paused' } });
     assert.equal((await create(draft({ activity: ['Watered'] }))).statusCode, 422);
     assert.equal((await create(draft())).statusCode, 201);
+  });
+
+  await t.test('photo-only saves replay after staging cleanup and hidden assets cannot get links', async () => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const payload = draft({ notes: undefined, photos: [{ upload: filename }] });
+    const response = await create(payload);
+    assert.equal(response.statusCode, 201, response.payload);
+    const saved = response.json();
+    assert.equal(saved.photos.length, 1);
+    assert.equal(await assetExists(`_uploads/${filename}`), false);
+    assert.equal((await create(payload)).statusCode, 200);
+    const linked = await app.inject({ url: saved.photos[0].url });
+    assert.equal(linked.statusCode, 302);
+    assert.equal(linked.headers['cache-control'], 'private, no-store');
+    assert.equal((await app.inject({ url: saved.photos[0].url.replace(filename, 'different.jpg') })).statusCode, 404);
+    await app.prisma.maintenanceRecord.update({ where: { id: saved.id }, data: { deletedAt: new Date() } });
+    assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 404);
+    assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
+  });
+
+  await t.test('failed photo copies roll back the visit and retain staging for retry', async (t) => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const payload = draft({ photos: [{ upload: filename }] });
+    const copy = t.mock.method(s3, 'copyObject', async () => { throw new Error('Simulated storage outage'); });
+    assert.equal((await create(payload)).statusCode, 500);
+    assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 0);
+    assert.equal(await assetExists(`_uploads/${filename}`), true);
+    copy.mock.restore();
+    assert.equal((await create(payload)).statusCode, 201);
   });
 });
