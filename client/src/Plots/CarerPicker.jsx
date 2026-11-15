@@ -4,7 +4,7 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import Api from '../Api';
 
-export default function CarerPicker ({ value, onChange, error, disabled }) {
+export default function CarerPicker ({ value, onChange, error, disabled, canAssign }) {
   const [search, setSearch] = useState('');
   const [debounced] = useDebouncedValue(search.trim(), 300);
   const combobox = useCombobox({ onDropdownClose: () => combobox.resetSelectedOption() });
@@ -13,7 +13,7 @@ export default function CarerPicker ({ value, onChange, error, disabled }) {
     queryFn: ({ signal, pageParam }) => Api.plots.carers({ search: debounced, offset: pageParam, pageSize: 10 }, signal),
     initialPageParam: 0,
     getNextPageParam: (response) => response.headers['x-next-offset'] ?? undefined,
-    enabled: !!debounced && !disabled,
+    enabled: !!debounced && !disabled && canAssign,
   });
   const currentSearch = debounced === search.trim();
   const matches = currentSearch ? query.data?.pages.flatMap(({ data }) => data).filter(({ id }) => !value.some(({ userId }) => userId === id)) ?? [] : [];
@@ -21,7 +21,7 @@ export default function CarerPicker ({ value, onChange, error, disabled }) {
     <Stack gap='xs'>
       <Combobox
         store={combobox} onOptionSubmit={(id) => {
-          if (disabled || !currentSearch) return;
+          if (disabled || !canAssign || !currentSearch) return;
           if (id === '__more__') { query.fetchNextPage(); return; }
           const user = matches.find((user) => user.id === id);
           if (!user) return;
@@ -33,13 +33,13 @@ export default function CarerPicker ({ value, onChange, error, disabled }) {
         <Combobox.Target>
           <TextInput
             label='Who looks after it' description='Optional. Select registered users. You can add more than one person.'
-            placeholder='Search by name or email' value={search} disabled={disabled} error={error}
+            placeholder='Search by name or email' value={search} disabled={disabled || !canAssign} error={error}
             onChange={(event) => { setSearch(event.currentTarget.value); combobox.openDropdown(); combobox.updateSelectedOptionIndex(); }}
             onFocus={() => combobox.openDropdown()} onBlur={() => combobox.closeDropdown()}
             rightSection={query.isFetching ? <Loader size='xs' /> : <Combobox.Chevron />}
           />
         </Combobox.Target>
-        <Combobox.Dropdown hidden={!search.trim()}>
+        <Combobox.Dropdown hidden={!search.trim() || !canAssign}>
           <Combobox.Options>
             {matches.map(({ id, displayName, email }) => (
               <Combobox.Option key={id} value={id}><Text size='sm'>{displayName}</Text>{email && <Text size='xs' c='dimmed'>{email}</Text>}</Combobox.Option>
@@ -51,6 +51,7 @@ export default function CarerPicker ({ value, onChange, error, disabled }) {
           </Combobox.Options>
         </Combobox.Dropdown>
       </Combobox>
+      {!canAssign && <Text c='dimmed' size='sm'>Sign in with a staff account to keep these carers, or remove them before creating the garden.</Text>}
       {value.map(({ userId, displayName }) => (
         <Group key={userId} justify='space-between' wrap='nowrap'>
           <Text style={{ overflowWrap: 'anywhere' }}>{displayName}</Text>

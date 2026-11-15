@@ -124,6 +124,7 @@ export default function PlotForm () {
       : suggestions.identification),
   };
   const needsPhoto = values.photoWasSelected && !values.photo && !photoFile;
+  const carersNeedStaff = values.carers.length > 0 && !capability.data?.canAssignCarers;
   const uploadingPhoto = mutation.isPending && !!mutation.variables?.file && !form.values.photo;
   const dirty = hasDraftContent(values) && !mutation.isSuccess;
 
@@ -178,7 +179,7 @@ export default function PlotForm () {
       )}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing='xl'>
         <form onSubmit={form.onSubmit((draft) => {
-          if (submitting.current || mutation.isPending || needsPhoto || pendingPosition) return;
+          if (submitting.current || mutation.isPending || needsPhoto || carersNeedStaff || pendingPosition) return;
           submitting.current = true;
           const attempt = preparePlotSubmission(draft, suggestions.result);
           form.setFieldValue('submissionAttempt', attempt);
@@ -231,8 +232,8 @@ export default function PlotForm () {
               <Fieldset legend='3 · Permission and care'>
                 <Stack><Select label='Permission' data={permissions} allowDeselect={false} {...form.getInputProps('permissionStatus')} />
                   {values.stage !== 'potential' && !['confirmed', 'not_required'].includes(values.permissionStatus) && <Alert color='yellow'>Permission has not been confirmed. You can still record this garden’s current stage.</Alert>}
-                  {capability.data.canAssignCarers
-                    ? <CarerPicker value={values.carers} onChange={(carers) => form.setFieldValue('carers', carers)} error={form.errors.carers} disabled={mutation.isPending || !!pendingPosition} />
+                  {capability.data.canAssignCarers || values.carers.length > 0
+                    ? <CarerPicker value={values.carers} onChange={(carers) => form.setFieldValue('carers', carers)} error={form.errors.carers} disabled={mutation.isPending || !!pendingPosition} canAssign={capability.data.canAssignCarers} />
                     : <Text c='dimmed' size='sm'>Sign in with a staff account to assign registered carers.</Text>}
                   {values.stage === 'active' && <TextInput type='date' label='First planted' description='Optional. An approximate date is fine.' {...form.getInputProps('firstPlanted')} />}
                 </Stack>
@@ -272,7 +273,7 @@ export default function PlotForm () {
                   {values.stage !== 'potential' && <Text>Plants: {values.plants.map(({ label }) => label).join(', ') || 'Not recorded'}</Text>}
                 </Stack>
               </Fieldset>
-              <Button type='submit' color='green' size='lg' loading={mutation.isPending} disabled={needsPhoto}>Create garden</Button>
+              <Button type='submit' color='green' size='lg' loading={mutation.isPending} disabled={needsPhoto || carersNeedStaff}>Create garden</Button>
               {uploadingPhoto && <Text role='status'>Uploading photo before saving your garden.</Text>}
               <Button variant='subtle' onClick={discard}>Cancel and discard draft</Button>
             </Stack>

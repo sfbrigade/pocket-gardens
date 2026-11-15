@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createPlotDraft } from '../src/Plots/plot-form.js';
+import { preparePlotSubmission } from '../src/Plots/plot-submission.js';
 import { draftStorageKey, setupPlotTests, waitFor } from './helpers/plot-harness.js';
 
 test('registered carer picker', async (t) => {
@@ -93,6 +94,64 @@ test('registered carer picker', async (t) => {
     await waitFor(() => assert.equal(view.path, '/plots/pg_saved'));
     assert.equal(search.mock.calls.length, 0);
     assert.equal(create.mock.calls[0].arguments[0].carerUserIds, undefined);
+  });
+
+  for (const attempted of [false, true]) {
+    await t.test(`restored carers remain removable without assignment access${attempted ? ' after a save attempt' : ''}`, async (t) => {
+      const draft = {
+        ...createPlotDraft(),
+        position: { latitude: 37.77, longitude: -122.43 },
+        locator: 'Gate',
+        addressEdited: true,
+        carers: [{ userId: user.id, displayName: user.displayName }],
+      };
+      if (attempted) draft.submissionAttempt = preparePlotSubmission(draft);
+      dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(draft));
+      const search = t.mock.method(Api.plots, 'carers', async () => { throw new Error('Should not search'); });
+      const create = t.mock.method(Api.plots, 'create', async () => ({ data: { id: 'pg_saved' } }));
+      let view = await mount(t, { canAssignCarers: false });
+      await waitFor(() => assert.match(view.container.textContent, /Regular User/));
+      assert.match(view.container.textContent, /Sign in with a staff account to keep these carers, or remove them/);
+      assert.equal(view.field('Who looks after it').disabled, true);
+      assert.equal(view.button('Remove Regular User').disabled, false);
+      assert.equal(view.button('Create garden').disabled, true);
+      assert.deepEqual(readDraft(), draft, 'restoration does not silently change carers or the save attempt');
+      await view.submit();
+      assert.equal(create.mock.calls.length, 0);
+      await view.click('Remove Regular User');
+      await waitFor(() => assert.deepEqual(readDraft().carers, []));
+      assert.equal(readDraft().submissionId, draft.submissionId);
+      await view.unmount();
+      view = await mount(t, { canAssignCarers: false });
+      await waitFor(() => assert.equal(view.field('Where exactly is it?').value, 'Gate'));
+      assert.equal(view.button('Create garden').disabled, false);
+      await view.submit();
+      await waitFor(() => assert.equal(view.path, '/plots/pg_saved'));
+      assert.equal(search.mock.calls.length, 0);
+      assert.equal(create.mock.calls[0].arguments[0].carerUserIds, undefined);
+      assert.equal(create.mock.calls[0].arguments[0].submissionId, draft.submissionId);
+    });
+  }
+
+  await t.test('regaining staff access preserves the original save attempt and its carers', async (t) => {
+    const draft = {
+      ...createPlotDraft(),
+      position: { latitude: 37.77, longitude: -122.43 },
+      locator: 'Gate',
+      addressEdited: true,
+      carers: [{ userId: user.id, displayName: user.displayName }],
+    };
+    draft.submissionAttempt = preparePlotSubmission(draft);
+    dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(draft));
+    const create = t.mock.method(Api.plots, 'create', async () => ({ data: { id: 'pg_saved' } }));
+    let view = await mount(t, { canAssignCarers: false });
+    await waitFor(() => assert.match(view.container.textContent, /Regular User/));
+    await view.unmount();
+    view = await mount(t);
+    await waitFor(() => assert.match(view.container.textContent, /Regular User/));
+    await view.submit();
+    await waitFor(() => assert.equal(view.path, '/plots/pg_saved'));
+    assert.deepEqual(create.mock.calls[0].arguments[0], draft.submissionAttempt.payload);
   });
 
   await t.test('typing a different name hides previous matches and never assigns an unselected name', async (t) => {
