@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Drawer, Group, Loader, Paper, Stack } from '@mantine/core';
+import { Alert, Box, Button, Drawer, Group, Loader, Paper, Stack, Tabs } from '@mantine/core';
 import { useMediaQuery, useMounted } from '@mantine/hooks';
 import { useHead } from '@unhead/react';
 import { useQuery } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import Api from './Api';
 import GardenMap from './Components/GardenMap';
 import PlotDetails from './Plots/PlotDetails';
+import MaintenanceHistory from './Maintenance/MaintenanceHistory';
 
 export default function Home () {
   useHead({ title: 'Pocket Gardens' });
@@ -28,7 +29,13 @@ export default function Home () {
       {location.state?.created && <Alert color='green' role='status'>Garden created. It is saved and on the map.</Alert>}
       {isPending && <Loader aria-label='Loading garden details' />}
       {isError && <Alert color='red' title={error.response?.status === 404 ? 'Garden not found' : 'Unable to load garden'}><Button variant='subtle' onClick={() => refetch()}>Try again</Button></Alert>}
-      {plot && <PlotDetails plot={plot} />}
+      {plot && (
+        <Tabs keepMounted={false} value={new URLSearchParams(location.search).get('tab') === 'updates' ? 'updates' : 'info'} onChange={(tab) => navigate({ pathname: location.pathname, search: tab === 'updates' ? '?tab=updates' : '' }, { replace: true })}>
+          <Tabs.List aria-label='Garden details'><Tabs.Tab value='info'>Info</Tabs.Tab><Tabs.Tab value='updates'>Updates</Tabs.Tab></Tabs.List>
+          <Tabs.Panel value='info' pt='md'><PlotDetails plot={plot} /></Tabs.Panel>
+          <Tabs.Panel value='updates' pt='md'><MaintenanceHistory plot={plot} /></Tabs.Panel>
+        </Tabs>
+      )}
     </Stack>
   );
   return (
