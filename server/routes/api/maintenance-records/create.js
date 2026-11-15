@@ -1,3 +1,4 @@
+import { cleanupSubmissionObjects } from '#lib/plot-submission.js';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { requireMaintenanceCreator, validateNewVisit } from '#lib/maintenance-policy.js';
@@ -21,6 +22,8 @@ export default async function (fastify) {
   }, async (request, reply) => {
     if (await replayMaintenanceCreate(fastify.prisma, request.body, reply)) return;
     const contributor = request.user?.canContribute ? request.user : null;
+    const copied = [];
+    let callbackCompleted = false;
     try {
       const record = await fastify.prisma.$transaction(async (tx) => {
         const { plotId, ...body } = request.body;
@@ -40,11 +43,15 @@ export default async function (fastify) {
           },
         });
         if (body.plants) await syncMaintenanceRecordPlants(tx, created.id, body.plants);
-        if (body.photos) await syncMaintenanceRecordPhotos(tx, created.id, body.photos);
-        return findMaintenanceRecordById(tx, created.id);
+        if (body.photos) await syncMaintenanceRecordPhotos(tx, created.id, body.photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
+        const saved = await findMaintenanceRecordById(tx, created.id);
+        callbackCompleted = true;
+        return saved;
       });
+      await cleanupSubmissionObjects((request.body.photos ?? []).map(({ upload }) => `_uploads/${upload}`), request.log);
       return reply.code(201).send(formatMaintenanceRecord(record));
     } catch (error) {
+      if (!callbackCompleted) await cleanupSubmissionObjects(copied, request.log);
       if (await replayMaintenanceCreate(fastify.prisma, request.body, reply)) return;
       throw error;
     }

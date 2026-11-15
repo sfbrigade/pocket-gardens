@@ -280,13 +280,14 @@ export async function syncMaintenanceRecordPlants (tx, recordId, plants) {
   }
 }
 
-export async function syncMaintenanceRecordPhotos (tx, recordId, photos) {
+export async function syncMaintenanceRecordPhotos (tx, recordId, photos, assetOptions) {
   const handlers = await syncPhotos({
     delegate: tx.maintenanceRecordPhoto,
     PhotoClass: MaintenanceRecordPhoto,
     parentFk: 'maintenanceRecordId',
     parentId: recordId,
     photos,
+    assetOptions,
   });
   await runPhotoHandlers(handlers);
 }

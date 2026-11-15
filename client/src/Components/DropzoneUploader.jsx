@@ -5,8 +5,11 @@ import { v4 as uuid } from 'uuid';
 
 import uploadPhoto from '../upload-photo';
 
-function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected }) {
+function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected, append = false, onStatusChange }) {
   const [statuses, setStatuses] = useState([]);
+  const statusCallback = useRef(onStatusChange);
+  statusCallback.current = onStatusChange;
+  useEffect(() => { statusCallback.current?.(statuses); }, [statuses]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
   const disabledRef = useRef(disabled);
   useEffect(() => { disabledRef.current = disabled; }, [disabled]);
@@ -57,7 +60,7 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
       previews.current.set(id, preview);
       return { id, file: Object.assign(file, { preview }), status: deferred ? 'selected' : 'pending', filename: null };
     });
-    setStatuses(next);
+    setStatuses((current) => append ? [...current, ...next] : next);
     if (deferred) onSelected?.(files[0]);
     else for (const status of next) upload(status);
   }
@@ -74,12 +77,12 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
   const { getRootProps, getInputProps } = useDropzone({
     id,
     multiple,
-    maxFiles: maxFiles ?? 0,
+    maxFiles: append && maxFiles ? Math.max(1, maxFiles - statuses.length) : maxFiles ?? 0,
     maxSize: 10 * 1024 * 1024,
     accept: { 'image/jpeg': [], 'image/png': [], 'image/webp': [], 'image/gif': [] },
     onDropAccepted,
     onDropRejected: setRejectedFiles,
-    disabled: disabled || statuses.length > 0,
+    disabled: disabled || (append ? statuses.length >= maxFiles : statuses.length > 0),
   });
 
   return (

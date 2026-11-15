@@ -1,3 +1,4 @@
+import { allowsAnonymousMaintenance } from '#lib/maintenance-policy.js';
 import crypto from 'crypto';
 import { StatusCodes } from 'http-status-codes';
 import rateLimit from '@fastify/rate-limit';
@@ -12,7 +13,7 @@ export default async function (fastify, opts) {
   fastify.post('/',
     {
       onRequest: async (request, reply) => {
-        if (!allowsAnonymousPlotCreation()) return fastify.requireUser(request, reply);
+        if (!allowsAnonymousPlotCreation() && !allowsAnonymousMaintenance()) return fastify.requireUser(request, reply);
       },
       config: { rateLimit: {} },
       schema: {
