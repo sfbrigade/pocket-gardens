@@ -40,7 +40,7 @@ export default function CarerPicker ({ value, onChange, error, disabled, canAssi
           />
         </Combobox.Target>
         <Combobox.Dropdown hidden={!search.trim() || !canAssign}>
-          <Combobox.Options>
+          <Combobox.Options style={{ maxHeight: 'min(15rem, 40vh)', overflowY: 'auto' }}>
             {matches.map(({ id, displayName, email }) => (
               <Combobox.Option key={id} value={id}><Text size='sm'>{displayName}</Text>{email && <Text size='xs' c='dimmed'>{email}</Text>}</Combobox.Option>
             ))}
