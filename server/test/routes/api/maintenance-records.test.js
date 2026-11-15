@@ -14,6 +14,7 @@ const RECORD_ALPHA_ID = 'c1111111-1111-4111-8111-111111111111';
 const RECORD_BETA_ID = 'c2222222-2222-4222-8222-222222222222';
 
 const validRecord = {
+  submissionId: '55555555-aaaa-4555-8555-555555555555',
   date: '2026-09-02',
   activity: ['Watered'],
   plotId: PLOT_ALPHA_ID,
@@ -196,7 +197,6 @@ test('/api/maintenance-records', async (t) => {
         activity: ['Watered', 'Planted'],
         notes: 'New growth',
         estNextVisit: '2026-09-16',
-        volunteerId: PERSON_ALPHA_ID,
         plants: [
           { plantId: PLANT_BETA_ID, quantity: 2 },
           { plantId: PLANT_ALPHA_ID },

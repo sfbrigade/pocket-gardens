@@ -17,6 +17,7 @@ import Header from './Header';
 import NavigationLinks from './NavigationLinks';
 import Home from './Home';
 import PlotForm from './Plots/PlotForm';
+import MaintenanceForm from './Maintenance/MaintenanceForm';
 import Login from './Login';
 import EmailLink from './EmailLink';
 import InvitesRoutes from './Invites/InvitesRoutes';
@@ -62,6 +63,7 @@ function App () {
                           <Route path='/' element={<Home />} />
                           <Route path='/plots/new' element={<PlotForm />} />
                           <Route path='/plots/:plotId' element={<Home />} />
+                          <Route path='/plots/:plotId/updates/new' element={<MaintenanceForm />} />
                           <Route path='/login' element={<Login />} />
                           <Route path='/auth/verify-email' element={<EmailLink key='verify-email' action='verify-email' />} />
                           <Route path='/auth/magic-link' element={<EmailLink key='magic-link' action='magic-link' />} />
