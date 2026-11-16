@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { Box, CloseButton, Image, Input, Loader, Text } from '@mantine/core';
 import { useUncontrolled } from '@mantine/hooks';
 import classNames from 'classnames';
@@ -13,12 +12,6 @@ function PhotoInput ({ children, description, error, id, label, name, onChange, 
     finalValue: '',
     onChange,
   });
-
-  useEffect(() => {
-    if (!_value) {
-      handleChange(defaultValue);
-    }
-  }, [defaultValue]);
 
   function onRemoved () {
     handleChange('');

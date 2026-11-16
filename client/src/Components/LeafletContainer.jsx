@@ -11,7 +11,7 @@ import markerIconRetina from 'leaflet/dist/images/marker-icon-2x.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
 
-import { plotsQueryOptions } from '../plots';
+import { plotsQueryOptions, plotStageLabel } from '../plots';
 
 const SAN_FRANCISCO_BOUNDS = [[37.708, -122.515], [37.833, -122.355]];
 
@@ -62,7 +62,7 @@ function PlotMarkers () {
         >
           <Popup>
             <strong>{plot['Pocket Garden Name'] || 'Pocket garden'}</strong>
-            {plot.Status && <div>Status: {plot.Status}</div>}
+            <div>Stage: {plotStageLabel(plot.stage)}</div>
           </Popup>
         </Marker>
       ))}

@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import {
   buildViewportWhere,
-  formatPlot,
+  formatPlotSummary,
   PLOT_PHOTOS_INCLUDE,
   PlotSchema,
 } from '#models/plot.js';
@@ -74,6 +74,6 @@ export default async function (fastify, opts) {
     if (hasMore) {
       reply.header('X-Next-Offset', String(skip + pageSize));
     }
-    reply.send(page.map(formatPlot));
+    reply.send(page.map(formatPlotSummary));
   });
 }
