@@ -80,6 +80,27 @@ test('maintenance update workflows', async (t) => {
     assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
   });
 
+  await t.test('failed staging cleanup never exposes a retained copy through public asset reads', async (t) => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const deletion = t.mock.method(s3, 'deleteObject', async () => { throw new Error('Simulated cleanup outage'); });
+    const response = await create(draft({ photos: [{ upload: filename }] }));
+    deletion.mock.restore();
+    assert.equal(response.statusCode, 201, response.payload);
+    const saved = response.json();
+    assert.equal(await assetExists(`_uploads/${filename}`), true);
+    assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 302);
+    await app.prisma.maintenanceRecord.update({ where: { id: saved.id }, data: { deletedAt: new Date() } });
+    assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 404);
+    for (const path of [`_uploads/${filename}`, `%5Fuploads/${filename}`, `_uploads%2F${filename}`]) {
+      const hidden = await app.inject({ url: `/api/assets/${path}` });
+      assert.equal(hidden.statusCode, 404);
+      assert.equal(hidden.headers.location, undefined);
+    }
+    assert.equal(await assetExists(`_uploads/${filename}`), true);
+    assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
+  });
+
   await t.test('failed photo copies roll back the visit and retain staging for retry', async (t) => {
     const filename = `${crypto.randomUUID()}.jpg`;
     await upload([['640x480.jpg', filename]]);
