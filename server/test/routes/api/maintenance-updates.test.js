@@ -184,11 +184,14 @@ test('maintenance update workflows', async (t) => {
     assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 302);
   });
 
-  await t.test('record deletion retains photos, hides normal reads, and never revives on create replay', async () => {
+  await t.test('record deletion retains photos, hides staging copies, and never revives on create replay', async (t) => {
     const filename = `${crypto.randomUUID()}.jpg`;
     await upload([['640x480.jpg', filename]]);
     const payload = draft({ photos: [{ upload: filename }] });
+    const deletion = t.mock.method(s3, 'deleteObject', async () => { throw new Error('Simulated cleanup outage'); });
     const saved = (await create(payload)).json();
+    deletion.mock.restore();
+    assert.equal(await assetExists(`_uploads/${filename}`), true);
     assert.equal((await remove(saved.id, 1)).statusCode, 204);
     assert.equal((await remove(saved.id, 1)).statusCode, 204);
     const row = await app.prisma.maintenanceRecord.findUnique({ where: { id: saved.id }, include: { photos: true } });
@@ -199,6 +202,9 @@ test('maintenance update workflows', async (t) => {
     assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
     assert.equal((await app.inject({ url: `/api/maintenance-records/${saved.id}` })).statusCode, 404);
     assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 404);
+    const staging = await app.inject({ url: `/api/assets/_uploads/${filename}` });
+    assert.equal(staging.statusCode, 404);
+    assert.equal(staging.headers.location, undefined);
     assert.equal((await create(payload)).statusCode, 410);
     assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), notes: 'Revive' })).statusCode, 404);
     assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 1);
