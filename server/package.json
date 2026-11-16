@@ -19,7 +19,7 @@
     "photos:migrate:dry": "node bin/migrate-plot-photos.js --dry-run",
     "plots:migrate-photos": "node bin/migrate-plot-photos.js",
     "plots:migrate-photos:dry": "node bin/migrate-plot-photos.js --dry-run",
-    "start": "fastify start -l info app.js",
+    "start": "prisma migrate deploy && fastify start -l info app.js",
     "test": "NODE_ENV=test node --test-concurrency 1 --test $(find test -name '*.test.js')",
     "tsc:watch": "tsc --watch --preserveWatchOutput"
   },

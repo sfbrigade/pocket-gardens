@@ -13,7 +13,7 @@ Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
 
 ### `npm start`
 
-For production mode
+Applies pending Prisma migrations, then starts the app in production mode. If migration fails, the server does not start. Restarts check migration history and leave already-applied migrations in place. The deployment build generates Prisma Client before startup.
 
 ### `npm run test`
 
