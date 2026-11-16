@@ -305,6 +305,40 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(payload.plants, undefined);
   });
 
+  await t.test('an unchanged imported future date permits a note-only correction through native validation', async (t) => {
+    const plot = { id: 'recPlotFutureLegacy', stage: 'active' };
+    const record = { id: 'future-legacy', gardenId: plot.id, version: 1, date: '2998-01-01', notes: 'Imported note', activity: [], observations: [], photos: [], plants: [] };
+    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, ...payload, id, version: 2 } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('When did this happen?').value, record.date));
+    await view.change('Anything to add?', 'Clarified imported note');
+    const form = view.container.querySelector('form');
+    assert.equal(form.checkValidity(), true);
+    await interact(() => form.requestSubmit());
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    const payload = update.mock.calls[0].arguments[1];
+    assert.equal(payload.notes, 'Clarified imported note');
+    assert.equal(payload.date, undefined);
+  });
+
+  await t.test('changing an imported date still rejects future dates and permits a valid correction', async (t) => {
+    const plot = { id: 'recPlotCorrectDate', stage: 'active' };
+    const record = { id: 'correct-date', gardenId: plot.id, version: 1, date: '2998-01-01', notes: 'Imported note', activity: [], observations: [], photos: [], plants: [] };
+    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, ...payload, id, version: 2 } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('When did this happen?').value, record.date));
+    const form = view.container.querySelector('form');
+    await view.change('When did this happen?', '2999-01-01');
+    assert.equal(form.checkValidity(), false);
+    await interact(() => form.requestSubmit());
+    assert.equal(update.mock.calls.length, 0);
+    await view.change('When did this happen?', '2026-09-02');
+    assert.equal(form.checkValidity(), true);
+    await interact(() => form.requestSubmit());
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    assert.equal(update.mock.calls[0].arguments[1].date, '2026-09-02');
+  });
+
   await t.test('a version conflict keeps the draft until the user chooses to reload', async (t) => {
     const plot = { id: 'recPlotConflict', stage: 'active' };
     const record = { id: 'conflict', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Original', activity: [], observations: [], photos: [], plants: [] };
