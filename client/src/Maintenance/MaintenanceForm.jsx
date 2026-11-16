@@ -101,6 +101,9 @@ function MaintenanceComposer ({ plotId, recordId, initialRecord }) {
   const eligible = editing || ['potential', 'preparing', 'active', 'paused'].includes(garden.data.stage);
   const hasPausedWork = paused && (draft.activity.length > 0 || draft.plants.length > 0);
   const canSubmit = !photoBusy && !conflicted && (!!draft.attempt || (eligible && !hasPausedWork));
+  // Unchanged imported dates are omitted from PATCH, including legacy future
+  // dates. Apply the current date limit when selecting a new value.
+  const dateUnchanged = editing && draft.date === draft.baseline.date;
   return (
     <Container size='sm' py='md'>
       <form onSubmit={submit}>
@@ -116,7 +119,7 @@ function MaintenanceComposer ({ plotId, recordId, initialRecord }) {
             </Alert>
           )}
           {storageError && <Alert color='yellow'>This browser could not store your draft. Keep this page open until saving succeeds.</Alert>}
-          <TextInput type='date' label='When did this happen?' required={!editing || !!draft.baseline.date} max={capabilities.data.today} value={draft.date} disabled={locked} onChange={(event) => setDraft({ ...draft, date: event.currentTarget.value })} />
+          <TextInput type='date' label='When did this happen?' required={!editing || !!draft.baseline.date} max={dateUnchanged ? undefined : capabilities.data.today} value={draft.date} disabled={locked} onChange={(event) => setDraft({ ...draft, date: event.currentTarget.value })} />
           {!quick && !paused && <Checkbox.Group label='What did you do?' value={draft.activity} onChange={(activity) => setDraft({ ...draft, activity })}><Stack gap='xs'>{[...new Set([...capabilities.data.activities, ...draft.activity])].map((activity) => <Checkbox key={activity} label={activity} value={activity} disabled={locked} />)}</Stack></Checkbox.Group>}
           {!quick && !paused && (draft.activity.includes('Planted') || draft.plants.length > 0) && <MaintenancePlants plants={draft.plants} disabled={locked} onChange={(plants) => setDraft({ ...draft, plants })} />}
           {!quick && <Text fw={500}>What did you see?</Text>}
