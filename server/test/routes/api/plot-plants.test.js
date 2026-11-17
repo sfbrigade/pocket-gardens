@@ -7,7 +7,8 @@ import s3 from '#lib/s3.js';
 test('plant directory search and plot plantings', async (t) => {
   const app = await build(t);
   const { prisma } = app;
-  const headers = await authenticate(app, 'admin.user@test.com', 'test');
+  let headers;
+  t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
   const base = { Latitude: 37.77, Longitude: -122.43, 'Location Description': 'Second tree well', stage: 'active' };
   const create = (payload) => app.inject({ method: 'POST', url: '/api/plots', headers, payload: { ...base, ...payload } });
   const lavender = 'a2222222-2222-4222-8222-222222222222';

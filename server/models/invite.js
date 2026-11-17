@@ -19,6 +19,8 @@ const InviteAttributesSchema = z.object({
 });
 
 const InviteResponseSchema = InviteAttributesSchema.extend({
+  lastName: InviteAttributesSchema.shape.lastName.nullable(),
+  message: InviteAttributesSchema.shape.message.nullable(),
   id: z.string().uuid(),
   updatedAt: z.coerce.date(),
   createdAt: z.coerce.date(),
@@ -57,7 +59,8 @@ class Invite extends Base {
 
   async sendInviteEmail () {
     const { firstName, message } = this;
-    const url = `${process.env.BASE_URL}/invites/${this.id}`;
+    const url = new URL('/api/auth/links/invite', process.env.AUTH_LINK_BASE_URL || process.env.BASE_URL);
+    url.searchParams.set('inviteId', this.id);
     return mailer.send({
       message: {
         to: this.fullNameAndEmail,
@@ -66,7 +69,7 @@ class Invite extends Base {
       locals: {
         firstName,
         message,
-        url,
+        url: url.toString(),
       },
     });
   }

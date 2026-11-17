@@ -1,185 +1,119 @@
 import { test } from 'node:test';
-import * as assert from 'node:assert';
-import { find } from 'es-toolkit/compat';
-import { StatusCodes } from 'http-status-codes';
+import assert from 'node:assert/strict';
+import { request } from 'node:http';
+import Fastify from 'fastify';
+import { authenticate, build, mailToken, nodemailerMock, password } from '#test/helper.js';
+import authRoutes from '#routes/api/auth/index.js';
+import { options } from '#app.js';
 
-import { authenticate, build } from '#test/helper.js';
-
-test('/api/auth', async (t) => {
+test('application Better Auth cutover', async (t) => {
   const app = await build(t);
-  const { prisma } = app;
 
-  await t.test('POST /register', async (t) => {
-    await t.test('registers a new User', async () => {
-      const response = await app.inject().post('/api/auth/register').payload({
-        firstName: 'Normal',
-        lastName: 'Person',
-        email: 'normal.person@test.com',
-        password: 'Abcd1234!',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.CREATED);
-
-      const data = JSON.parse(response.body);
-      const { id, createdAt, updatedAt } = data;
-      assert.ok(id);
-      assert.deepStrictEqual(data, {
-        id,
-        firstName: 'Normal',
-        lastName: 'Person',
-        email: 'normal.person@test.com',
-        isAdmin: false,
-        picture: null,
-        pictureUrl: null,
-        createdAt,
-        updatedAt,
-        deactivatedAt: null,
-      });
-    });
-
-    await t.test('registers a new user from an invite', async () => {
-      const response = await app.inject().post('/api/auth/register').payload({
-        firstName: 'Invited',
-        lastName: 'User',
-        email: 'invited.user@test.com',
-        password: 'Abcd1234!',
-        inviteId: '7d7c61a6-55ac-4bad-8c8c-5d3aaaa1c5de',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.CREATED);
-
-      const data = JSON.parse(response.body);
-
-      const inviteData = await prisma.invite.findUnique({ where: { id: '7d7c61a6-55ac-4bad-8c8c-5d3aaaa1c5de' } });
-      assert.ok(inviteData.acceptedAt);
-      assert.deepStrictEqual(inviteData.acceptedById, data.id);
-    });
-
-    await t.test('validates required fields', async () => {
-      const response = await app.inject().post('/api/auth/register').payload({
-        firstName: '',
-        lastName: '',
-        email: '',
-        password: '',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-
-      const error = JSON.parse(response.body);
-      assert.deepStrictEqual(error.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-      assert.deepStrictEqual(error.errors.length, 5);
-      assert.ok(
-        find(error.errors, {
-          path: 'firstName',
-          message: 'First name must be between 2 and 30 characters long',
-        })
-      );
-      assert.ok(
-        find(error.errors, {
-          path: 'lastName',
-          message: 'Last name must be between 2 and 30 characters long',
-        })
-      );
-      assert.ok(
-        find(error.errors, {
-          path: 'email',
-          message: 'Please enter a valid email address.',
-        })
-      );
-      assert.ok(
-        find(error.errors, {
-          path: 'password',
-          message: 'Password must be at least 8 characters long',
-        })
-      );
-      assert.ok(
-        find(error.errors, {
-          path: 'password',
-          message: 'Password must include uppercase, lowercase, number, and special characters',
-        })
-      );
-    });
-
-    await t.test('validates email is not already registered', async () => {
-      const response = await app.inject().post('/api/auth/register').payload({
-        firstName: 'Normal',
-        lastName: 'Person',
-        email: 'regular.user@test.com',
-        password: 'Abcd1234!',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-
-      const error = JSON.parse(response.body);
-      assert.deepStrictEqual(error.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-      assert.deepStrictEqual(error.errors.length, 1);
-      assert.ok(
-        find(error.errors, {
-          path: 'email',
-          message: 'Email already registered',
-        })
-      );
-    });
+  await t.test('registration, verification, native magic exchange and logout reach protected routes', async () => {
+    const signup = await app.inject().post('/api/auth/sign-up/email')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ firstName: 'Test', lastName: 'Person', email: 'person@example.com', password });
+    assert.equal(signup.statusCode, 200, signup.body);
+    assert.equal((await app.inject(`/api/auth/verify-email?token=${await mailToken(nodemailerMock.mock)}`)).statusCode, 200);
+    assert.equal((await app.inject().post('/api/auth/sign-in/magic-link')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ email: 'person@example.com' })).statusCode, 200);
+    const token = await mailToken(nodemailerMock.mock);
+    const landing = await app.inject(`/api/auth/links/magic-link?token=${token}`);
+    assert.equal(landing.statusCode, 200);
+    const login = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
+    assert.equal(login.statusCode, 200, login.body);
+    const headers = { authorization: `Bearer ${login.headers['set-auth-token']}` };
+    const profile = await app.inject({ url: '/api/users/me', headers });
+    assert.equal(profile.statusCode, 200, profile.body);
+    assert.equal(profile.json().id, signup.json().user.id);
+    assert.equal(profile.json().isAdmin, false);
+    assert.equal((await app.inject({ url: '/api/users', headers })).statusCode, 403);
+    assert.equal((await app.inject().post('/api/auth/sign-in/email')
+      .headers({ origin: process.env.BASE_URL })
+      .payload({ email: 'person@example.com', password })).statusCode, 200);
+    assert.equal((await app.inject().post('/api/auth/sign-out')
+      .headers({ origin: process.env.BASE_URL, ...headers })
+      .payload({})).statusCode, 200);
+    assert.equal((await app.inject({ url: '/api/users/me', headers })).statusCode, 204);
+    assert.equal((await app.inject({ url: `/api/users/${signup.json().user.id}`, headers })).statusCode, 401);
   });
 
-  await t.test('POST /login', async (t) => {
-    await t.test('returns not found for email that is not registered', async (t) => {
-      const response = await app.inject().post('/api/auth/login').payload({
-        email: 'not.found@test.com',
-        password: 'test',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.NOT_FOUND);
-    });
-
-    await t.test('returns unauthorized for invalid password', async (t) => {
-      const response = await app.inject().post('/api/auth/login').payload({
-        email: 'admin.user@test.com',
-        password: 'invalid',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
-    });
-
-    await t.test('returns forbidden for a disabled user', async (t) => {
-      const response = await app.inject().post('/api/auth/login').payload({
-        email: 'deactivated.user@test.com',
-        password: 'test',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.FORBIDDEN);
-    });
-
-    await t.test('returns ok and a secure session cookie for valid credentials and valid user', async (t) => {
-      const response = await app.inject().post('/api/auth/login').payload({
-        email: 'admin.user@test.com',
-        password: 'test',
-      });
-      assert.deepStrictEqual(response.statusCode, StatusCodes.OK);
-      const cookie = response.headers['set-cookie']
-        ?.split(';')
-        .map((t) => t.trim());
-      assert.ok(cookie[0].startsWith('session='));
-      assert.ok(cookie.includes('HttpOnly'));
-      // Will be Secure only in production
-      // assert.ok(cookie.includes('Secure'));
-      assert.ok(cookie.includes('SameSite=Strict'));
-
-      const data = JSON.parse(response.body);
-      assert.deepStrictEqual(data, {
-        id: '555740af-17e9-48a3-93b8-d5236dfd2c29',
-        firstName: 'Admin',
-        lastName: 'User',
-        email: 'admin.user@test.com',
-        isAdmin: true,
-        picture: null,
-        pictureUrl: null,
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt,
-        deactivatedAt: null,
-      });
-    });
+  await t.test('expired and admin-revoked sessions lose application access immediately', async () => {
+    const adminHeaders = await authenticate(app, 'admin.user@test.com', 'test');
+    const headers = await authenticate(app, 'regular.user@test.com', 'test');
+    const userId = 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5';
+    assert.equal((await app.inject().post('/api/auth/admin/revoke-user-sessions')
+      .headers({ origin: process.env.BASE_URL, ...adminHeaders })
+      .payload({ userId })).statusCode, 200);
+    assert.equal((await app.inject({ url: `/api/users/${userId}`, headers })).statusCode, 401);
+    const expired = await authenticate(app, 'regular.user@test.com', 'test');
+    await app.prisma.session.updateMany({ where: { userId }, data: { expiresAt: new Date(0) } });
+    assert.equal((await app.inject({ url: `/api/users/${userId}`, headers: expired })).statusCode, 401);
   });
 
-  await t.test('DELETE /logout', async (t) => {
-    await t.test('returns ok and clears the session cookie', async (t) => {
-      const headers = await authenticate(app, 'regular.user@test.com', 'test');
-      const response = await app.inject().delete('/api/auth/logout').headers(headers);
-      assert.deepStrictEqual(response.statusCode, StatusCodes.OK);
-      assert.ok(response.headers['set-cookie'].includes('session=;'));
+  await t.test('legacy endpoints and untrusted browser origins cannot authenticate', async () => {
+    for (const path of ['/login', '/register']) {
+      assert.equal((await app.inject().post(`/api/auth${path}`)
+        .headers({ origin: process.env.BASE_URL })
+        .payload({ email: 'regular.user@test.com', password: 'test' })).statusCode, 404);
+    }
+    const response = await app.inject().post('/api/auth/sign-in/email')
+      .headers({ origin: 'https://untrusted.example' })
+      .payload({ email: 'regular.user@test.com', password: 'test' });
+    assert.equal(response.statusCode, 403);
+  });
+
+  await t.test('raw reset callback paths never log a usable token', async (t) => {
+    assert.equal((await app.inject().post('/api/auth/request-password-reset')
+      .payload({ email: 'regular.user@test.com' })).statusCode, 200);
+    const token = await mailToken(nodemailerMock.mock);
+    const logs = [];
+    const loggedApp = Fastify({ logger: { ...options.logger, stream: { write: line => logs.push(line) } } });
+    t.after(() => loggedApp.close());
+    loggedApp.decorate('auth', app.auth);
+    await loggedApp.register(authRoutes, { prefix: '/api/auth' });
+    await loggedApp.listen({ host: '127.0.0.1', port: 0 });
+    for (const path of [
+      `/api/auth/reset-password/${token}`,
+      `/api/auth/reset-password/./${token}`,
+      `/api/auth/extra/../reset-password/${token}`,
+      `/api/auth/reset-password/%2e/${token}`,
+      `/api/auth/extra/%2e%2e/reset-password/${token}`,
+    ]) {
+      // Injection/fetch normalize dot segments before sending; preserve the raw target.
+      const response = await new Promise((resolve, reject) => {
+        request({ host: '127.0.0.1', port: loggedApp.server.address().port, path: `${path}?callbackURL=/api/auth/links/reset-password` }, res => {
+          res.resume();
+          res.on('end', () => resolve(res));
+          res.on('error', reject);
+        }).on('error', reject).end();
+      });
+      assert.equal(response.statusCode, 302);
+      assert.equal(new URL(response.headers.location).searchParams.get('token'), token);
+    }
+    assert.equal((await app.inject().post('/api/auth/reset-password')
+      .payload({ token, newPassword: password })).statusCode, 200);
+    assert.equal(logs.map(line => JSON.parse(line)).filter(line => line.req).length, 5);
+    assert.equal(logs.some(line => line.includes(token)), false, 'Reset token leaked into access logs');
+  });
+
+  await t.test('access log serializer excludes link tokens and headers', () => {
+    for (const [url, route] of [
+      ['/api/auth/links/magic-link?token=secret', '/api/auth/links/magic-link'],
+      ['/api/auth/reset-password/secret?callbackURL=/', '/api/auth/*'],
+      ['/api/auth/reset-password/encoded%2Dsecret/', '/api/auth/*'],
+      ['/api/auth/reset-password', '/api/auth/*'],
+      ['/api/users/123', '/api/users/:id'],
+      ['/unknown/secret'],
+      ['/malformed/%?token=secret'],
+    ]) {
+      assert.deepEqual(options.logger.serializers.req({ method: 'GET', url, routeOptions: { url: route }, ip: '127.0.0.1', headers: { authorization: 'secret' } }), {
+        method: 'GET', url: route || '[unmatched]', remoteAddress: '127.0.0.1',
+      });
+    }
+    assert.deepEqual(options.logger.serializers.req({ method: 'GET', url: '/raw/secret' }), {
+      method: 'GET', url: '[unmatched]', remoteAddress: undefined,
     });
   });
 });

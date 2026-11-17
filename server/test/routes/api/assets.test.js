@@ -11,7 +11,8 @@ const valid = { contentType: 'image/jpeg', byteSize: photo.length };
 
 test('/api/assets', async (t) => {
   const app = await build(t);
-  const userHeaders = await authenticate(app, 'regular.user@test.com', 'test');
+  let userHeaders;
+  t.beforeEach(async () => { userHeaders = await authenticate(app, 'regular.user@test.com', 'test'); });
   const create = (payload = valid, headers = userHeaders) => app.inject({ method: 'POST', url: '/api/assets', payload, headers });
 
   await t.test('anonymous issuance is denied', async () => {
@@ -19,7 +20,7 @@ test('/api/assets', async (t) => {
   });
 
   await t.test('inactive users cannot issue uploads', async () => {
-    await app.prisma.user.update({ where: { email: 'regular.user@test.com' }, data: { deactivatedAt: new Date() } });
+    await app.prisma.user.update({ where: { email: 'regular.user@test.com' }, data: { banned: true } });
     assert.equal((await create()).statusCode, 403);
   });
 

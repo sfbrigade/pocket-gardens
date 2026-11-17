@@ -21,6 +21,9 @@ class Base {
     };
 
     return new Proxy(this, {
+      has (target, property) {
+        return Object.hasOwn(fields, property) || Reflect.has(target, property);
+      },
       get (target, property, receiver) {
         // if the property is in the schema, return it from the data object
         if (Object.hasOwn(fields, property)) {

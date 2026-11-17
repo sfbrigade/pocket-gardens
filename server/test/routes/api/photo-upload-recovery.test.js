@@ -8,7 +8,8 @@ import { PrismaClient, PrismaPg } from '#prisma/client.js';
 test('photo upload recovery and immediate cleanup', async (t) => {
   const app = await build(t);
   const { prisma } = app;
-  const headers = await authenticate(app, 'admin.user@test.com', 'test');
+  let headers;
+  t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
   const payload = (Photos) => ({ submissionId: randomUUID(), Latitude: 37.77, Longitude: -122.43, 'Location Description': 'Keep these details', Photos });
   const create = (body) => app.inject({ method: 'POST', url: '/api/plots', headers, payload: body });
   async function stage () {

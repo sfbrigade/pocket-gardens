@@ -17,7 +17,7 @@ Applies pending Prisma migrations, then starts the app in production mode. If mi
 
 ### `npm run test`
 
-Run the test cases.
+Run the test cases. See the [authentication reference](../docs/authentication.md) for Better Auth setup, the existing-account migration, and disposable test database behavior.
 
 ### Airtable → Postgres import
 
@@ -50,7 +50,7 @@ API plot `id` is the Airtable record id when present; plots created via the API 
 
 `GET /api/plots/capabilities` reports `canCreatePlot` and `canAssignCarers` for the current session. Use these capabilities to display the form entry and enable registered-user selection. Only active administrators can assign carers, including when anonymous development creation is enabled.
 
-Staff can search active registered users by name or email with `GET /api/plots/carers?search=...`. The response contains user IDs, display names, and email addresses, with `X-Next-Offset` pagination. Send selected account IDs in the optional `carerUserIds` array on `POST /api/plots`; duplicate, unknown, and deactivated users are rejected. Assignments save in the same transaction as the plot and reuse explicit account-to-volunteer links while preserving imported volunteer identities. Public plot details expose assigned volunteer IDs and display names without contact information.
+Staff can search verified, unbanned registered users by name or email with `GET /api/plots/carers?search=...`. The response contains user IDs, display names, and email addresses, with `X-Next-Offset` pagination. Send selected account IDs in the optional `carerUserIds` array on `POST /api/plots`; duplicate, unknown, unverified, and banned users are rejected. Assignments save in the same transaction as the plot and reuse explicit account-to-volunteer links while preserving imported volunteer identities. Public plot details expose assigned volunteer IDs and display names without contact information.
 
 If a draft contains carers and the current session cannot assign them, the form keeps those selections visible and allows removal. Creation requires removing them or signing in with a staff account. Restoring the draft preserves its submission identity and any previous save attempt.
 

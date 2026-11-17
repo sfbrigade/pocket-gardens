@@ -4,12 +4,13 @@ import { StatusCodes } from 'http-status-codes';
 import path from 'path';
 
 import { assetExists, authenticate, build, upload } from '#test/helper.js';
-import User from '#models/user.js';
 
 test('/api/users', async (t) => {
   const app = await build(t);
-  const adminHeaders = await authenticate(app, 'admin.user@test.com', 'test');
-  const userHeaders = await authenticate(app, 'regular.user@test.com', 'test');
+  let adminHeaders;
+  t.beforeEach(async () => { adminHeaders = await authenticate(app, 'admin.user@test.com', 'test'); });
+  let userHeaders;
+  t.beforeEach(async () => { userHeaders = await authenticate(app, 'regular.user@test.com', 'test'); });
   const { prisma } = app;
 
   await t.test('GET /', async (t) => {
@@ -48,11 +49,12 @@ test('/api/users', async (t) => {
         lastName: 'User',
         email: 'admin.user@test.com',
         isAdmin: true,
+        emailVerified: true,
         picture: null,
         pictureUrl: null,
         createdAt: '2024-12-27T15:53:41.000Z',
         updatedAt,
-        deactivatedAt: null
+        banned: false
       });
     });
   });
@@ -69,11 +71,12 @@ test('/api/users', async (t) => {
         lastName: 'User',
         email: 'regular.user@test.com',
         isAdmin: false,
+        emailVerified: true,
         picture: null,
         pictureUrl: null,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
-        deactivatedAt: null,
+        banned: false,
       });
     });
   });
@@ -82,24 +85,21 @@ test('/api/users', async (t) => {
     await t.test('updates attributes in user record', async (t) => {
       const response = await app.inject().patch('/api/users/dab5dff3-360d-4dbb-98dd-1990dfb5c4c5').payload({
         firstName: 'John',
-        lastName: 'Doe',
-        email: 'john.doe@test.com',
-        password: 'Newpassword123!'
+        lastName: 'Doe'
       }).headers(userHeaders);
       assert.deepStrictEqual(response.statusCode, StatusCodes.OK);
 
       let data = JSON.parse(response.body);
       assert.deepStrictEqual(data.firstName, 'John');
       assert.deepStrictEqual(data.lastName, 'Doe');
-      assert.deepStrictEqual(data.email, 'john.doe@test.com');
+      assert.deepStrictEqual(data.email, 'regular.user@test.com');
 
       data = await prisma.user.findUnique({ where: { id: 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5' } });
       assert.deepStrictEqual(data.firstName, 'John');
       assert.deepStrictEqual(data.lastName, 'Doe');
-      assert.deepStrictEqual(data.email, 'john.doe@test.com');
+      assert.deepStrictEqual(data.email, 'regular.user@test.com');
 
-      const user = new User(data);
-      assert.ok(await user.comparePassword('Newpassword123!'));
+      assert.strictEqual(data.name, 'John Doe');
     });
 
     await t.test('attaches an uploaded picture', async (t) => {
@@ -118,39 +118,34 @@ test('/api/users', async (t) => {
       assert.deepStrictEqual(data.picture, picture);
 
       assert.ok(await assetExists(path.join('users', `${data.id}`, 'picture', picture)));
+      const session = await app.inject({ url: '/api/auth/get-session', headers: userHeaders });
+      assert.strictEqual(session.json().user.picture, picture);
+      const profile = await app.inject({ url: '/api/users/me', headers: userHeaders });
+      assert.strictEqual(profile.statusCode, 200, profile.body);
+      assert.strictEqual(profile.json().pictureUrl, `/api/assets/users/${data.id}/picture/${picture}`);
     });
 
     await t.test('disallows admin attribute changes for user', async (t) => {
       const response = await app.inject().patch('/api/users/dab5dff3-360d-4dbb-98dd-1990dfb5c4c5').payload({
         isAdmin: true,
-        deactivatedAt: new Date().toISOString()
+        banned: true
       }).headers(userHeaders);
-      assert.deepStrictEqual(response.statusCode, StatusCodes.FORBIDDEN);
+      assert.deepStrictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
     });
 
     await t.test('disallows user to update another user', async (t) => {
       const response = await app.inject().patch('/api/users/aa1fdcf6-a63c-454e-9775-2d6fd116fdb1').payload({
         firstName: 'John',
-        lastName: 'Doe',
-        email: 'john.doe@test.com',
-        password: 'Newpassword123!'
+        lastName: 'Doe'
       }).headers(userHeaders);
       assert.deepStrictEqual(response.statusCode, StatusCodes.FORBIDDEN);
     });
 
-    await t.test('allows admin to make admin changes to user', async (t) => {
-      const response = await app.inject().patch('/api/users/dab5dff3-360d-4dbb-98dd-1990dfb5c4c5').payload({
-        isAdmin: true,
-        deactivatedAt: '2025-01-01T16:53:41.000Z'
-      }).headers(adminHeaders);
-      assert.deepStrictEqual(response.statusCode, StatusCodes.OK);
-      let data = JSON.parse(response.body);
-      assert.deepStrictEqual(data.isAdmin, true);
-      assert.deepStrictEqual(data.deactivatedAt, '2025-01-01T16:53:41.000Z');
-
-      data = await prisma.user.findUnique({ where: { id: 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5' } });
-      assert.deepStrictEqual(data.isAdmin, true);
-      assert.deepStrictEqual(data.deactivatedAt, new Date('2025-01-01T16:53:41.000Z'));
+    await t.test('requires Better Auth for credential and access changes, including admins', async () => {
+      for (const payload of [{ email: 'new@example.com' }, { password: 'NewPassword123!' }, { isAdmin: true }, { banned: true }]) {
+        const response = await app.inject().patch('/api/users/dab5dff3-360d-4dbb-98dd-1990dfb5c4c5').payload(payload).headers(adminHeaders);
+        assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+      }
     });
   });
 });

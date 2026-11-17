@@ -19,7 +19,8 @@ export default async function (fastify) {
     const { search, offset, pageSize } = request.query;
     const records = await fastify.prisma.user.findMany({
       where: {
-        deactivatedAt: null,
+        banned: false,
+        emailVerified: true,
         ...(search && {
           AND: search.split(/\s+/).map((term) => ({
             OR: ['firstName', 'lastName', 'email'].map((field) => ({ [field]: { contains: term, mode: 'insensitive' } })),

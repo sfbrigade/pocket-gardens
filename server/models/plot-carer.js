@@ -9,7 +9,7 @@ export const CarerUserIdsSchema = z.array(z.string().uuid()).refine((ids) => new
 export async function createPlotCarers (tx, plotId, userIds = []) {
   if (!userIds.length) return;
   const users = await tx.user.findMany({
-    where: { id: { in: userIds }, deactivatedAt: null },
+    where: { id: { in: userIds }, banned: false, emailVerified: true },
     select: { id: true, firstName: true, lastName: true },
     orderBy: { id: 'asc' },
   });

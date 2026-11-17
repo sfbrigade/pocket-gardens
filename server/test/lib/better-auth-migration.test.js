@@ -35,9 +35,11 @@ test('Better Auth upgrades existing accounts without replacing garden identities
     ('555740af-17e9-48a3-93b8-d5236dfd2c29', 'Existing', 'Admin', 'Existing.Admin@example.com', 'legacy-placeholder', true, NULL, 'avatar.jpg', '2025-01-01', '2025-01-02'),
     ('dab5dff3-360d-4dbb-98dd-1990dfb5c4c5', 'Existing', 'Member', 'member@example.com', 'unused-placeholder', false, '2025-02-01', NULL, '2025-01-01', '2025-02-01')
     RETURNING *`;
-  const invite = await prisma.invite.create({ data: {
-    firstName: 'Existing', email: member.email, createdById: admin.id, acceptedById: member.id, acceptedAt: new Date('2025-01-03'),
-  } });
+  const invite = await prisma.invite.create({
+    data: {
+      firstName: 'Existing', email: member.email, createdById: admin.id, acceptedById: member.id, acceptedAt: new Date('2025-01-03'),
+    }
+  });
   const person = await prisma.person.create({ data: { airtableId: 'existing-person', userId: member.id, firstName: 'Existing' } });
   const plot = await prisma.plot.create({ data: { airtableId: 'existing-plot', lastVolunteerId: person.id } });
   await prisma.plotAssignedVolunteer.create({ data: { plotId: plot.id, personId: person.id } });

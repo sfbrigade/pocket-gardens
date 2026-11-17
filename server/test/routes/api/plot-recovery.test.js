@@ -10,7 +10,8 @@ import { preparePlotSubmission } from '../../../../client/src/Plots/plot-submiss
 test('plot submission recovery', async (t) => {
   const app = await build(t);
   const { prisma } = app;
-  const headers = await authenticate(app, 'admin.user@test.com', 'test');
+  let headers;
+  t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
   const draft = () => ({
     submissionId: randomUUID(),
     Latitude: 37.77,
