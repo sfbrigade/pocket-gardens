@@ -23,6 +23,22 @@ export function hasCoordinates ({ Latitude, Longitude }) {
     Number.isFinite(Longitude) && Math.abs(Longitude) <= 180;
 }
 
+export function containsBounds (coverage, visible) {
+  return coverage && visible.north <= coverage.north && visible.south >= coverage.south &&
+    visible.east <= coverage.east && visible.west >= coverage.west;
+}
+
+export function bufferedBounds (visible, padding = 0.25) {
+  const latitudePadding = (visible.north - visible.south) * padding;
+  const longitudePadding = (visible.east - visible.west) * padding;
+  return {
+    north: Math.min(90, visible.north + latitudePadding),
+    south: Math.max(-90, visible.south - latitudePadding),
+    east: Math.min(180, visible.east + longitudePadding),
+    west: Math.max(-180, visible.west - longitudePadding),
+  };
+}
+
 export function plotsQueryOptions (bounds) {
   return {
     queryKey: ['plots', bounds],

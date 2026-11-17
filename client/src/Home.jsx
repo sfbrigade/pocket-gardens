@@ -35,7 +35,7 @@ export default function Home () {
     <Box style={{ height: 'calc(100dvh - var(--app-shell-header-offset) - 2 * var(--app-shell-padding))', display: 'flex', minHeight: 360 }}>
       {plotId && !mobile && <Paper component='aside' withBorder p='md' style={{ width: 400, maxWidth: '45%', overflowY: 'auto' }} aria-label='Garden details'>{panel}</Paper>}
       <Box style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 0 }}>
-        <GardenMap selectedPlot={plot} onSelectPlot={(id) => navigate(`/plots/${id}`)} />
+        <GardenMap selectedPlot={plot} onSelectPlot={(id) => navigate(`/plots/${id}`)} onCreatePlot={capabilities?.canCreatePlot ? (position) => navigate('/plots/new', { state: { mapPosition: position } }) : undefined} />
         {capabilities?.canCreatePlot && <Button component={Link} to='/plots/new' color='green' style={{ position: 'absolute', bottom: 32, left: 16, zIndex: 1000 }}>Create a garden</Button>}
       </Box>
       {mobile && <Drawer opened={!!plotId} onClose={() => navigate('/')} position='bottom' size='70%' title='Garden details'>{panel}</Drawer>}

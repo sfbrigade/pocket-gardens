@@ -12,6 +12,10 @@ test('garden saves respect navigation and newer drafts', async (t) => {
       const saving = Promise.withResolvers();
       const create = t.mock.method(Api.plots, 'create', () => saving.promise);
       const view = await mount(t);
+      const coverageKey = ['plots', { north: 37.8, south: 37.7, east: -122.4, west: -122.5 }];
+      const nearbyKey = ['plots', { north: 37.771, south: 37.769, east: -122.429, west: -122.431 }];
+      view.client.setQueryData(coverageKey, []);
+      view.client.setQueryData(nearbyKey, []);
       await waitFor(() => assert.equal(view.field('Where exactly is it?').value, original.locator));
       await view.submit();
       await waitFor(() => assert.equal(create.mock.calls.length, 1));
@@ -36,6 +40,8 @@ test('garden saves respect navigation and newer drafts', async (t) => {
       await waitFor(() => assert.deepEqual(view.client.getQueryData(['plot', saved.id]), saved));
       // Assert absence of stale UI effects only after the mutation has settled.
       await waitFor(() => assert.equal(view.client.isMutating(), 0));
+      assert.equal(view.client.getQueryState(coverageKey).isInvalidated, true);
+      assert.equal(view.client.getQueryState(nearbyKey).isInvalidated, true);
       if (scenario === 'stay') {
         await waitFor(() => assert.equal(view.path, `/plots/${saved.id}`));
         assert.equal(dom.window.sessionStorage.getItem(draftStorageKey), null);
