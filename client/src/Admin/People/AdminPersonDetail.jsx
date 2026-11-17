@@ -24,6 +24,7 @@ function AdminPersonDetail () {
     data: maintenanceRecords,
     isLoading: isHistoryLoading,
     isError: isHistoryError,
+    refetch: refetchHistory,
   } = useQuery({
     queryKey: ['maintenanceRecords', id, historyPage],
     queryFn: async () => {
@@ -98,65 +99,82 @@ function AdminPersonDetail () {
         {isHistoryLoading && <Loader />}
 
         {isHistoryError && (
-          <Text>Unable to load participation history.</Text>
+          <Group>
+            <Text>Unable to load participation history.</Text>
+            <Button variant='default' onClick={() => refetchHistory()}>
+              Retry
+            </Button>
+          </Group>
         )}
 
         {maintenanceRecords && (
-          <>
-            <Table.ScrollContainer>
-              <Table striped highlightOnHover>
-                <Table.Thead>
+          <Table.ScrollContainer>
+            <Table striped highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Date</Table.Th>
+                  <Table.Th>Plot</Table.Th>
+                  <Table.Th>Activity</Table.Th>
+                  <Table.Th>Notes</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {maintenanceRecords.records.length === 0 && (
                   <Table.Tr>
-                    <Table.Th>Date</Table.Th>
-                    <Table.Th>Plot</Table.Th>
-                    <Table.Th>Activity</Table.Th>
-                    <Table.Th>Notes</Table.Th>
+                    <Table.Td colSpan={4}>
+                      No participation history.
+                    </Table.Td>
                   </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {maintenanceRecords.records.length === 0 && (
-                    <Table.Tr>
-                      <Table.Td colSpan={4}>
-                        No participation history.
-                      </Table.Td>
-                    </Table.Tr>
-                  )}
-                  {maintenanceRecords.records.map((record) => (
-                    <Table.Tr key={record.id}>
-                      <Table.Td>{record.date || 'Not provided'}</Table.Td>
-                      <Table.Td>{record.plotName || 'Not provided'}</Table.Td>
-                      <Table.Td>{record.activity.length ? record.activity.join(', ') : 'Not provided'}</Table.Td>
-                      <Table.Td>{record.notes || 'Not provided'}</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
+                )}
+                {maintenanceRecords.records.map((record) => (
+                  <Table.Tr key={record.id}>
+                    <Table.Td>{record.date || 'Not provided'}</Table.Td>
+                    <Table.Td>{record.plotName || record.plotStreetAddress || 'Not provided'}</Table.Td>
+                    <Table.Td>{record.activity.length ? record.activity.join(', ') : 'Not provided'}</Table.Td>
+                    <Table.Td>{record.notes || 'Not provided'}</Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        )}
 
-            {(historyPage > 1 || maintenanceRecords.hasMore) && (
-              <Group mt='md'>
+        {(historyPage > 1 || (!isHistoryError && maintenanceRecords?.hasMore)) && (
+          <Group mt='md'>
+            {historyPage > 1
+              ? (
                 <Button
                   component={Link}
                   to={`?page=${historyPage - 1}`}
-                  disabled={historyPage === 1}
                   variant='default'
                 >
                   Previous
                 </Button>
+                )
+              : (
+                <Button disabled variant='default'>
+                  Previous
+                </Button>
+                )}
 
-                <Text>Page {historyPage}</Text>
+            <Text>Page {historyPage}</Text>
 
+            {!isHistoryError && maintenanceRecords?.hasMore
+              ? (
                 <Button
                   component={Link}
                   to={`?page=${historyPage + 1}`}
-                  disabled={!maintenanceRecords.hasMore}
                   variant='default'
                 >
                   Next
                 </Button>
-              </Group>
-            )}
-          </>
+                )
+              : (
+                <Button disabled variant='default'>
+                  Next
+                </Button>
+                )}
+          </Group>
         )}
       </Container>
     </>

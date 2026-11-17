@@ -70,6 +70,7 @@ export const MaintenanceRecordSchema = z.strictObject({
   estNextVisit: DateSchema.nullable(),
   plotId: z.string().uuid().nullable(),
   plotName: z.string().nullable(),
+  plotStreetAddress: z.string().nullable(),
   volunteerId: z.string().uuid().nullable(),
   plants: z.array(MaintenanceRecordPlantSchema),
   photos: z.array(MaintenanceRecordPhotoSchema),
@@ -128,6 +129,7 @@ export const MAINTENANCE_RECORD_SELECT = {
   plot: {
     select: {
       name: true,
+      streetAddress: true,
     },
   },
   volunteerId: true,
@@ -162,6 +164,7 @@ export function formatMaintenanceRecord (record) {
     estNextVisit: formatDate(record.estNextVisit),
     plotId: record.plotId,
     plotName: record.plot?.name ?? null,
+    plotStreetAddress: record.plot?.streetAddress ?? null,
     volunteerId: record.volunteerId,
     plants: record.plants.map(({ plantId, quantity }) => ({ plantId, quantity })),
     photos: record.photos.flatMap((row) => {
