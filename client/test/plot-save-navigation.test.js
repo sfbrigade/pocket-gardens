@@ -46,16 +46,19 @@ test('garden saves respect navigation and newer drafts', async (t) => {
     });
   }
 
-  await t.test('a lost save response replays the persisted payload after a fresh mount and query client', async (t) => {
-    const draft = { ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 }, addressEdited: true };
+  await t.test('a lost save response replays suggested fields after a fresh mount without the address cache', async (t) => {
+    const draft = { ...createPlotDraft(), position: { latitude: 37.77, longitude: -122.43 } };
     dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(draft));
     const pending = Promise.withResolvers();
     const create = t.mock.method(Api.plots, 'create', () => pending.promise);
-    const first = await mount(t);
+    const lookup = t.mock.method(globalThis, 'fetch', async () => { throw new Error('Unexpected address lookup'); });
+    const addressKey = ['nearby-address', '37.77000', '-122.43000'];
+    const address = '440 5th Avenue, San Francisco';
+    const title = '440 5th Avenue · Second tree well';
+    const first = await mount(t, { queryData: [[addressKey, { position: draft.position, address }]] });
     await waitFor(() => assert.equal(first.field('Where exactly is it?').value, ''));
     await first.change('Where exactly is it?', 'Second tree well');
-    await first.change('Address or cross street', '440 5th Avenue');
-    await first.change('Garden title', 'North gate garden');
+    await waitFor(() => assert.equal(first.field('Garden title').value, title));
     await first.submit();
     await waitFor(() => assert.equal(create.mock.calls.length, 1));
     const payload = create.mock.calls[0].arguments[0];
@@ -68,12 +71,14 @@ test('garden saves respect navigation and newer drafts', async (t) => {
     create.mock.mockImplementation(async () => ({ data: saved }));
     const refreshed = await mount(t);
     assert.notEqual(refreshed.client, first.client);
-    await waitFor(() => assert.equal(refreshed.field('Garden title').value, 'North gate garden'));
-    assert.equal(refreshed.field('Address or cross street').value, '440 5th Avenue');
+    await waitFor(() => assert.equal(refreshed.field('Garden title').value, title));
+    assert.equal(refreshed.field('Address or cross street').value, address);
+    assert.equal(refreshed.client.getQueryData(addressKey), undefined);
     assert.equal(readDraft().submissionId, draft.submissionId);
     await refreshed.submit();
     await waitFor(() => assert.equal(refreshed.path, '/plots/pg_recovered'));
     assert.deepEqual(create.mock.calls[1].arguments[0], payload);
+    assert.equal(lookup.mock.calls.length, 0);
     assert.equal(dom.window.sessionStorage.getItem(draftStorageKey), null);
   });
 });
