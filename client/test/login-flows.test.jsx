@@ -188,6 +188,30 @@ describe('login choices', () => {
 });
 
 describe('verification and recovery branches', () => {
+  for (const method of ['password', 'magic-link']) {
+    it(`keeps the invitation and return destination through ${method} registration`, async () => {
+      Api.invites.get.mockResolvedValue({ data: { email } });
+      const user = open(`/invites/invitation-id?from=${encodeURIComponent(from)}`);
+      await user.type(await screen.findByLabelText('First name'), 'Test');
+      await user.type(screen.getByLabelText('Last name'), 'Member');
+      if (method === 'password') {
+        await user.click(screen.getByRole('radio', { name: 'Register with password' }));
+        await user.type(screen.getByLabelText('Password', { exact: true }), 'a long password');
+      }
+      await user.click(screen.getByRole('button', { name: method === 'password' ? 'Register with password' : 'Email me a registration link' }));
+      await waitFor(() => expect(Api.auth.register).toHaveBeenCalledWith(expect.objectContaining({
+        email,
+        inviteId: 'invitation-id',
+        registrationMethod: method,
+        callbackURL: method === 'password' ? `/login?from=${encodeURIComponent(from)}` : from,
+      })));
+      expect(await screen.findByText(method === 'password'
+        ? 'Please check your email to verify your account before logging in.'
+        : /Check your inbox for a link to complete registration/)).toBeTruthy();
+      expect(screen.getByTestId('location').textContent).toBe(`/login?from=${encodeURIComponent(from)}`);
+    });
+  }
+
   it('keeps the email and destination when the login flow branches into registration', async () => {
     const user = open(loginEntry);
     await user.type(screen.getByLabelText('Email', { exact: true }), email);

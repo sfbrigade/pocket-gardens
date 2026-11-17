@@ -1,16 +1,16 @@
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { Alert, Button, Container, Stack, Title } from '@mantine/core';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
 import { useAuthContext } from '../AuthContext';
 import RegistrationForm from '../RegistrationForm';
 import { authPath, loginDestination } from '../LoginDestination';
+import useRegistration from '../useRegistration';
 
 function Invite () {
   const { user, signOut } = useAuthContext();
-  const navigate = useNavigate();
   const { inviteId } = useParams();
   const [searchParams] = useSearchParams();
   const from = loginDestination(searchParams.get('from'));
@@ -23,19 +23,7 @@ function Invite () {
 
   const unavailable = [404, 410, 422].includes(error?.response?.status);
 
-  const onSubmitMutation = useMutation({
-    mutationFn: (values) => Api.auth.register({ ...values, inviteId, callbackURL: values.registrationMethod === 'magic-link' ? from : authPath('/login', from) }),
-    onSuccess: (_, values) => navigate(authPath('/login', from), {
-      state: {
-        email: values.email,
-        loginMethod: values.registrationMethod,
-        flash: values.registrationMethod === 'magic-link'
-          ? 'Check your inbox for a link to complete registration and log in. If you already have an account, the link will log you in.'
-          : 'Please check your email to verify your account before logging in.',
-      }
-    }),
-    onError: () => window.scrollTo(0, 0),
-  });
+  const onSubmitMutation = useRegistration({ from, inviteId });
 
   return (
     <>
