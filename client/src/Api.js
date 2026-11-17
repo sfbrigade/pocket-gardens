@@ -140,6 +140,9 @@ const Api = {
     },
   },
   plots: {
+    carers (params, signal) {
+      return instance.get('/api/plots/carers', { params, signal });
+    },
     capabilities (signal) {
       return instance.get('/api/plots/capabilities', { signal });
     },

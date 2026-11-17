@@ -29,6 +29,7 @@ model User {
   revokedInvites          Invite[]  @relation("RevokedByUser")
   updatedAt               DateTime  @updatedAt
   createdAt               DateTime  @default(now())
+  volunteerRecord         Person?
 }
 
 model Invite {
@@ -90,6 +91,7 @@ model NeighborhoodZipCode {
 
 model Person {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @unique @db.Uuid
   airtableId String   @unique
   firstName  String?
   lastName   String?
@@ -101,6 +103,7 @@ model Person {
   updatedAt  DateTime @updatedAt
 
   homeZip              ZipCode?                  @relation("PersonHomeZip", fields: [homeZipId], references: [id], onDelete: SetNull)
+  user                 User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
   assignedPlots        PlotAssignedVolunteer[]
   lastVolunteerPlots   Plot[]                    @relation("PlotLastVolunteer")
   maintenanceRecords   MaintenanceRecord[]

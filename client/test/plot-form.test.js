@@ -32,9 +32,18 @@ test('switching stage omits hidden fields without removing their draft values', 
 });
 
 test('server field names map to form controls and preserve form-level feedback', () => {
-  assert.deepEqual(plotFormErrors({ Latitude: 'Set a pin', 'Location Description': 'Describe it', _form: 'Failed', plotId: 'saved' }), {
-    position: 'Set a pin', locator: 'Describe it', _form: 'Failed',
+  assert.deepEqual(plotFormErrors({ Latitude: 'Set a pin', 'Location Description': 'Describe it', carerUserIds: 'Select an active user', _form: 'Failed', plotId: 'saved' }), {
+    position: 'Set a pin', locator: 'Describe it', carers: 'Select an active user', _form: 'Failed',
   });
+});
+
+test('carer-only drafts are retained and only account IDs are submitted', () => {
+  const draft = createPlotDraft();
+  assert.equal(plotPayload(draft).carerUserIds, undefined, 'unchanged older drafts retain their original save fingerprint');
+  draft.carers = [{ userId: 'user-b', displayName: 'Carer B' }, { userId: 'user-a', displayName: 'Carer A' }];
+  assert.equal(hasDraftContent(draft), true);
+  assert.deepEqual(plotPayload(draft).carerUserIds, ['user-a', 'user-b']);
+  assert.equal(plotPayload(draft).carers, undefined);
 });
 
 test('plant quantity validation respects the database range and skips hidden potential plantings', () => {

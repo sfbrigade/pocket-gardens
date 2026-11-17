@@ -27,7 +27,7 @@ export default function PlotDetails ({ plot }) {
       {plot.plants?.length
         ? <List>{plot.plants.map((plant) => <List.Item key={plant.plantId}><Text>{plant.quantity != null ? `${plant.quantity} × ` : ''}{plant.plantName || plant.commonName || plant.latinName} · {plant.state}</Text>{plant.notes && <Text size='sm' c='dimmed'>{plant.notes}</Text>}</List.Item>)}</List>
         : <Text c='dimmed'>No planned or current plants recorded.</Text>}
-      {!!plot.assignedVolunteers?.length && <><Title order={3} size='h4'>Assigned volunteers</Title><List>{plot.assignedVolunteers.map(({ id, displayName }) => <List.Item key={id}>{displayName}</List.Item>)}</List></>}
+      {!!plot.assignedVolunteers?.length && <><Title order={3} size='h4'>Who looks after it</Title><List>{plot.assignedVolunteers.map(({ id, displayName }) => <List.Item key={id}>{displayName}</List.Item>)}</List></>}
       <Alert color='gray' title='Garden ID'>{plot.id}</Alert>
     </Stack>
   );

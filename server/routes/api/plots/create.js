@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { PhotoUploadError } from '#lib/photo-upload.js';
 import { StatusCodes } from 'http-status-codes';
 import { createPlotPlants } from '#models/plot-plant.js';
+import { createPlotCarers } from '#models/plot-carer.js';
 import { z } from 'zod';
 import { submissionFingerprint, findSubmission, cleanupSubmissionObjects } from '#lib/plot-submission.js';
 
@@ -32,6 +33,10 @@ export default async function (fastify, opts) {
       if (!allowsAnonymousPlotCreation()) return fastify.requireAdmin(request, reply);
     },
   }, async function (request, reply) {
+    if (request.body.carerUserIds?.length) {
+      await fastify.requireAdmin(request, reply);
+      if (reply.sent) return;
+    }
     const fields = plotFieldsFromBody(request.body);
     fields.mapCoordinates = `${fields.latitude}, ${fields.longitude}`;
     const { Photos, submissionId } = request.body;
@@ -57,6 +62,7 @@ export default async function (fastify, opts) {
           },
         });
         await createPlotPlants(tx, created, request.body.plants);
+        await createPlotCarers(tx, created.id, request.body.carerUserIds);
         if (Photos !== undefined) {
           await syncPlotPhotos(tx, created.id, Photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
         }

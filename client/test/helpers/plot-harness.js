@@ -68,14 +68,14 @@ export async function setupPlotTests (t) {
   const { default: Home } = await vite.ssrLoadModule('/src/Home.jsx');
   const { default: PhotoInput } = await vite.ssrLoadModule('/src/Components/PhotoInput.jsx');
   const { default: Api } = await vite.ssrLoadModule('/src/Api.js');
-  t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true } }));
+  t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true, canAssignCarers: true } }));
   // Keep real modal portals so the plant form is outside the garden form in
   // the DOM. Disable animations, which are outside these interaction checks.
   const theme = { components: { Modal: { defaultProps: { transitionProps: { duration: 0 } } } } };
 
-  async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true } = {}) {
+  async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true, canAssignCarers = canCreatePlot } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { gcTime: Infinity } } });
-    client.setQueryData(['plots', 'capabilities'], { canCreatePlot });
+    client.setQueryData(['plots', 'capabilities'], { canCreatePlot, canAssignCarers });
     for (const [key, data] of queryData) client.setQueryData(key, data);
     const container = dom.window.document.createElement('div');
     dom.window.document.body.appendChild(container);
