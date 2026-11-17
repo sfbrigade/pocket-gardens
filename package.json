@@ -6,12 +6,13 @@
     "server"
   ],
   "scripts": {
-    "dev": "cp -n server/example.env server/.env; cp server/.env client/.env; nf -j Procfile.dev start",
+    "dev": "node bin/setup-dev-env.mjs && nf -j Procfile.dev start",
     "lint": "npm run lint --workspaces",
     "lint:check": "npm run lint:check --workspaces",
     "test": "npm test --workspaces"
   },
   "devDependencies": {
-    "foreman": "^3.0.1"
+    "foreman": "^3.0.1",
+    "dotenv": "^17.3.1"
   }
 }

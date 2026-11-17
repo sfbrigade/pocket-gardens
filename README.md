@@ -20,7 +20,14 @@ registering again and may optionally set a password afterward.
 
 Configure `server/.env` using `server/example.env`:
 
-- `BETTER_AUTH_SECRET`: a private random secret of at least 32 characters (for example, generate with `openssl rand -base64 32`). The example placeholder intentionally fails startup.
+For local development, `npm run dev` (also used by Docker Compose) creates or
+updates the ignored `server/.env` with a private random auth secret when the value
+is missing, too short, or still the example placeholder. It preserves a valid
+secret across restarts and writes only `VITE_` settings to `client/.env`.
+Production must receive an explicitly configured secret; development setup refuses
+to run in production.
+
+- `BETTER_AUTH_SECRET`: a private random secret of at least 32 characters (for example, generate with `openssl rand -base64 32`). Production startup rejects the example placeholder.
 - `BASE_URL`: the public application origin without `/api`; use HTTPS in production.
 - `AUTH_LINK_BASE_URL`: optional separate email-link origin, defaulting to `BASE_URL`. That origin must serve `/api/auth/links/*`.
 - `TRUSTED_PROXIES`: the actual trusted reverse proxy IP addresses/CIDRs; leave unset for direct connections.

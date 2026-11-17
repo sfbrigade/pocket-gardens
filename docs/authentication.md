@@ -4,6 +4,14 @@ The application uses [Better Auth](https://better-auth.com/) under `/api/auth`, 
 the Magic Link, Bearer, and Admin plugins. Refer to Better Auth's documentation for
 standard APIs and the [README](../README.md#authentication-setup) for required configuration.
 
+For local development, `npm run dev` prepares the ignored env files before starting
+the processes. It generates and persists a random `BETTER_AUTH_SECRET` if the local
+value is missing, too short, or the example placeholder, including in an existing
+env file from before the auth port. Valid secrets stay unchanged on subsequent
+runs. The server env file is private, and only `VITE_` settings are copied into the
+client env file. No secret value is logged. Production startup still requires an
+explicitly configured secret and rejects the example placeholder.
+
 ## Login and registration
 
 The web login page offers email-link login and password login. Both return to the
