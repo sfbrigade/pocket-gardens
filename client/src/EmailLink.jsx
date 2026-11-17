@@ -5,6 +5,7 @@ import { Head } from '@unhead/react';
 
 import Api from './Api';
 import { authPath, loginDestination } from './LoginDestination';
+import { setAuthenticatedUser } from './auth-session';
 
 export default function EmailLink ({ action }) {
   const [searchParams] = useSearchParams();
@@ -21,8 +22,7 @@ export default function EmailLink ({ action }) {
       if (verifyingEmail) {
         navigate(authPath('/login', from), { replace: true, state: { flash: 'Your email has been verified. You can now log in.', loginMethod: 'password' } });
       } else {
-        await queryClient.cancelQueries({ queryKey: ['users', 'me'], exact: true });
-        queryClient.setQueryData(['users', 'me'], response.data);
+        await setAuthenticatedUser(queryClient, response.data);
         navigate(from, { replace: true });
       }
     },

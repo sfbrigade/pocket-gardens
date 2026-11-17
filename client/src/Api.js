@@ -3,6 +3,7 @@
 import axios from 'axios';
 import { StatusCodes } from 'http-status-codes';
 import { capitalize } from 'inflection';
+import { authPath } from './LoginDestination.js';
 
 const instance = axios.create({
   headers: {
@@ -14,7 +15,7 @@ instance.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === StatusCodes.UNAUTHORIZED && !error.config?.url?.startsWith('/api/auth/') && typeof window !== 'undefined') {
-      window.location = '/login';
+      window.location = authPath('/login', window.location);
     }
     return Promise.reject(error);
   }

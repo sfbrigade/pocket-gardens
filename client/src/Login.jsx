@@ -9,6 +9,7 @@ import Api from './Api';
 import { useAuthContext } from './AuthContext';
 import { useStaticContext } from './StaticContext';
 import { authPath, loginDestination } from './LoginDestination';
+import { setAuthenticatedUser } from './auth-session';
 
 function Login () {
   const staticContext = useStaticContext();
@@ -51,10 +52,7 @@ function Login () {
 
   const onSubmitMutation = useMutation({
     mutationFn: ({ email, password }) => Api.auth.login(email, password),
-    onSuccess: async (response) => {
-      await queryClient.cancelQueries({ queryKey: ['users', 'me'], exact: true });
-      queryClient.setQueryData(['users', 'me'], response.data);
-    },
+    onSuccess: (response) => setAuthenticatedUser(queryClient, response.data),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });

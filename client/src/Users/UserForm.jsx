@@ -43,6 +43,9 @@ function UserEditor ({ userId, user }) {
     mutationFn: (values) => Api.users.update(userId, values),
     onMutate: () => setSuccess(false),
     onSuccess: (response) => {
+      // This callback can finish after logout or after the editor unmounts.
+      const currentUser = queryClient.getQueryData(['users', 'me']);
+      if (currentUser !== undefined && currentUser?.id !== authContext.user.id) return;
       queryClient.setQueryData(['users', userId], response);
       if (userId === authContext.user.id) {
         queryClient.setQueryData(['users', 'me'], response.data);

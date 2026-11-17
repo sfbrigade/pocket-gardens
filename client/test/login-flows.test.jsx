@@ -16,6 +16,8 @@ import Register from '../src/Register';
 import ForgotPassword from '../src/Passwords/ForgotPassword';
 import ResetPassword from '../src/Passwords/ResetPassword';
 import Invite from '../src/Invites/Invite';
+import UserForm from '../src/Users/UserForm';
+import AppRedirects from '../src/AppRedirects';
 
 vi.mock('../src/Api', () => ({
   default: {
@@ -29,7 +31,7 @@ vi.mock('../src/Api', () => ({
       verifyMagicLink: vi.fn(),
     },
     passwords: { reset: vi.fn(), update: vi.fn() },
-    users: { me: vi.fn() },
+    users: { me: vi.fn(), get: vi.fn(), update: vi.fn() },
     invites: { get: vi.fn() },
   },
 }));
@@ -44,7 +46,7 @@ function Location () {
   return <output data-testid='location'>{location.pathname}{location.search}{location.hash}</output>;
 }
 
-function open (entry = '/login') {
+function open (entry = '/login', { accountEditor = false } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <StaticContextProvider value={{ authContext: { user: null }, env: { VITE_FEATURE_REGISTRATION: 'true' } }}>
@@ -55,17 +57,19 @@ function open (entry = '/login') {
               <AuthContextProvider>
                 <Header opened={false} close={() => {}} toggle={() => {}} />
                 <Location />
-                <Routes>
-                  <Route path='/login' element={<Login />} />
-                  <Route path='/register' element={<Register />} />
-                  <Route path='/invites/:inviteId' element={<Invite />} />
-                  <Route path='/passwords/forgot' element={<ForgotPassword />} />
-                  <Route path='/passwords/reset' element={<ResetPassword />} />
-                  <Route path='/auth/verify-email' element={<EmailLink action='verify-email' />} />
-                  <Route path='/auth/magic-link' element={<EmailLink action='magic-link' />} />
-                  <Route path='/account' element={<div>Account destination</div>} />
-                  <Route path='/' element={<div>Home destination</div>} />
-                </Routes>
+                <AppRedirects>
+                  <Routes>
+                    <Route path='/login' element={<Login />} />
+                    <Route path='/register' element={<Register />} />
+                    <Route path='/invites/:inviteId' element={<Invite />} />
+                    <Route path='/passwords/forgot' element={<ForgotPassword />} />
+                    <Route path='/passwords/reset' element={<ResetPassword />} />
+                    <Route path='/auth/verify-email' element={<EmailLink action='verify-email' />} />
+                    <Route path='/auth/magic-link' element={<EmailLink action='magic-link' />} />
+                    <Route path='/account' element={accountEditor ? <UserForm /> : <div>Account destination</div>} />
+                    <Route path='/' element={<div>Home destination</div>} />
+                  </Routes>
+                </AppRedirects>
               </AuthContextProvider>
             </MantineProvider>
           </QueryClientProvider>
@@ -155,6 +159,36 @@ describe('login choices', () => {
   });
 
   for (const method of ['password', 'magic-link']) {
+    it(`discards the previous account's cached data and pending requests after ${method} login`, async () => {
+      const previousProfile = { ...profile, id: 'previous-admin', isAdmin: true };
+      if (method === 'magic-link') Api.users.me.mockResolvedValue({ status: 200, data: previousProfile });
+      const user = open(method === 'password' ? loginEntry : `/auth/magic-link?token=test-token&from=${encodeURIComponent(from)}`);
+      await waitFor(() => expect(Api.users.me).toHaveBeenCalled());
+      if (method === 'magic-link') await screen.findByRole('button', { name: 'Log out' });
+      user.queryClient.setQueryData(['users', previousProfile.id], { data: previousProfile });
+      user.queryClient.setQueryData(['carer-directory', 'Test'], { pages: [{ data: [previousProfile] }] });
+      user.queryClient.setQueryData(['plots', 'capabilities'], { canAssignCarers: true });
+      let complete;
+      const pending = user.queryClient.fetchQuery({
+        queryKey: ['people', 'private-person'],
+        queryFn: () => new Promise(resolve => { complete = resolve; }),
+      }).catch(() => {});
+      if (method === 'password') {
+        await user.type(screen.getByLabelText('Email', { exact: true }), email);
+        await user.click(screen.getByRole('radio', { name: 'Log in with password' }));
+        await user.type(screen.getByLabelText('Password', { exact: true }), 'a long password{Enter}');
+      } else {
+        await user.click(screen.getByRole('button', { name: 'Log in' }));
+      }
+      await screen.findByText('Account destination');
+      expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(profile);
+      expect(user.queryClient.getQueryData(['users', previousProfile.id])).toBeUndefined();
+      expect(user.queryClient.getQueryData(['carer-directory', 'Test'])).toBeUndefined();
+      expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toBeUndefined();
+      await act(async () => { complete({ email: 'private@example.com' }); await pending; });
+      expect(user.queryClient.getQueryData(['people', 'private-person'])).toBeUndefined();
+    });
+
     it(`does not overwrite a new ${method} session with an older signed-out response`, async () => {
       let complete;
       const oldSession = new Promise(resolve => { complete = resolve; });
@@ -328,6 +362,66 @@ describe('verification and recovery branches', () => {
 });
 
 describe('leaving a session', () => {
+  for (const switchAccount of [false, true]) {
+    it(`ignores an old profile save after ${switchAccount ? 'logging in as another account' : 'logging out'}`, async () => {
+      const previous = { ...profile, id: 'previous', firstName: 'Previous', picture: null, emailVerified: true };
+      const current = { ...profile, id: 'current', firstName: 'Current' };
+      Api.users.me.mockResolvedValue({ status: 200, data: previous });
+      Api.users.get.mockResolvedValue({ data: previous });
+      let finishSave;
+      const save = new Promise(resolve => { finishSave = resolve; });
+      Api.users.update.mockReturnValue(save);
+      Api.auth.logout.mockImplementation(async () => {
+        Api.users.me.mockResolvedValue({ status: 204, data: null });
+        return { data: { status: true } };
+      });
+      Api.auth.login.mockImplementation(async () => {
+        Api.users.me.mockResolvedValue({ status: 200, data: current });
+        return { data: current };
+      });
+      const user = open('/account', { accountEditor: true });
+      await user.type(await screen.findByLabelText('First name'), 'Edited');
+      await user.click(screen.getByRole('button', { name: 'Submit', exact: true }));
+      await waitFor(() => expect(Api.users.update).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'Log out' }));
+      await screen.findByText('Home destination');
+      await screen.findByRole('link', { name: 'Log in', exact: true });
+      if (switchAccount) {
+        await user.click(screen.getByRole('link', { name: 'Log in', exact: true }));
+        await user.type(screen.getByLabelText('Email', { exact: true }), email);
+        await user.click(screen.getByRole('radio', { name: 'Log in with password' }));
+        await user.type(screen.getByLabelText('Password', { exact: true }), 'a long password{Enter}');
+        await screen.findByRole('link', { name: 'Current!' });
+      }
+      // A failed refresh must not leave the old mutation's identity in the UI.
+      Api.users.me.mockRejectedValue(new Error('Session profile refresh unavailable'));
+      await act(async () => { finishSave({ data: { ...previous, firstName: 'PreviousEdited' } }); await save; });
+      expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(switchAccount ? current : null);
+      expect(user.queryClient.getQueryData(['users', previous.id])).toBeUndefined();
+      expect(screen.queryByRole('link', { name: 'PreviousEdited!' })).toBeNull();
+    });
+  }
+
+  it('updates the current profile and session after an ordinary profile save', async () => {
+    const current = { ...profile, picture: null, emailVerified: true };
+    const updated = { ...current, firstName: 'Updated' };
+    Api.users.me.mockResolvedValue({ status: 200, data: current });
+    Api.users.get.mockResolvedValue({ data: current });
+    Api.users.update.mockImplementation(async () => {
+      Api.users.me.mockResolvedValue({ status: 200, data: updated });
+      Api.users.get.mockResolvedValue({ data: updated });
+      return { data: updated };
+    });
+    const user = open('/account', { accountEditor: true });
+    const firstName = await screen.findByLabelText('First name');
+    await user.clear(firstName);
+    await user.type(firstName, updated.firstName);
+    await user.click(screen.getByRole('button', { name: 'Submit', exact: true }));
+    expect(await screen.findByText('Your account has been updated!')).toBeTruthy();
+    expect(await screen.findByRole('link', { name: 'Updated!' })).toBeTruthy();
+    expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(updated);
+  });
+
   it('uses the shared logout action to switch accounts without leaving an invitation', async () => {
     const invitedEmail = 'invited@example.com';
     Api.users.me.mockResolvedValue({ status: 200, data: profile });
