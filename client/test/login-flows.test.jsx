@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { MantineProvider } from '@mantine/core';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createHead, UnheadProvider } from '@unhead/react/client';
 
 import Api from '../src/Api';
@@ -203,8 +203,10 @@ describe('login choices', () => {
         await user.click(screen.getByRole('button', { name: 'Log in' }));
       }
       await screen.findByRole('link', { name: 'Test!' });
+      user.queryClient.setQueryData(['users', profile.id], { data: profile });
       await act(async () => complete({ status: 204, data: null }));
       expect(screen.getByRole('link', { name: 'Test!' })).toBeTruthy();
+      expect(user.queryClient.getQueryData(['users', profile.id])).toEqual({ data: profile });
     });
   }
 
@@ -359,6 +361,44 @@ describe('verification and recovery branches', () => {
       vi.stubGlobal('window', originalWindow);
     }
   });
+});
+
+describe('session refresh across tabs', () => {
+  for (const { name, nextUser, clearCache } of [
+    { name: 'another account signs in', nextUser: { ...profile, id: 'current', firstName: 'Current' }, clearCache: true },
+    { name: 'the account signs out', nextUser: null, clearCache: true },
+    { name: 'the same account refreshes its profile', nextUser: { ...profile, id: 'previous', firstName: 'Updated' }, clearCache: false },
+  ]) {
+    it(`${clearCache ? 'clears' : 'preserves'} cached data when focus returns and ${name}`, async () => {
+      const previous = { ...profile, id: 'previous', firstName: 'Previous' };
+      Api.users.me.mockResolvedValue({ status: 200, data: previous });
+      const user = open('/account');
+      await screen.findByRole('link', { name: 'Previous!' });
+      user.queryClient.setQueryData(['users', previous.id], { data: previous });
+      user.queryClient.setQueryData(['plots', 'capabilities'], { canAssignCarers: true });
+      const privatePerson = { email: 'private@example.com' };
+      user.queryClient.setQueryData(['people', 'private-person'], privatePerson);
+      let complete;
+      const pending = user.queryClient.fetchQuery({
+        queryKey: ['people', 'private-person'],
+        queryFn: () => new Promise(resolve => { complete = resolve; }),
+      }).catch(() => {});
+      try {
+        focusManager.setFocused(false);
+        Api.users.me.mockResolvedValue({ status: nextUser ? 200 : 204, data: nextUser });
+        await act(async () => { focusManager.setFocused(true); });
+        await screen.findByRole('link', { name: nextUser ? `${nextUser.firstName}!` : 'Log in', exact: true });
+        expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(nextUser);
+        expect(user.queryClient.getQueryData(['users', previous.id])).toEqual(clearCache ? undefined : { data: previous });
+        expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toEqual(clearCache ? undefined : { canAssignCarers: true });
+        expect(user.queryClient.getQueryData(['people', 'private-person'])).toEqual(clearCache ? undefined : privatePerson);
+        await act(async () => { complete(privatePerson); await pending; });
+        expect(user.queryClient.getQueryData(['people', 'private-person'])).toEqual(clearCache ? undefined : privatePerson);
+      } finally {
+        focusManager.setFocused(undefined);
+      }
+    });
+  }
 });
 
 describe('leaving a session', () => {

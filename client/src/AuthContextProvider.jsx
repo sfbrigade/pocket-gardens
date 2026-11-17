@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Api from './Api';
 import { authContext } from './AuthContext';
 import { useStaticContext } from './StaticContext';
+import { clearAccountQueries } from './auth-session';
 
 function AuthContextProvider ({ children }) {
   const staticContext = useStaticContext();
@@ -13,7 +14,16 @@ function AuthContextProvider ({ children }) {
   const navigate = useNavigate();
   const { data: user = staticContext.authContext?.user } = useQuery({
     queryKey: ['users', 'me'],
-    queryFn: () => Api.users.me().then(response => response.status === 200 ? response.data : null),
+    queryFn: async ({ signal }) => {
+      const response = await Api.users.me();
+      // A canceled request must not clear data loaded after a newer login.
+      signal.throwIfAborted();
+      const nextUser = response.status === 200 ? response.data : null;
+      const cachedUser = queryClient.getQueryData(['users', 'me']);
+      const previousUser = cachedUser === undefined ? staticContext.authContext?.user : cachedUser;
+      if (previousUser?.id !== nextUser?.id) clearAccountQueries(queryClient);
+      return nextUser;
+    },
   });
   const signOut = useMutation({
     mutationFn: () => Api.auth.logout(),

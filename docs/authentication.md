@@ -33,6 +33,9 @@ read-only, and email-change endpoints are disabled.
 
 The React client uses Better Auth's native endpoints and browser session cookies.
 After login, it loads `/api/users/me` for the application profile and admin permissions.
+When the session refresh detects an account change or logout, it clears cached
+account data and pending queries before exposing the new session. This also covers
+changes made in another tab when the application regains focus.
 
 Passwordless signup uses `/api/auth/sign-in/magic-link` with `email` and
 `metadata.registration: { firstName, lastName, inviteId? }`. The server validates and
