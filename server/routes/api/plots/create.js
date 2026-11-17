@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { PhotoUploadError } from '#lib/photo-upload.js';
 import { StatusCodes } from 'http-status-codes';
 import { createPlotPlants } from '#models/plot-plant.js';
 import { z } from 'zod';
@@ -62,7 +63,7 @@ export default async function (fastify, opts) {
         const details = await reloadPlotDetails(tx, created.id);
         callbackCompleted = true;
         return details;
-      });
+      }, { timeout: 60000 });
     } catch (error) {
       if (!callbackCompleted) {
         // A failed callback never requests COMMIT, so its copies can be removed.
@@ -70,6 +71,12 @@ export default async function (fastify, opts) {
         if (error.code === 'P2002' && submissionId) {
           const winner = await findSubmission(fastify.prisma, submissionId);
           if (winner) return replay(winner);
+        }
+        if (['NoSuchKey', 'NotFound'].includes(error.name)) {
+          // Another concurrent request may have committed and removed staging.
+          const winner = await findSubmission(fastify.prisma, submissionId);
+          if (winner) return replay(winner);
+          throw new PhotoUploadError('This photo is missing. Reattach it or continue without a photo.', 'Photos');
         }
         throw error;
       }

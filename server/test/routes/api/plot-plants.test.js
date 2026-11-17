@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { authenticate, build } from '#test/helper.js';
+import { authenticate, build, upload } from '#test/helper.js';
 import s3 from '#lib/s3.js';
 
 test('plant directory search and plot plantings', async (t) => {
@@ -101,6 +101,7 @@ test('plant directory search and plot plantings', async (t) => {
   await t.test('rolls back a new directory plant when a later photo attachment fails', async (t) => {
     const plots = await prisma.plot.count();
     const plants = await prisma.plant.count();
+    await upload([['640x480.jpg', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg']]);
     t.mock.method(s3, 'copyObject', async () => { throw new Error('Simulated storage failure'); });
     t.mock.method(console, 'error', () => {});
     const response = await create({

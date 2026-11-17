@@ -5,7 +5,7 @@ import classNames from 'classnames';
 import DropzoneUploader from './DropzoneUploader';
 import classes from './PhotoInput.module.css';
 
-function PhotoInput ({ children, description, disabled, error, id, label, name, onChange, onUploadStateChange, defaultValue, value, valueUrl }) {
+function PhotoInput ({ children, description, disabled, error, id, label, name, onChange, defaultValue, value, valueUrl, deferred = false, onFileChange }) {
   const [_value, handleChange] = useUncontrolled({
     value,
     defaultValue,
@@ -15,12 +15,11 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
 
   function onRemoved () {
     handleChange('');
-    onUploadStateChange?.('idle');
+    onFileChange?.(null);
   }
 
   function onUploaded (status) {
     handleChange(status.filename);
-    onUploadStateChange?.('uploaded');
   }
 
   return (
@@ -30,11 +29,11 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
           <DropzoneUploader
             id={id}
             multiple={false}
+            deferred={deferred}
+            onSelected={onFileChange}
             disabled={disabled || (!!_value && _value !== '')}
             onRemoved={onRemoved}
             onUploaded={onUploaded}
-            onUploading={() => onUploadStateChange?.('uploading')}
-            onUploadError={() => onUploadStateChange?.('error')}
           >
             {({ statuses, onRemove, onRetry }) => {
               if (statuses.length > 0) {
@@ -46,20 +45,20 @@ function PhotoInput ({ children, description, disabled, error, id, label, name, 
                     })}
                   >
                     <Image src={s.file.preview} alt='' />
-                    <CloseButton aria-label='Remove photo' onClick={(event) => { event.stopPropagation(); onRemove(s); }} className={classes.remove} />
+                    <CloseButton disabled={disabled} aria-label='Remove photo' onClick={(event) => { event.stopPropagation(); onRemove(s); }} className={classes.remove} />
                     <Loader className={classes.spinner} />
-                    {s.status === 'error' && <Box p='xs'><Text c='red' role='alert'>Photo upload failed.</Text><Button type='button' size='xs' onClick={(event) => { event.stopPropagation(); onRetry(s); }}>Retry upload</Button></Box>}
+                    {s.status === 'error' && <Box p='xs'><Text c='red' role='alert'>{s.error?.response?.data?.errors?.map(({ message }) => message).join(' ') || s.error?.response?.data?.message || 'Photo upload failed.'}</Text><Button disabled={disabled} type='button' size='xs' onClick={(event) => { event.stopPropagation(); onRetry(s); }}>Retry upload</Button></Box>}
                   </Box>
                 ));
               } else if (statuses.length === 0 && _value) {
                 return (
                   <Box className={classes.preview}>
                     {valueUrl ? <Image src={valueUrl} alt='Uploaded photo' /> : <Text p='md'>Photo uploaded and attached.</Text>}
-                    <CloseButton aria-label='Remove photo' className={classes.remove} onClick={(event) => { event.stopPropagation(); onRemoved(); }} />
+                    <CloseButton disabled={disabled} aria-label='Remove photo' className={classes.remove} onClick={(event) => { event.stopPropagation(); onRemoved(); }} />
                   </Box>
                 );
               } else if (statuses.length === 0 && !_value) {
-                return children || <Text className='clickable' inherit={false} fz='sm' my='sm'>Drag-and-drop a photo file here, or click here to browse and select a file.</Text>;
+                return children || <Text className='clickable' inherit={false} fz='sm' my='sm'>Drag-and-drop a photo file here, or click here to browse and select a file. JPEG, PNG, WebP or GIF, up to 10 MiB.</Text>;
               }
             }}
           </DropzoneUploader>

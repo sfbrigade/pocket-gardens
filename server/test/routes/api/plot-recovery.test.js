@@ -159,6 +159,7 @@ test('plot submission recovery', async (t) => {
       assert.ok(await assetExists(copied.mock.calls[0].arguments[1]));
       assert.ok(await assetExists(`_uploads/${filename}`));
       assert.equal((await create(payload)).statusCode, committed ? 200 : 201);
+      assert.ok(await assetExists(copied.mock.calls[0].arguments[1]), 'uncertain copies are retained even after retry');
       assert.equal(await prisma.plot.count(), 4);
       assert.equal(await prisma.plant.count(), 4);
       assert.equal(copied.mock.calls.length, committed ? 1 : 2);

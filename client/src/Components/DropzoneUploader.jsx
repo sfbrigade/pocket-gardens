@@ -3,34 +3,36 @@ import { useMutation } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone-esm';
 import { v4 as uuid } from 'uuid';
 
-import Api from '../Api';
+import uploadPhoto from '../upload-photo';
 
-function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, onUploading, onUploadError }) {
+function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected }) {
   const [statuses, setStatuses] = useState([]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
+  const disabledRef = useRef(disabled);
+  useEffect(() => { disabledRef.current = disabled; }, [disabled]);
+  const active = useRef(false);
   const uploads = useRef(new Map());
   const previews = useRef(new Map());
   const mutation = useMutation({
-    mutationFn: async ({ file, signal }) => {
-      const { data } = await Api.assets.create({ filename: file.name, contentType: file.type || 'application/octet-stream', byteSize: file.size }, signal);
-      await Api.assets.upload(data.url, data.headers, file, signal);
-      return data.filename;
-    },
+    mutationFn: uploadPhoto,
     retry: false,
   });
 
-  useEffect(() => () => {
-    for (const controller of uploads.current.values()) controller.abort();
-    for (const url of previews.current.values()) URL.revokeObjectURL(url);
-    uploads.current.clear();
-    previews.current.clear();
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      for (const controller of uploads.current.values()) controller.abort();
+      for (const url of previews.current.values()) URL.revokeObjectURL(url);
+      uploads.current.clear();
+      previews.current.clear();
+    };
   }, []);
 
   async function upload (status) {
     const controller = new AbortController();
     uploads.current.set(status.id, controller);
     setStatuses((current) => current.map((entry) => entry.id === status.id ? { ...entry, status: 'uploading', error: null } : entry));
-    onUploading?.(status);
     try {
       const filename = await mutation.mutateAsync({ file: status.file, signal: controller.signal });
       if (controller.signal.aborted || !uploads.current.has(status.id)) return;
@@ -41,22 +43,23 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
       if (controller.signal.aborted || !uploads.current.has(status.id)) return;
       const failed = { ...status, status: 'error', error };
       setStatuses((current) => current.map((entry) => entry.id === status.id ? failed : entry));
-      onUploadError?.(failed);
     } finally {
       if (uploads.current.get(status.id) === controller) uploads.current.delete(status.id);
     }
   }
 
   function onDropAccepted (files) {
+    if (!active.current || disabledRef.current) return;
     setRejectedFiles([]);
     const next = files.map((file) => {
       const id = uuid();
       const preview = URL.createObjectURL(file);
       previews.current.set(id, preview);
-      return { id, file: Object.assign(file, { preview }), status: 'pending', filename: null };
+      return { id, file: Object.assign(file, { preview }), status: deferred ? 'selected' : 'pending', filename: null };
     });
     setStatuses(next);
-    for (const status of next) upload(status);
+    if (deferred) onSelected?.(files[0]);
+    else for (const status of next) upload(status);
   }
 
   function onRemove (status) {
@@ -72,7 +75,8 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
     id,
     multiple,
     maxFiles: maxFiles ?? 0,
-    accept: { 'image/*': [] },
+    maxSize: 10 * 1024 * 1024,
+    accept: { 'image/jpeg': [], 'image/png': [], 'image/webp': [], 'image/gif': [] },
     onDropAccepted,
     onDropRejected: setRejectedFiles,
     disabled: disabled || statuses.length > 0,
