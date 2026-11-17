@@ -18,18 +18,80 @@ model User {
   firstName               String
   lastName                String
   email                   String    @unique @db.Citext
+  name                    String    @default("")
+  emailVerified           Boolean   @default(false)
+  image                   String?
+  role                    String    @default("user")
+  banned                  Boolean   @default(false)
+  banReason               String?
+  banExpires              DateTime?
   picture                 String?
-  isAdmin                 Boolean   @default(false)
-  hashedPassword          String
-  deactivatedAt           DateTime?
-  passwordResetToken      String?   @unique @db.Uuid
-  passwordResetExpiresAt  DateTime?
+  // Retained for cutover validation only; Better Auth owns access and credentials.
+  legacyIsAdmin                 Boolean   @default(false) @map("isAdmin")
+  legacyHashedPassword          String?   @map("hashedPassword")
+  legacyDeactivatedAt           DateTime? @map("deactivatedAt")
+  legacyPasswordResetToken      String?   @unique(map: "User_passwordResetToken_key") @db.Uuid @map("passwordResetToken")
+  legacyPasswordResetExpiresAt  DateTime? @map("passwordResetExpiresAt")
+  volunteerRecord               Person?
+  sessions                Session[]
+  accounts                Account[]
   createdInvites          Invite[]  @relation("CreatedByUser")
   acceptedInvites         Invite[]  @relation("AcceptedByUser")
   revokedInvites          Invite[]  @relation("RevokedByUser")
   updatedAt               DateTime  @updatedAt
   createdAt               DateTime  @default(now())
-  volunteerRecord         Person?
+}
+
+model Session {
+  id             String   @id @default(uuid()) @db.Uuid
+  token          String   @unique
+  userId         String   @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  ipAddress      String?
+  userAgent      String?
+  impersonatedBy String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Account {
+  id                     String    @id @default(uuid()) @db.Uuid
+  accountId              String
+  providerId             String
+  userId                 String    @db.Uuid
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  password               String?
+  accessToken            String?
+  refreshToken           String?
+  idToken                String?
+  accessTokenExpiresAt   DateTime?
+  refreshTokenExpiresAt  DateTime?
+  scope                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id           String   @id @default(uuid()) @db.Uuid
+  identifier   String   @unique
+  value        String
+  registration Json?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model RateLimit {
+  id          String @id @default(uuid()) @db.Uuid
+  key         String @unique
+  count       Int
+  lastRequest BigInt
 }
 
 model Invite {
