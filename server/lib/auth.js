@@ -80,6 +80,13 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     trustedOrigins: [new URL(baseURL).origin, linkOrigin],
     disabledPaths: ['/update-user', '/admin/update-user'],
     database: prismaAdapter(prisma, { provider: 'postgresql', transaction: true }),
+    verification: {
+      storeIdentifier: {
+        default: 'hashed',
+        // The Magic Link plugin already hashes its token before storing it.
+        overrides: { 'magic-link:': 'plain' },
+      },
+    },
     advanced: {
       // Exercise the same browser-origin protections in test and production.
       disableOriginCheck: false,

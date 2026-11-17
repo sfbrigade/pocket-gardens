@@ -87,12 +87,15 @@ test('Better Auth foundation, passwords and invitations', async (t) => {
     assert.equal((await app.inject().post('/api/auth/sign-up/email')
       .headers({ origin: process.env.BASE_URL })
       .payload({ firstName: 'Test', lastName: 'Person', email: 'long@example.com', password: 'a'.repeat(129) })).statusCode, 400);
-    const { headers } = await verifiedUser(app);
+    const { user, headers } = await verifiedUser(app);
     const request = await app.inject().post('/api/auth/request-password-reset')
       .headers({ origin: process.env.BASE_URL })
       .payload({ email: 'person@example.com' });
     assert.equal(request.statusCode, 200, request.body);
     const token = await mailToken(mail);
+    const stored = await prisma.verification.findMany();
+    assert.ok(stored.some(row => row.value === user.id));
+    assert.ok(stored.every(row => !row.identifier.includes(token)), 'The emailed reset token must not be recoverable from storage');
     assert.equal((await app.inject().post('/api/auth/reset-password')
       .headers({ origin: process.env.BASE_URL })
       .payload({ token, newPassword: 'short' })).statusCode, 400);
@@ -206,7 +209,8 @@ test('Better Auth foundation, passwords and invitations', async (t) => {
     assert.equal((await app.inject().post('/api/auth/change-password')
       .headers({ origin: process.env.BASE_URL, ...member.headers })
       .payload({ currentPassword: 'WrongPassword123!', newPassword: `${password}New` })).statusCode, 400);
-    assert.ok(await prisma.verification.findUnique({ where: { identifier: `reset-password:${resetToken}` } }));
+    const { internalAdapter } = await app.auth.$context;
+    assert.ok(await internalAdapter.findVerificationValue(`reset-password:${resetToken}`));
     assert.equal((await app.inject().post('/api/auth/reset-password')
       .headers({ origin: process.env.BASE_URL })
       .payload({ token: resetToken, newPassword: `${password}Fresh` })).statusCode, 200);
