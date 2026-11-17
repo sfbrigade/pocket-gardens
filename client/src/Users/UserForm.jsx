@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useLocation, useParams } from 'react-router';
-import { Alert, Button, Checkbox, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Checkbox, Container, Fieldset, Group, Loader, Stack, TextInput, Title } from '@mantine/core';
 import { hasLength, isEmail, isNotEmpty, useForm } from '@mantine/form';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
@@ -11,9 +11,23 @@ import PhotoInput from '../Components/PhotoInput';
 
 function UserForm () {
   const authContext = useAuthContext();
-  const location = useLocation();
   const params = useParams();
   const userId = params.userId ?? authContext.user.id;
+  const query = useQuery({
+    queryKey: ['users', userId],
+    queryFn: () => Api.users.get(userId),
+    enabled: !!userId,
+  });
+
+  if (query.isPending) return <Container><Loader aria-label='Loading account' /></Container>;
+  if (query.isError && !query.data) return <Container><Alert color='red' title='Unable to load account'><Button variant='subtle' onClick={() => query.refetch()}>Try again</Button></Alert></Container>;
+  return <UserEditor key={userId} userId={userId} user={query.data.data} />;
+}
+
+function UserEditor ({ userId, user }) {
+  const authContext = useAuthContext();
+  const queryClient = useQueryClient();
+  const location = useLocation();
 
   const form = useForm({
     mode: 'uncontrolled',
@@ -21,10 +35,11 @@ function UserForm () {
       firstName: '',
       lastName: '',
       email: '',
-      password: '',
       picture: '',
       pictureUrl: '',
       isAdmin: false,
+      ...user,
+      password: '',
     },
     validate: {
       firstName: isNotEmpty('First name is required.'),
@@ -34,28 +49,16 @@ function UserForm () {
     },
   });
 
-  const { data: response, isLoading } = useQuery({
-    queryKey: ['users', userId],
-    queryFn: () => Api.users.get(userId),
-    enabled: !!userId,
-  });
-
-  useEffect(() => {
-    if (response) {
-      form.initialize({
-        ...response.data,
-        password: '',
-      });
-    }
-  }, [response]);
-
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.users.update(userId, values),
     onMutate: () => setSuccess(false),
     onSuccess: (response) => {
+      queryClient.setQueryData(['users', userId], response);
       if (userId === authContext.user.id) {
+        queryClient.setQueryData(['users', 'me'], response.data);
         authContext.setUser(response.data);
       }
+      queryClient.invalidateQueries({ queryKey: ['users'] });
       setSuccess(true);
     },
     onError: (errors) => form.setErrors(errors),
@@ -71,13 +74,14 @@ function UserForm () {
       <Container>
         <Title mb='md'>My Account</Title>
         <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
-          <Fieldset disabled={isLoading} variant='unstyled'>
+          <Fieldset variant='unstyled'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {location.state?.flash && <Alert>{location.state?.flash}</Alert>}
               {form.errors?._form && <Alert color='red'>{form.errors._form}</Alert>}
               {success && <Alert>Your account has been updated!</Alert>}
               <PhotoInput
                 {...form.getInputProps('picture')}
+                key={form.key('picture')}
                 label='Picture'
                 valueUrl={form.getValues().pictureUrl}
               />

@@ -7,7 +7,7 @@
  * Pass 2: wire foreign keys and join tables using airtableId → UUID map
  *
  * Usage:
- *   bin/airtable-import.js [--dry-run] [--tables=Plots,Plants,...]
+ *   bin/airtable-import.js [--dry-run] [--tables=Plots,Plants,...] [--plot-stage-resolutions=path.json]
  *
  * Env: AIRTABLE_API_KEY, AIRTABLE_BASE_ID
  *      DATABASE_URL (required unless --dry-run)
@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 
 import '../config.js';
 import { listAllRecords } from '#lib/airtable-fetch.js';
+import { planPlotStageMigration, readStageResolutions } from '#lib/airtable-plot-stage.js';
 import {
   buildJoinSyncPlan,
   buildPlantSlotSyncPlan,
@@ -181,9 +182,11 @@ async function upsertMany (label, items, upsertFn, idMap) {
 
 async function main () {
   const { apiKey, baseId } = requireEnv();
-  if (!dryRun) {
+  if (!dryRun || process.env.DATABASE_URL) {
     ({ default: prisma } = await import('#prisma/client.js'));
   }
+  const resolutionsArg = args.find((arg) => arg.startsWith('--plot-stage-resolutions='));
+  const resolutions = await readStageResolutions(resolutionsArg?.slice('--plot-stage-resolutions='.length));
   const idMaps = {
     neighborhood: new Map(),
     zipCode: new Map(),
@@ -223,6 +226,26 @@ async function main () {
       fetchStatus[key] = 'failed';
     }
   }
+
+  // Validate the whole plot batch in both modes before any scalar or relation writes.
+  const existingPlots = prisma && fetched.plots.length
+    ? await prisma.plot.findMany({
+      where: { airtableId: { in: fetched.plots.map(({ id }) => id) } },
+      select: { airtableId: true, stage: true, permissionStatus: true },
+    })
+    : [];
+  const existingById = new Map(existingPlots.map((plot) => [plot.airtableId, plot]));
+  const stagePlan = planPlotStageMigration(fetched.plots.map((rec) => ({
+    ...existingById.get(rec.id), airtableId: rec.id, status: stringifyMaybe(rec.fields.Status),
+  })), resolutions);
+  if (stagePlan.unresolved.length) {
+    report.errors.push(...stagePlan.unresolved.map((error) => ({ table: 'Plot', ...error })));
+    console.log(JSON.stringify(report, null, 2));
+    await prisma?.$disconnect();
+    process.exitCode = 1;
+    return;
+  }
+  const plotLifecycles = new Map(stagePlan.updates.map((plot) => [plot.airtableId, plot]));
 
   function mapReady (key) {
     return fetchStatus[key] === 'ok';
@@ -356,7 +379,7 @@ async function main () {
     const data = {
       airtableId: rec.id,
       name: stringifyMaybe(f['Pocket Garden Name']),
-      status: stringifyMaybe(f.Status),
+      ...plotLifecycles.get(rec.id),
       streetAddress: stringifyMaybe(f['Street Address']),
       streetCityAddress: stringifyMaybe(f['Street City Address (for Maps)']),
       mapCoordinates: stringifyMaybe(f['Map Coordinates']),

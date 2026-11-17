@@ -1,13 +1,19 @@
 import crypto from 'node:crypto';
+import { PhotoUploadError } from '#lib/photo-upload.js';
 import { StatusCodes } from 'http-status-codes';
+import { createPlotPlants } from '#models/plot-plant.js';
+import { createPlotCarers } from '#models/plot-carer.js';
 import { z } from 'zod';
+import { submissionFingerprint, findSubmission, cleanupSubmissionObjects } from '#lib/plot-submission.js';
 
 import {
+  findPlotByPublicId,
   formatPlot,
+  allowsAnonymousPlotCreation,
   plotFieldsFromBody,
-  PlotFieldsSchema,
-  PlotSchema,
-  reloadPlotWithPhotos,
+  PlotCreateSchema,
+  PlotDetailSchema,
+  reloadPlotDetails,
   syncPlotPhotos,
 } from '#models/plot.js';
 
@@ -15,27 +21,85 @@ export default async function (fastify, opts) {
   fastify.post('/', {
     schema: {
       description: 'Creates a new Plot.',
-      body: PlotFieldsSchema,
+      body: PlotCreateSchema,
       response: {
-        [StatusCodes.CREATED]: PlotSchema,
-        [StatusCodes.UNPROCESSABLE_ENTITY]: z.null(),
+        [StatusCodes.CREATED]: PlotDetailSchema,
+        [StatusCodes.OK]: PlotDetailSchema,
+        [StatusCodes.CONFLICT]: z.strictObject({ message: z.string(), plotId: z.string() }),
+        [StatusCodes.UNPROCESSABLE_ENTITY]: fastify.ValidationErrorSchema,
       },
     },
+    onRequest: async (request, reply) => {
+      if (!allowsAnonymousPlotCreation()) return fastify.requireAdmin(request, reply);
+    },
   }, async function (request, reply) {
+    if (request.body.carerUserIds?.length) {
+      await fastify.requireAdmin(request, reply);
+      if (reply.sent) return;
+    }
     const fields = plotFieldsFromBody(request.body);
-    const { Photos } = request.body;
-    const record = await fastify.prisma.$transaction(async (tx) => {
-      const created = await tx.plot.create({
-        data: {
-          airtableId: `pg_${crypto.randomUUID()}`,
-          ...fields,
-        },
-      });
-      if (Photos !== undefined) {
-        await syncPlotPhotos(tx, created.id, Photos);
+    fields.mapCoordinates = `${fields.latitude}, ${fields.longitude}`;
+    const { Photos, submissionId } = request.body;
+    const fingerprint = submissionFingerprint(request.body, fields);
+    const replay = (existing) => existing.submissionFingerprint === fingerprint
+      ? reply.code(StatusCodes.OK).send(formatPlot(existing))
+      : reply.code(StatusCodes.CONFLICT).send({ message: 'This draft has already been saved with different values.', plotId: existing.airtableId });
+    const existing = await findSubmission(fastify.prisma, submissionId);
+    if (existing) return replay(existing);
+    const publicId = `pg_${crypto.randomUUID()}`;
+    const copied = [];
+    let callbackCompleted = false;
+    let record;
+    try {
+      record = await fastify.prisma.$transaction(async (tx) => {
+        const created = await tx.plot.create({
+          data: {
+            airtableId: publicId,
+            ...fields,
+            submissionId,
+            submissionFingerprint: submissionId ? fingerprint : undefined,
+            name: fields.name || [fields.streetAddress, publicId].filter(Boolean).join(' · '),
+          },
+        });
+        await createPlotPlants(tx, created, request.body.plants);
+        await createPlotCarers(tx, created.id, request.body.carerUserIds);
+        if (Photos !== undefined) {
+          await syncPlotPhotos(tx, created.id, Photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
+        }
+        const details = await reloadPlotDetails(tx, created.id);
+        callbackCompleted = true;
+        return details;
+      }, { timeout: 60000 });
+    } catch (error) {
+      if (!callbackCompleted) {
+        // A failed callback never requests COMMIT, so its copies can be removed.
+        await cleanupSubmissionObjects(copied, request.log);
+        if (error.code === 'P2002' && submissionId) {
+          const winner = await findSubmission(fastify.prisma, submissionId);
+          if (winner) return replay(winner);
+        }
+        if (['NoSuchKey', 'NotFound'].includes(error.name)) {
+          // Another concurrent request may have committed and removed staging.
+          const winner = await findSubmission(fastify.prisma, submissionId);
+          if (winner) return replay(winner);
+          throw new PhotoUploadError('This photo is missing. Reattach it or continue without a photo.', 'Photos');
+        }
+        throw error;
       }
-      return reloadPlotWithPhotos(tx, created.id);
-    });
+      // COMMIT may have succeeded despite losing its acknowledgment. Recover our
+      // own row even for requests without a submission ID before touching files.
+      try {
+        record = await findPlotByPublicId(fastify.prisma, publicId);
+      } catch (recoveryError) {
+        request.log.warn({ err: recoveryError, publicId }, 'Plot commit recovery could not complete');
+      }
+      if (!record) {
+        // A missing row does not prove rollback: COMMIT may still be in flight.
+        request.log.warn({ err: error, publicId, copied }, 'Plot commit outcome is uncertain; retaining photo objects');
+        throw error;
+      }
+    }
+    await cleanupSubmissionObjects((Photos ?? []).map((filename) => `_uploads/${filename}`), request.log);
     reply.code(StatusCodes.CREATED).send(formatPlot(record));
   });
 }
