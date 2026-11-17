@@ -84,7 +84,7 @@ test('/api/people', async (t) => {
           id: plot.id,
           name: 'Alpha Garden',
           streetAddress: '100 Test St',
-          status: 'Planted',
+          stage: 'active',
         },
       ]);
     });

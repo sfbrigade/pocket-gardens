@@ -16,7 +16,7 @@ const AssignedPlotSchema = z.object({
   id: z.string().uuid(),
   name: z.string().nullable(),
   streetAddress: z.string().nullable(),
-  status: z.string().nullable(),
+  stage: z.string().nullable(),
 });
 
 const PersonDetailResponseSchema = PersonResponseSchema.extend({

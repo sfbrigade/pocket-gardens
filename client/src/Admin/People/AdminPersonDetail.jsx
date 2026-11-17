@@ -73,7 +73,7 @@ function AdminPersonDetail () {
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
                 <Table.Th>Address</Table.Th>
-                <Table.Th>Status</Table.Th>
+                <Table.Th>Stage</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -87,7 +87,7 @@ function AdminPersonDetail () {
                 <Table.Tr key={plot.id}>
                   <Table.Td>{plot.name || 'Unnamed Plot'}</Table.Td>
                   <Table.Td>{plot.streetAddress || 'Not provided'}</Table.Td>
-                  <Table.Td>{plot.status || 'Not provided'}</Table.Td>
+                  <Table.Td>{plot.stage || 'Not provided'}</Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>

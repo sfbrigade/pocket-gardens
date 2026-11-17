@@ -38,7 +38,7 @@ export default async function (fastify, opts) {
                   id: true,
                   name: true,
                   streetAddress: true,
-                  status: true,
+                  stage: true,
                 },
               },
             },
@@ -62,7 +62,7 @@ export default async function (fastify, opts) {
           id: plot.id,
           name: plot.name,
           streetAddress: plot.streetAddress,
-          status: plot.status,
+          stage: plot.stage,
         })),
       });
     }
