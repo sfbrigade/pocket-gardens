@@ -26,10 +26,21 @@ export default async function (fastify, opts) {
       const data = await fastify.prisma.person.findUnique({
         where: { id },
         include: {
-          homeZip: true,
+          homeZip: {
+            select: {
+              code: true,
+            },
+          },
           assignedPlots: {
-            include: {
-              plot: true,
+            select: {
+              plot: {
+                select: {
+                  id: true,
+                  name: true,
+                  streetAddress: true,
+                  status: true,
+                },
+              },
             },
           },
         },
