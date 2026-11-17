@@ -25,10 +25,12 @@ export async function setupDevEnv (root = fileURLToPath(new URL('../', import.me
   }
   await writeFile(serverEnv, contents, { mode: 0o600 });
   await chmod(serverEnv, 0o600);
-  // Only browser-visible configuration belongs in the client env file.
-  const clientEnv = Object.entries(parse(contents))
-    .filter(([key]) => key.startsWith('VITE_'))
-    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+  // Preserve dotenv quoting and consume whole multiline assignments before
+  // filtering, so private values containing VITE_ lines cannot leak.
+  const assignments = /^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?$/gm;
+  const clientEnv = [...contents.matchAll(assignments)]
+    .filter(([, key]) => key.startsWith('VITE_'))
+    .map(([, key, value = '']) => `${key}=${value.trim()}`)
     .join('\n');
   await writeFile(path.join(root, 'client/.env'), `${clientEnv}\n`);
   return { generatedSecret };
