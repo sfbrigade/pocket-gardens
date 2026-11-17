@@ -13,7 +13,7 @@ const instance = axios.create({
 instance.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === StatusCodes.UNAUTHORIZED) {
+    if (error.response?.status === StatusCodes.UNAUTHORIZED && !error.config?.url?.startsWith('/api/auth/') && typeof window !== 'undefined') {
       window.location = '/login';
     }
     return Promise.reject(error);
@@ -63,6 +63,24 @@ function handleError (error) {
   throw errors;
 }
 
+function handleAuthError (error) {
+  const code = error.response?.data?.code;
+  if (code === 'INVALID_EMAIL_OR_PASSWORD') throw { _form: 'Invalid email and/or password.' };
+  if (code === 'EMAIL_NOT_VERIFIED') throw { _form: 'Please verify your email before logging in.', _code: code };
+  if (code === 'BANNED_USER') throw { _form: 'Your account has been deactivated.' };
+  if (code === 'INVALID_TOKEN' || code === 'TOKEN_EXPIRED') throw { _form: 'This link is invalid or has expired. Please request a new one.' };
+  if (error.response?.status === StatusCodes.TOO_MANY_REQUESTS) throw { _form: 'Too many attempts. Please try again in a few minutes.' };
+  throw { _form: error.response?.data?.message || error.message };
+}
+
+async function loadAuthenticatedUser () {
+  const response = await Api.users.me().catch(handleAuthError);
+  if (response.status !== StatusCodes.OK || !response.data?.id) {
+    throw { _form: 'Your session could not be confirmed. Please log in again.' };
+  }
+  return response;
+}
+
 const Api = {
   calculateLastPage,
   parseLinkHeader,
@@ -75,25 +93,36 @@ const Api = {
     },
   },
   auth: {
-    login (email, password) {
-      return instance.post('/api/auth/login', { email, password })
-        .catch((error) => {
-          switch (error.response?.status) {
-            case StatusCodes.NOT_FOUND:
-            case StatusCodes.UNPROCESSABLE_ENTITY:
-              throw { _form: 'Invalid email and/or password' };
-            case StatusCodes.FORBIDDEN:
-              throw { _form: 'Your account has been deactivated.' };
-            default:
-              throw { _form: error.message };
-          }
-        });
+    async login (email, password) {
+      await instance.post('/api/auth/sign-in/email', { email, password }).catch(handleAuthError);
+      return loadAuthenticatedUser();
     },
     logout () {
-      return instance.delete('/api/auth/logout');
+      return instance.post('/api/auth/sign-out', {}).catch(handleAuthError);
     },
-    register (data) {
-      return instance.post('/api/auth/register', data).catch(handleError);
+    register ({ registrationMethod = 'password', password, ...data }) {
+      if (registrationMethod === 'magic-link') {
+        const { email, firstName, lastName, inviteId, callbackURL } = data;
+        return instance.post('/api/auth/sign-in/magic-link', {
+          email,
+          ...(callbackURL ? { callbackURL } : {}),
+          metadata: { registration: { firstName, lastName, inviteId } },
+        }).catch(handleAuthError);
+      }
+      return instance.post('/api/auth/sign-up/email', { ...data, password }).catch(handleAuthError);
+    },
+    sendVerificationEmail (email, callbackURL) {
+      return instance.post('/api/auth/send-verification-email', { email, ...(callbackURL ? { callbackURL } : {}) }).catch(handleAuthError);
+    },
+    verifyEmail (token) {
+      return instance.get('/api/auth/verify-email', { params: { token } }).catch(handleAuthError);
+    },
+    sendMagicLink (email, callbackURL) {
+      return instance.post('/api/auth/sign-in/magic-link', { email, ...(callbackURL ? { callbackURL } : {}) }).catch(handleAuthError);
+    },
+    async verifyMagicLink (token) {
+      await instance.get('/api/auth/magic-link/verify', { params: { token } }).catch(handleAuthError);
+      return loadAuthenticatedUser();
     },
   },
   invites: {
@@ -117,21 +146,11 @@ const Api = {
     },
   },
   passwords: {
-    reset (email) {
-      return instance.post('/api/passwords', { email }).catch((error) => {
-        switch (error.response?.status) {
-          case StatusCodes.NOT_FOUND:
-            throw { email: 'Email not found.' };
-          default:
-            throw { _form: error.message };
-        }
-      });
-    },
-    get (token) {
-      return instance.get(`/api/passwords/${token}`);
+    reset (email, redirectTo) {
+      return instance.post('/api/auth/request-password-reset', { email, ...(redirectTo ? { redirectTo } : {}) }).catch(handleAuthError);
     },
     update (token, password) {
-      return instance.patch(`/api/passwords/${token}`, { password }).catch(handleError);
+      return instance.post('/api/auth/reset-password', { token, newPassword: password }).catch(handleAuthError);
     },
   },
   people: {
@@ -179,8 +198,12 @@ const Api = {
     get (id) {
       return instance.get(`/api/users/${id}`);
     },
-    update (id, data) {
+    update (id, { firstName, lastName, picture }) {
+      const data = { firstName, lastName, ...(picture === undefined ? {} : { picture: picture || null }) };
       return instance.patch(`/api/users/${id}`, data).catch(handleError);
+    },
+    setRole (id, role) {
+      return instance.post('/api/auth/admin/set-role', { userId: id, role }).catch(handleAuthError);
     },
   },
 };
