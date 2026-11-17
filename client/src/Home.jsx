@@ -15,6 +15,7 @@ export default function Home () {
   const { plotId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { data: capabilities } = useQuery({ queryKey: ['plots', 'capabilities'], queryFn: ({ signal }) => Api.plots.capabilities(signal).then(({ data }) => data), enabled: mounted });
   const { data: plot, isPending, isError, error, refetch } = useQuery({
     queryKey: ['plot', plotId],
     queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data),
@@ -35,6 +36,7 @@ export default function Home () {
       {plotId && !mobile && <Paper component='aside' withBorder p='md' style={{ width: 400, maxWidth: '45%', overflowY: 'auto' }} aria-label='Garden details'>{panel}</Paper>}
       <Box style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 0 }}>
         <GardenMap selectedPlot={plot} onSelectPlot={(id) => navigate(`/plots/${id}`)} />
+        {capabilities?.canCreatePlot && <Button component={Link} to='/plots/new' color='green' style={{ position: 'absolute', bottom: 32, left: 16, zIndex: 1000 }}>Create a garden</Button>}
       </Box>
       {mobile && <Drawer opened={!!plotId} onClose={() => navigate('/')} position='bottom' size='70%' title='Garden details'>{panel}</Drawer>}
     </Box>

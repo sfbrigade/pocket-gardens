@@ -25,4 +25,7 @@ test('homepage server rendering keeps Leaflet behind the browser mount', async (
   assert.match(details.html, /Garden details/);
   assert.match(details.html, /Loading map/);
   assert.doesNotMatch(details.html, /window is not defined|data-msg=/);
+  const form = await render({ url: '/plots/new', urlData: () => '/plots/new' }, {}, { context: {} });
+  assert.match(form.head.headTags, /Create a garden/);
+  assert.doesNotMatch(form.html, /window is not defined|data-msg=/);
 });
