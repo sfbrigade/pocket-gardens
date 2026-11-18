@@ -13,23 +13,15 @@ This repository contains a "starter" project for web application development in 
 
 ## Authentication setup
 
-The browser uses Better Auth’s official React client (`1.7.25`) and cookie sessions.
-Email links open the web confirmation screens directly; magic-link confirmation
-uses native callback redirects. See [authentication](docs/authentication.md).
+Authentication uses Better Auth `1.7.25` under `/api/auth`, with the official React
+client and cookie sessions. Email links are the default for signup and login;
+passwords are optional. Existing users sign in without registering again.
 
-Authentication is ported from resource-binder-server and uses Better Auth under
-`/api/auth`. Login and registration support email links or passwords; email links
-are the default. Existing accounts sign in with their existing email without
-registering again and may optionally set a password afterward.
-
-Configure `server/.env` using `server/example.env`:
-
-For local development, `npm run dev` (also used by Docker Compose) creates or
-updates the ignored `server/.env` with a private random auth secret when the value
-is missing, too short, or still the example placeholder. It preserves a valid
-secret across restarts and writes only `VITE_` settings to `client/.env`.
-Production must receive an explicitly configured secret; development setup refuses
-to run in production.
+Configure `server/.env` using `server/example.env`. Before local startup,
+`npm run dev` runs `bin/setup-dev-env.mjs` to create the env files, generate a private
+persistent auth secret when needed, and copy only public `VITE_` settings into
+`client/.env`. Docker Compose uses this same development command. Production startup
+does not run this helper and requires an explicitly configured secret.
 
 - `BETTER_AUTH_SECRET`: a private random secret of at least 32 characters (for example, generate with `openssl rand -base64 32`). Production startup rejects the example placeholder.
 - `BASE_URL`: the public application origin without `/api`; use HTTPS in production.
