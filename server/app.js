@@ -17,7 +17,7 @@ export const options = {
         return { method: request.method, url, remoteAddress: request.ip };
       },
     },
-    redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'res.headers.set-auth-token', 'req.body'],
+    redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', 'req.body'],
   },
 };
 

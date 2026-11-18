@@ -14,8 +14,6 @@ export default fp(async function (fastify) {
     const response = await auth.api.getSession({ headers: fromNodeHeaders(request.headers), asResponse: true });
     const cookies = response.headers.getSetCookie();
     if (cookies.length) reply.header('set-cookie', cookies);
-    const token = response.headers.get('set-auth-token');
-    if (token) reply.header('set-auth-token', token);
     const session = await response.json();
     if (response.ok && session?.user) {
       request.user = new User(session.user);

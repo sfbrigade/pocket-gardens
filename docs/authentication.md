@@ -1,7 +1,7 @@
 # Authentication reference
 
 The application uses [Better Auth](https://better-auth.com/) under `/api/auth`, with
-the Magic Link, Bearer, and Admin plugins. Refer to Better Auth's documentation for
+the Magic Link and Admin plugins. Refer to Better Auth's documentation for
 standard APIs and the [README](../README.md#authentication-setup) for required configuration.
 
 For local development, `npm run dev` prepares the ignored env files before starting
@@ -54,22 +54,13 @@ old sessions; the owner can add a password through email password reset.
 Forward `/api/...` requests unchanged to the backend; the proxy must not add or strip
 `/api`. API callers whose base URL already ends in `/api` append `/auth/...`.
 
-## Email links and native apps
+## Browser email links
 
-Email links open `/api/auth/links/*` instruction pages without consuming tokens.
-Browsers offer a **Continue in browser** link to the web app at `BASE_URL`, where users
-can verify email, reset passwords, accept invitations, or confirm magic-link login.
-Verification and magic-link tokens are redeemed only after confirmation; reset tokens
-are redeemed when the new password is submitted.
-
-Native apps must handle the original links, exchange their tokens with the API, and
-provide their own screens and secure session persistence. Mobile email-link handlers
-must recognize `/api/auth/links/...`. The email-link domain must host iOS/Android
-association files; these can be served by this backend or its hosting layer once the
-app identifiers are known. Association files and mobile handlers are separate work.
-
-Previously sent `/auth/...` links require fresh emails; no legacy landing routes
-are retained.
+Email links open `/auth/magic-link`, `/auth/verify-email`, `/passwords/reset`, or
+`/invites/:id` directly on `BASE_URL`. Opening a screen does not consume a token.
+Verification and magic-link tokens require explicit confirmation; reset tokens are
+redeemed when the new password is submitted. Browser sessions use cookies only;
+Bearer authentication and native-app instruction pages are not supported.
 
 ## Password lifecycle
 
@@ -133,8 +124,7 @@ User–Person links remain the identity authority.
 
 Before deploying, configure the public HTTPS `BASE_URL`, a private `BETTER_AUTH_SECRET`
 (at least 32 characters), SMTP delivery, and the actual trusted proxy addresses.
-Use `AUTH_LINK_BASE_URL` only if a separate email-link origin is required. Never copy
-a secret from Resource Binder. `SESSION_SECRET` is no longer used. Confirm that an
+Never copy a secret from Resource Binder. `SESSION_SECRET` is no longer used. Confirm that an
 existing administrator can receive email at their account address before cutover.
 
 Back up the database and rehearse the migration on an isolated copy before rollout.

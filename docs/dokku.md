@@ -14,8 +14,7 @@ For Better Auth, configure `BASE_URL` with the public HTTPS origin, a private
 the actual proxy source IP addresses/CIDRs seen by the container; leave it unset
 for direct connections and do not use blanket trust. Fastify passes the trusted
 client address to Better Auth for rate limits and session metadata. Forward
-`/api/...` unchanged. If configured, the email-link origin must serve
-`/api/auth/links/*`.
+`/api/...` unchanged. Email links open the web screens on `BASE_URL`.
 
 Review the [account migration and deployment steps](authentication.md#pocket-gardens-deployment-and-migration)
 before applying `20261116000000_better_auth`. Existing users sign in again using

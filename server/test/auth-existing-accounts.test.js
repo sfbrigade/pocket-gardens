@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { build, mailToken, nodemailerMock, password } from '#test/helper.js';
+import { cookieHeaders, build, mailToken, nodemailerMock, password } from '#test/helper.js';
 
 test('existing accounts use email links without registering again', async (t) => {
   const app = await build(t);
@@ -27,7 +27,7 @@ test('existing accounts use email links without registering again', async (t) =>
     const login = await app.inject(`/api/auth/magic-link/verify?token=${await mailToken(nodemailerMock.mock)}`);
     assert.equal(login.statusCode, 200, login.body);
     assert.equal(login.json().user.id, original.id);
-    const headers = { authorization: `Bearer ${login.headers['set-auth-token']}` };
+    const headers = cookieHeaders(login);
     const profile = await app.inject({ url: '/api/users/me', headers });
     assert.equal(profile.statusCode, 200, profile.body);
     assert.equal(profile.json().isAdmin, true, 'Access comes from Better Auth role, not retained legacy flags');

@@ -173,6 +173,10 @@ async function build (t) {
   return app;
 }
 
+function cookieHeaders (response) {
+  return { cookie: response.cookies.map(({ name, value }) => `${name}=${value}`).join('; ') };
+}
+
 async function authenticate (app, email, password) {
   const response = await app.inject().post('/api/auth/sign-in/email').headers({ origin: process.env.BASE_URL }).payload({
     email,
@@ -185,7 +189,7 @@ async function authenticate (app, email, password) {
   await app.prisma.rateLimit.deleteMany();
   // send back headers needed to authenticate
   return {
-    authorization: `Bearer ${response.headers['set-auth-token']}`,
+    ...cookieHeaders(response),
   };
 }
 
@@ -237,6 +241,7 @@ export {
   authSecret,
   build,
   config,
+  cookieHeaders,
   mailToken,
   nodemailerMock,
   password,

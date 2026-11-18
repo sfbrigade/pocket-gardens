@@ -2,7 +2,7 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter } from '@better-auth/core/context';
 import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
-import { admin, bearer } from 'better-auth/plugins';
+import { admin } from 'better-auth/plugins';
 import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
 import mailer from '#lib/mailer.js';
@@ -40,12 +40,11 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
   if (!secret || secret.length < 32 || secret.startsWith('replace-with-')) {
     throw new Error('Set BETTER_AUTH_SECRET to a private random value of at least 32 characters.');
   }
-  const linkOrigin = new URL(process.env.AUTH_LINK_BASE_URL || baseURL).origin;
-  if (process.env.NODE_ENV === 'production' && [baseURL, linkOrigin].some(url => new URL(url).protocol !== 'https:')) {
+  if (process.env.NODE_ENV === 'production' && new URL(baseURL).protocol !== 'https:') {
     throw new Error('Authentication origins must use HTTPS in production.');
   }
   const appLink = (action, token, callbackURL) => {
-    const url = new URL(`/api/auth/links/${action}`, linkOrigin);
+    const url = new URL({ 'reset-password': '/passwords/reset', 'verify-email': '/auth/verify-email', 'magic-link': '/auth/magic-link' }[action], baseURL);
     url.searchParams.set('token', token);
     if (callbackURL) {
       try {
@@ -77,7 +76,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
   const auth = betterAuth({
     baseURL,
     secret,
-    trustedOrigins: [new URL(baseURL).origin, linkOrigin],
+    trustedOrigins: [new URL(baseURL).origin],
     disabledPaths: ['/update-user', '/admin/update-user'],
     database: prismaAdapter(prisma, { provider: 'postgresql', transaction: true }),
     verification: {
@@ -201,7 +200,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         },
       },
     },
-    plugins: [invitations, bearer(), registrationMagicLink({
+    plugins: [invitations, registrationMagicLink({
       async sendMagicLink ({ email, token }, ctx) {
         const user = await prisma.user.findUnique({ where: { email } }) || ctx.context.magicRegistration;
         if (!user) return;

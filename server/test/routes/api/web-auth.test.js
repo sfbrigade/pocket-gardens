@@ -61,7 +61,7 @@ test('web client authentication through the application routes', async (t) => {
     await waitForMail();
     const text = nodemailerMock.mock.getSentMail().at(-1).text;
     const link = new URL(text.match(/http[^\s]+/)[0]);
-    assert.equal(link.pathname, '/api/auth/links/magic-link');
+    assert.equal(link.pathname, '/auth/magic-link');
     assert.equal(link.searchParams.get('from'), callbackURL);
     const mailCount = nodemailerMock.mock.getSentMail().length;
     await assert.rejects(Api.auth.sendMagicLink('regular.user@test.com', 'https://untrusted.example/account'), { _form: 'Invalid callbackURL' });
@@ -84,7 +84,7 @@ test('web client authentication through the application routes', async (t) => {
       await waitForMail();
       const text = nodemailerMock.mock.getSentMail().at(-1).text;
       const link = new URL(text.match(/http[^\s]+/)[0]);
-      assert.equal(link.pathname, `/api/auth/links/${action}`);
+      assert.equal(link.pathname, ({ 'reset-password': '/passwords/reset', 'verify-email': '/auth/verify-email', 'magic-link': '/auth/magic-link' }[action]));
       assert.equal(link.searchParams.get('from'), from);
       if (action === 'verify-email') {
         await Api.auth.verifyEmail(link.searchParams.get('token'));

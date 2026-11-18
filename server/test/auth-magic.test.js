@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import authRoutes from '#routes/api/auth/index.js';
 import mailer from '#lib/mailer.js';
-import { build, mailToken, nodemailerMock, password, verifiedAdmin, verifiedUser, waitForMail } from '#test/helper.js';
+import { cookieHeaders, build, mailToken, nodemailerMock, password, verifiedAdmin, verifiedUser, waitForMail } from '#test/helper.js';
 
 test('Better Auth magic links and native sessions', async (t) => {
   const app = await build(t);
@@ -40,27 +40,20 @@ test('Better Auth magic links and native sessions', async (t) => {
     }
   });
 
-  await t.test('app exchanges a single-use token for a bearer session; landing pages never consume it', async () => {
+  await t.test('a single-use token establishes a cookie session; bearer-only requests are denied', async () => {
     const { user } = await verifiedUser(app);
     const token = await requestLink(user.email);
     const stored = await prisma.verification.findMany();
     assert.ok(stored.length);
     assert.ok(stored.every(row => row.identifier !== token));
-    for (const action of ['magic-link', 'verify-email', 'reset-password', 'invite']) {
-      const landing = await app.inject(`/api/auth/links/${action}?token=${token}`);
-      assert.equal(landing.statusCode, 200);
-      assert.ok(landing.body.includes('Open this link on your phone'));
-      assert.ok(!landing.body.includes(token));
-      assert.equal(landing.headers['set-cookie'], undefined);
-      assert.equal(landing.headers['cache-control'], 'no-store');
-      assert.equal(landing.headers['referrer-policy'], 'no-referrer');
-      assert.match(landing.headers['content-security-policy'], /^default-src 'none'; script-src 'sha256-[A-Za-z0-9+/=]+';/);
-    }
     const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
     assert.equal(response.statusCode, 200);
-    const bearer = response.headers['set-auth-token'];
-    assert.ok(bearer);
-    const headers = { authorization: `Bearer ${bearer}` };
+    const headers = cookieHeaders(response);
+    assert.ok(headers.cookie);
+    assert.equal(response.headers['set-auth-token'], undefined);
+    const bearer = response.json().token;
+    assert.equal((await app.inject({ url: '/api/auth/get-session', headers: { authorization: `Bearer ${bearer}` } })).json(), null);
+    assert.equal((await app.inject({ url: `/api/users/${user.id}`, headers: { authorization: `Bearer ${bearer}` } })).statusCode, 401);
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers })).json().user.id, user.id);
     assert.notEqual((await app.inject(`/api/auth/magic-link/verify?token=${token}`)).statusCode, 200);
     assert.equal((await post('/sign-in/email', { email: user.email, password })).statusCode, 200);
@@ -93,7 +86,7 @@ test('Better Auth magic links and native sessions', async (t) => {
     assert.equal(response.json().user.emailVerified, true);
     assert.equal(await prisma.account.count({ where: { userId: user.id } }), 0);
     assert.equal(await prisma.session.findUnique({ where: { id: oldSession.id } }), null);
-    const headers = { authorization: `Bearer ${response.headers['set-auth-token']}` };
+    const headers = cookieHeaders(response);
     assert.equal((await app.inject({ url: '/api/auth/get-session', headers })).json().user.id, user.id);
     assert.equal((await post('/sign-in/email', { email: user.email, password })).statusCode, 401);
     assert.equal((await post('/request-password-reset', { email: user.email })).statusCode, 200);
@@ -133,7 +126,7 @@ test('Better Auth magic links and native sessions', async (t) => {
     const token = await requestLink(user.email);
     const response = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
     assert.equal(response.statusCode, 200, response.body);
-    assert.ok(response.headers['set-auth-token']);
+    assert.ok(response.headers['set-cookie']);
     const updated = await prisma.user.findUnique({ where: { id: user.id } });
     assert.equal(updated.banned, false);
   });

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import Fastify from 'fastify';
-import { authenticate, build, mailToken, nodemailerMock, password } from '#test/helper.js';
+import { cookieHeaders, authenticate, build, mailToken, nodemailerMock, password } from '#test/helper.js';
 import authRoutes from '#routes/api/auth/index.js';
 import { options } from '#app.js';
 
@@ -19,11 +19,9 @@ test('application Better Auth cutover', async (t) => {
       .headers({ origin: process.env.BASE_URL })
       .payload({ email: 'person@example.com' })).statusCode, 200);
     const token = await mailToken(nodemailerMock.mock);
-    const landing = await app.inject(`/api/auth/links/magic-link?token=${token}`);
-    assert.equal(landing.statusCode, 200);
     const login = await app.inject(`/api/auth/magic-link/verify?token=${token}`);
     assert.equal(login.statusCode, 200, login.body);
-    const headers = { authorization: `Bearer ${login.headers['set-auth-token']}` };
+    const headers = cookieHeaders(login);
     const profile = await app.inject({ url: '/api/users/me', headers });
     assert.equal(profile.statusCode, 200, profile.body);
     assert.equal(profile.json().id, signup.json().user.id);
@@ -83,7 +81,7 @@ test('application Better Auth cutover', async (t) => {
     ]) {
       // Injection/fetch normalize dot segments before sending; preserve the raw target.
       const response = await new Promise((resolve, reject) => {
-        request({ host: '127.0.0.1', port: loggedApp.server.address().port, path: `${path}?callbackURL=/api/auth/links/reset-password` }, res => {
+        request({ host: '127.0.0.1', port: loggedApp.server.address().port, path: `${path}?callbackURL=/passwords/reset` }, res => {
           res.resume();
           res.on('end', () => resolve(res));
           res.on('error', reject);

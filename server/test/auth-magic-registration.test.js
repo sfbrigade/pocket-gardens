@@ -215,7 +215,6 @@ test('passwordless registration', async (t) => {
     assert.equal(response.statusCode, 302, response.body);
     assert.equal(response.headers.location, `${process.env.BASE_URL}/account`);
     assert.ok(response.headers['set-cookie']);
-    assert.ok(response.headers['set-auth-token']);
     assert.equal(await prisma.user.count({ where: { email } }), 1);
     assert.equal(await prisma.session.count(), 1);
   });
