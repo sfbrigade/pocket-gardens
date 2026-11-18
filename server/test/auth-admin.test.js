@@ -108,22 +108,29 @@ test('Better Auth administration', async (t) => {
   });
 
   for (const hasPassword of [true, false]) {
-    await t.test(`admin password changes revoke only the target user's sessions (existing password: ${hasPassword})`, async () => {
+    await t.test(`manual admin password assignment is unavailable (existing password: ${hasPassword})`, async () => {
       const admin = await verifiedAdmin(app);
       const member = await verifiedUser(app);
       const other = await verifiedUser(app, 'other@example.com');
       if (!hasPassword) await prisma.account.deleteMany({ where: { userId: member.user.id, providerId: 'credential' } });
-      const response = await app.inject().post('/api/auth/admin/set-user-password')
-        .headers({ origin: process.env.BASE_URL, ...admin.headers })
-        .payload({ userId: member.user.id, newPassword: `${password}Changed` });
-      assert.equal(response.statusCode, 200, response.body);
-      assert.equal((await app.inject({ url: '/api/auth/get-session', headers: member.headers })).json(), null);
-      for (const unaffected of [admin, other]) {
+      const credentials = await prisma.account.findMany({ orderBy: { id: 'asc' } });
+      const sessions = await prisma.session.findMany({ orderBy: { id: 'asc' } });
+      for (const headers of [{}, member.headers, admin.headers]) {
+        for (const newPassword of [password, 'short', 'a'.repeat(129)]) {
+          const response = await app.inject().post('/api/auth/admin/set-user-password')
+            .headers({ origin: process.env.BASE_URL, ...headers })
+            .payload({ userId: member.user.id, newPassword });
+          assert.equal(response.statusCode, 404, response.body);
+        }
+      }
+      assert.deepEqual(await prisma.account.findMany({ orderBy: { id: 'asc' } }), credentials);
+      assert.deepEqual(await prisma.session.findMany({ orderBy: { id: 'asc' } }), sessions);
+      for (const unaffected of [admin, member, other]) {
         assert.equal((await app.inject({ url: '/api/auth/get-session', headers: unaffected.headers })).json()?.user.id, unaffected.user.id);
       }
       assert.equal((await app.inject().post('/api/auth/sign-in/email')
         .headers({ origin: process.env.BASE_URL })
-        .payload({ email: member.user.email, password: `${password}Changed` })).statusCode, 200);
+        .payload({ email: member.user.email, password })).statusCode, hasPassword ? 200 : 401);
     });
   }
 
@@ -140,20 +147,6 @@ test('Better Auth administration', async (t) => {
     assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).emailVerified, true);
   });
 
-  await t.test('rejected admin password changes preserve credentials and sessions', async () => {
-    const admin = await verifiedAdmin(app);
-    const member = await verifiedUser(app);
-    const credential = await prisma.account.findFirst({ where: { userId: member.user.id, providerId: 'credential' } });
-    for (const newPassword of ['short', 'a'.repeat(129)]) {
-      const response = await app.inject().post('/api/auth/admin/set-user-password')
-        .headers({ origin: process.env.BASE_URL, ...admin.headers })
-        .payload({ userId: member.user.id, newPassword });
-      assert.equal(response.statusCode, 400, response.body);
-      assert.equal((await prisma.account.findUnique({ where: { id: credential.id } })).password, credential.password);
-      assert.equal((await app.inject({ url: '/api/auth/get-session', headers: member.headers })).json()?.user.id, member.user.id);
-    }
-  });
-
   await t.test('a resend still allows verification', async () => {
     const signup = await app.inject().post('/api/auth/sign-up/email')
       .headers({ origin: process.env.BASE_URL })
@@ -167,7 +160,7 @@ test('Better Auth administration', async (t) => {
 
   await t.test('missing password bodies return client errors', async () => {
     const admin = await verifiedAdmin(app);
-    for (const path of ['/admin/create-user', '/admin/set-user-password', '/reset-password', '/change-password']) {
+    for (const path of ['/admin/create-user', '/reset-password', '/change-password']) {
       const response = await app.inject().post(`/api/auth${path}`)
         .headers({ origin: process.env.BASE_URL, ...admin.headers });
       assert.equal(response.statusCode, 400, `${path}: ${response.body}`);
@@ -179,7 +172,7 @@ test('Better Auth administration', async (t) => {
     const admin = await verifiedAdmin(app);
     assert.equal((await app.inject().post('/api/auth/admin/set-user-password')
       .headers({ origin: process.env.BASE_URL, ...member.headers })
-      .payload({ userId: admin.user.id, newPassword: password })).statusCode, 403);
+      .payload({ userId: admin.user.id, newPassword: password })).statusCode, 404);
     assert.equal((await app.inject().post('/api/auth/admin/set-role')
       .headers({ origin: process.env.BASE_URL, ...member.headers })
       .payload({ userId: member.user.id, role: 'admin' })).statusCode, 403);

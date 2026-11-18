@@ -79,8 +79,10 @@ Reset links are single-use and expire after 30 minutes. New reset-token identifi
 are hashed before storage; magic-link tokens are hashed by their plugin. Password
 changes leave other unused reset links valid until expiry, following Better Auth's
 token lifecycle.
-Password resets revoke sessions through the built-in option; admin password changes
-also force logout through Better Auth's native session-revocation API.
+Password resets revoke the reset account's sessions through Better Auth's built-in
+`revokeSessionsOnPasswordReset` option. Manual administrator password assignment
+is disabled, including `/api/auth/admin/set-user-password`; administrators and
+passwordless accounts use email-based password setup/reset.
 
 ## Administrator access
 

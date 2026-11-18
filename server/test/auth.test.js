@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { signJWT } from 'better-auth/crypto';
-import { authSecret, build, mailToken, nodemailerMock, password, verifiedAdmin, verifiedUser } from '#test/helper.js';
+import { authSecret, build, mailToken, nodemailerMock, password, verifiedUser } from '#test/helper.js';
 
 test('Better Auth foundation, passwords and invitations', async (t) => {
   const app = await build(t);
@@ -163,15 +163,6 @@ test('Better Auth foundation, passwords and invitations', async (t) => {
       changePassword: async (member, tokens) => app.inject().post('/api/auth/reset-password')
         .headers({ origin: process.env.BASE_URL })
         .payload({ token: tokens.shift(), newPassword: `${password}New` }),
-    },
-    {
-      name: 'admin password changes',
-      changePassword: async (member) => {
-        const admin = await verifiedAdmin(app);
-        return app.inject().post('/api/auth/admin/set-user-password')
-          .headers({ origin: process.env.BASE_URL, ...admin.headers })
-          .payload({ userId: member.user.id, newPassword: `${password}New` });
-      },
     },
   ]) {
     await t.test(`${name} leave unused reset links to Better Auth's native lifecycle`, async () => {

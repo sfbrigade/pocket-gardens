@@ -77,7 +77,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
     baseURL,
     secret,
     trustedOrigins: [new URL(baseURL).origin],
-    disabledPaths: ['/update-user', '/admin/update-user'],
+    disabledPaths: ['/update-user', '/admin/update-user', '/admin/set-user-password'],
     database: prismaAdapter(prisma, { provider: 'postgresql', transaction: true }),
     verification: {
       storeIdentifier: {
@@ -134,11 +134,6 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
           throw new APIError('BAD_REQUEST', { message: 'Invitation is invalid or no longer available.' });
         }
         return { context: { body: { ...ctx.body, name: `${firstName} ${lastName}` } } };
-      }),
-      after: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== '/admin/set-user-password' || ctx.context.returned?.status !== true) return;
-        // Admin password assignment and session revocation are separate native APIs.
-        await auth.api.revokeUserSessions({ body: { userId: ctx.body.userId }, headers: ctx.headers });
       }),
     },
     databaseHooks: {
@@ -200,7 +195,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       roles: {
         user: userAc,
         admin: defaultAc.newRole({
-          user: ['get', 'list', 'set-password', 'set-role', 'ban'],
+          user: ['get', 'list', 'set-role', 'ban'],
           session: ['list', 'revoke'],
         }),
       },
