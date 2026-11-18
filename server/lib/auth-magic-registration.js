@@ -107,6 +107,19 @@ export function registrationMagicLink ({ sendMagicLink }) {
 
   const verify = plugin.endpoints.magicLinkVerify;
   plugin.endpoints.magicLinkVerify = createAuthEndpoint(verify.path, verify.options, async (ctx) => {
+    function verificationError (error) {
+      const callback = ctx.query.errorCallbackURL || ctx.query.callbackURL;
+      // Native origin-check middleware validates these callbacks before this
+      // handler runs. Extend its error redirects to admission/session failures,
+      // only after the transaction has committed or rolled back as appropriate.
+      if (callback && isAPIError(error) && error.statusCode >= 400 && error.statusCode < 500) {
+        const url = new URL(callback, ctx.context.baseURL);
+        url.searchParams.set('error', error.body?.code || 'VERIFICATION_FAILED');
+        throw ctx.redirect(url.toString());
+      }
+      throw error;
+    }
+
     let outcome;
     try {
       // Commit account creation, session creation and invitation acceptance
@@ -136,9 +149,9 @@ export function registrationMagicLink ({ sendMagicLink }) {
       });
     } catch (error) {
       ctx.context.newSession = null;
-      throw error;
+      verificationError(error);
     }
-    if (outcome.error) throw outcome.error;
+    if (outcome.error) verificationError(outcome.error);
     outcome.headers.forEach((value, key) => ctx.responseHeaders.append(key, value));
     return ctx.json(outcome.response);
   });

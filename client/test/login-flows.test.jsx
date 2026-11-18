@@ -355,6 +355,30 @@ describe('verification and recovery branches', () => {
     expect(screen.getByTestId('location').textContent).toBe(`/login?from=${encodeURIComponent(from)}`);
   });
 
+  for (const [code, message] of [
+    ['BANNED_USER', 'Your account has been deactivated.'],
+    ['REGISTRATION_CLOSED', 'Registration is closed. A valid invitation is required.'],
+    ['INVALID_INVITATION', 'This invitation is invalid or no longer available.'],
+    ['__proto__', 'This link is invalid or has expired. Please request a new one.'],
+  ]) {
+    it(`shows the ${code} callback error with a safe return link`, async () => {
+      const user = open(`/auth/magic-link?error=${code}&from=${encodeURIComponent(from)}`);
+      await screen.findByText(message);
+      expect(screen.queryByRole('button', { name: 'Log in' })).toBeNull();
+      await user.click(screen.getByRole('link', { name: 'Back to login' }));
+      expect(screen.getByTestId('location').textContent).toBe(`/login?from=${encodeURIComponent(from)}`);
+    });
+  }
+
+  it('keeps email confirmation available when a signed-in profile read fails', async () => {
+    setSession(profile);
+    Api.users.me.mockRejectedValueOnce(new Error('Profile service unavailable'));
+    open(`/auth/magic-link?error=INVALID_TOKEN&from=${encodeURIComponent(from)}`);
+    await waitFor(() => expect(Api.users.me).toHaveBeenCalled());
+    await screen.findByText('This link is invalid or has expired. Please request a new one.');
+    expect(screen.queryByText('Profile service unavailable')).toBeNull();
+  });
+
   it('retains the destination when requesting another expired login link', async () => {
     const user = open(`/auth/magic-link?error=INVALID_TOKEN&from=${encodeURIComponent(from)}`);
     await screen.findByText(/This link is invalid or has expired/);

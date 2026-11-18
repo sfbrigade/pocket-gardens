@@ -72,7 +72,10 @@ Verification and magic-link tokens require explicit confirmation; reset tokens a
 redeemed when the new password is submitted. Magic-link confirmation navigates to
 Better Auth's native verification endpoint, which sets cookies and redirects to a
 safe same-origin success destination or back to the confirmation screen with an
-error. Pathname, query, and fragment survive both outcomes.
+error. Bans, closed registration, and unavailable invitations also return to that
+screen with a specific notice, after the existing transaction and token rules have
+been applied. Error callbacks pass the same origin checks as success callbacks.
+Pathname, query, and fragment survive both outcomes.
 Browser sessions use cookies only;
 Bearer authentication and native-app instruction pages are not supported.
 
