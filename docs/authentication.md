@@ -31,11 +31,18 @@ read-only, and email-change endpoints are disabled.
 
 ## API and sessions
 
-The React client uses Better Auth's native endpoints and browser session cookies.
+The React client uses Better Auth's official React `createAuthClient` and `useSession`
+lifecycle, pinned to the server's version. Authentication calls use its cookie-based
+fetch transport; Axios remains for application APIs. The request's public session
+and profile hydrate server-rendered pages without serializing session tokens.
 After login, it loads `/api/users/me` for the application profile and admin permissions.
 When the session refresh detects an account change or logout, it clears cached
 account data and pending queries before exposing the new session. This also covers
-changes made in another tab when the application regains focus.
+changes made in another tab when the application regains focus. Profiles are keyed
+by the SDK identity; a pending or failed fetch cannot show another account's profile.
+Same-account refreshes preserve application caches, and late profile saves are
+ignored after identity changes. Better Auth owns session observation; the small
+cache bridge only clears application data.
 
 Passwordless signup uses `/api/auth/sign-in/magic-link` with `email` and
 `metadata.registration: { firstName, lastName, inviteId? }`. The server validates and
@@ -59,7 +66,11 @@ Forward `/api/...` requests unchanged to the backend; the proxy must not add or 
 Email links open `/auth/magic-link`, `/auth/verify-email`, `/passwords/reset`, or
 `/invites/:id` directly on `BASE_URL`. Opening a screen does not consume a token.
 Verification and magic-link tokens require explicit confirmation; reset tokens are
-redeemed when the new password is submitted. Browser sessions use cookies only;
+redeemed when the new password is submitted. Magic-link confirmation navigates to
+Better Auth's native verification endpoint, which sets cookies and redirects to a
+safe same-origin success destination or back to the confirmation screen with an
+error. Pathname, query, and fragment survive both outcomes.
+Browser sessions use cookies only;
 Bearer authentication and native-app instruction pages are not supported.
 
 ## Password lifecycle

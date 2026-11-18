@@ -18,14 +18,13 @@ test('Better Auth magic links and native sessions', async (t) => {
     return mailToken(mail);
   }
 
-  await t.test('the auth handler normalizes JSON magic-link errors before Fastify forwarding', async () => {
+  await t.test('the auth handler preserves native magic-link error redirects for every Accept header', async () => {
     const headers = new Headers({ accept: 'application/json' });
     const response = await app.auth.handler(new Request(`${process.env.BASE_URL}/api/auth/magic-link/verify?token=invalid`, { headers }));
-    assert.equal(response.status, 400);
-    assert.equal(response.headers.get('location'), null);
+    assert.equal(response.status, 302);
+    assert.equal(new URL(response.headers.get('location')).searchParams.get('error'), 'INVALID_TOKEN');
     assert.equal(response.headers.get('set-cookie'), null);
     assert.equal(response.headers.get('set-auth-token'), null);
-    assert.equal((await response.json()).code, 'INVALID_TOKEN');
 
     const serverResponse = await app.auth.api.magicLinkVerify({ query: { token: 'invalid' }, headers, asResponse: true });
     assert.equal(serverResponse.status, 302, 'Server-only API calls retain native error behavior');

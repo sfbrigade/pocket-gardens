@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation, useSearchParams } from 'react-router';
 import { Alert, Box, Button, Container, Fieldset, Radio, Stack, TextInput, Title } from '@mantine/core';
 import { hasLength, isEmail, useForm } from '@mantine/form';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from './Api';
 import { useAuthContext } from './AuthContext';
 import { useStaticContext } from './StaticContext';
 import { authPath, loginDestination } from './LoginDestination';
-import { setAuthenticatedUser } from './auth-session';
 
 function Login () {
   const staticContext = useStaticContext();
@@ -17,7 +16,6 @@ function Login () {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [loginMethod, setLoginMethod] = useState(() => location.state?.loginMethod === 'password' || searchParams.get('passwordReset') === 'success' ? 'password' : 'magic-link');
 
   const from = loginDestination(location.state?.from || searchParams.get('from'));
@@ -52,7 +50,6 @@ function Login () {
 
   const onSubmitMutation = useMutation({
     mutationFn: ({ email, password }) => Api.auth.login(email, password),
-    onSuccess: (response) => setAuthenticatedUser(queryClient, response.data),
     onError: (errors) => form.setErrors(errors),
     onSettled: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
   });

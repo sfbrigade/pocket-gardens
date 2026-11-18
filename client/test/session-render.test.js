@@ -27,7 +27,16 @@ test('signed-in page rendering serializes only public session fields', async (t)
     legacyPasswordResetToken: 'private-reset-token',
   });
   const context = { context: {} };
-  const page = await render({ url: '/', urlData: () => '/', user }, {}, context);
+  const authSession = { user: { id: user.id }, session: { id: 'public-session-id', token: 'private-session-token', expiresAt: new Date('2026-12-01'), ipAddress: 'private-address' } };
+  const page = await render({ url: '/', urlData: () => '/', user, authSession }, {}, context);
+  assert.match(page.html, /Demo(?:<!-- -->)?!/);
+  assert.equal(context.context.authContext.session.user.id, user.id);
+  assert.equal(context.context.authContext.session.session.id, 'public-session-id');
+  assert.doesNotMatch(JSON.stringify(context), /private-session-token|private-address/);
+  const anonymous = { context: {} };
+  const signedOut = await render({ url: '/', urlData: () => '/', user: null }, {}, anonymous);
+  assert.doesNotMatch(signedOut.html, /Demo(?:<!-- -->)?!/);
+  assert.equal(anonymous.context.authContext.user, null);
   assert.ok(page.html);
   assert.equal(context.context.authContext.user.id, user.id);
   assert.equal(context.context.authContext.user.pictureUrl, null);

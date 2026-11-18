@@ -1,7 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { getCurrentAdapter } from '@better-auth/core/context';
-import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { admin } from 'better-auth/plugins';
 import { defaultAc, userAc } from 'better-auth/plugins/admin/access';
 import User from '#models/user.js';
@@ -136,20 +136,6 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         return { context: { body: { ...ctx.body, name: `${firstName} ${lastName}` } } };
       }),
       after: createAuthMiddleware(async (ctx) => {
-        // Magic-link failures redirect even when success uses JSON. Normalize them
-        // inside Better Auth while retaining explicit browser callback redirects.
-        if (ctx.path === '/magic-link/verify' && !ctx.query?.callbackURL &&
-          ctx.request?.headers.get('accept')?.includes('application/json')) {
-          const returned = ctx.context.returned;
-          const location = ctx.context.responseHeaders?.get('location');
-          if (isAPIError(returned) && returned.statusCode === 302 && location) {
-            const code = new URL(location, baseURL).searchParams.get('error');
-            if (code) {
-              ctx.context.responseHeaders.delete('location');
-              return Response.json({ code, message: 'Unable to verify this email link.' }, { status: 400 });
-            }
-          }
-        }
         if (ctx.path !== '/admin/set-user-password' || ctx.context.returned?.status !== true) return;
         // Admin password assignment and session revocation are separate native APIs.
         await auth.api.revokeUserSessions({ body: { userId: ctx.body.userId }, headers: ctx.headers });

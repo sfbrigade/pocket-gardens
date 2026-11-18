@@ -13,6 +13,10 @@ This repository contains a "starter" project for web application development in 
 
 ## Authentication setup
 
+The browser uses Better Auth’s official React client (`1.7.25`) and cookie sessions.
+Email links open the web confirmation screens directly; magic-link confirmation
+uses native callback redirects. See [authentication](docs/authentication.md).
+
 Authentication is ported from resource-binder-server and uses Better Auth under
 `/api/auth`. Login and registration support email links or passwords; email links
 are the default. Existing accounts sign in with their existing email without

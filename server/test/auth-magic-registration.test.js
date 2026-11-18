@@ -19,6 +19,13 @@ test('passwordless registration', async (t) => {
     headers: { accept: 'application/json' },
   });
 
+  function assertNativeError (response, code) {
+    assert.equal(response.statusCode, 302, response.body);
+    const error = new URL(response.headers.location).searchParams.get('error');
+    if (code) assert.equal(error, code);
+    else assert.ok(error);
+  }
+
   await t.test('creates a verified profile only on confirmation, with no credential account, and can add a password later', async () => {
     const sent = await requestLink(email, { ...profile, role: 'admin', emailVerified: false });
     assert.equal(sent.statusCode, 200, sent.body);
@@ -45,7 +52,7 @@ test('passwordless registration', async (t) => {
     const headers = { cookie };
     assert.equal((await app.inject({ url: '/api/users/me', headers })).json().id, user.id);
     assert.equal((await app.inject({ url: '/api/users', headers })).statusCode, 403);
-    assert.equal((await redeem(token)).statusCode, 400);
+    assertNativeError(await redeem(token));
     assert.equal((await post('/sign-in/email', { email, password })).statusCode, 401);
     assert.equal((await post('/request-password-reset', { email })).statusCode, 200);
     const resetToken = await mailToken(mail);
@@ -77,7 +84,7 @@ test('passwordless registration', async (t) => {
         expiresAt: new Date(Date.now() + 60_000),
       }
     });
-    assert.equal((await redeem(token)).statusCode, 400);
+    assertNativeError(await redeem(token));
     assert.equal(await prisma.verification.findUnique({ where: { identifier } }), null);
     assert.equal(await prisma.user.count({ where: { email } }), 0);
   });
@@ -87,8 +94,7 @@ test('passwordless registration', async (t) => {
     const token = await mailToken(mail);
     await prisma.verification.updateMany({ data: { expiresAt: new Date(0) } });
     const response = await redeem(token);
-    assert.equal(response.statusCode, 400, response.body);
-    assert.equal(response.json().code, 'INVALID_TOKEN');
+    assertNativeError(response, 'INVALID_TOKEN');
     assert.equal(await prisma.verification.count(), 0);
     assert.equal(await prisma.user.count({ where: { email } }), 0);
   });
@@ -188,7 +194,7 @@ test('passwordless registration', async (t) => {
     }));
     try {
       const response = await redeem(token);
-      assert.equal(response.statusCode, 400, response.body);
+      assertNativeError(response, 'failed_to_create_session');
       assert.equal(response.headers['set-cookie'], undefined);
       assert.equal(response.headers['set-auth-token'], undefined);
       assert.equal(await prisma.user.count({ where: { email } }), 0);

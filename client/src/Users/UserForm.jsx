@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
+import { profileKey } from '../auth-session';
 import { useAuthContext } from '../AuthContext';
 import PhotoInput from '../Components/PhotoInput';
 import UserRoleForm from './UserRoleForm';
@@ -44,11 +45,11 @@ function UserEditor ({ userId, user }) {
     onMutate: () => setSuccess(false),
     onSuccess: (response) => {
       // This callback can finish after logout or after the editor unmounts.
-      const currentUser = queryClient.getQueryData(['users', 'me']);
-      if (currentUser !== undefined && currentUser?.id !== authContext.user.id) return;
+      const currentUser = queryClient.getQueryData(profileKey(authContext.user.id));
+      if (currentUser?.id !== authContext.user.id) return;
       queryClient.setQueryData(['users', userId], response);
       if (userId === authContext.user.id) {
-        queryClient.setQueryData(['users', 'me'], response.data);
+        queryClient.setQueryData(profileKey(userId), response.data);
       }
       form.setValues({ firstName: response.data.firstName, lastName: response.data.lastName, picture: response.data.picture });
       queryClient.invalidateQueries({ queryKey: ['users'] });

@@ -32,27 +32,49 @@ test('web client authentication through the application routes', async (t) => {
     if (!config.validateStatus || config.validateStatus(response.status)) return response;
     throw new axios.AxiosError(`Request failed with status code ${response.status}`, undefined, config, undefined, response);
   };
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    const requestURL = new URL(url, process.env.BASE_URL);
+    const headers = Object.fromEntries(new Headers(options.headers));
+    const result = await app.inject({
+      method: options.method || 'GET',
+      url: requestURL.pathname + requestURL.search,
+      headers: { ...headers, origin: process.env.BASE_URL, cookie },
+      ...(options.body ? { payload: options.body } : {}),
+    });
+    if (result.cookies.length) cookie = result.cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
+    return new Response(result.statusCode === 204 ? null : result.body, { status: result.statusCode, headers: result.headers });
+  };
   let Api;
   try {
     ({ default: Api } = await import('../../../../client/src/Api.js'));
   } finally {
     axios.defaults.adapter = previousAdapter;
+    globalThis.fetch = previousFetch;
   }
   t.beforeEach(() => { cookie = ''; unavailableProfileId = undefined; sessionProfileStatus = undefined; });
 
-  for (const method of ['password', 'magic-link']) {
-    for (const status of [204, 503]) {
-      await t.test(`${method} login reports a form error when the session profile returns ${status}`, async () => {
-        const email = 'regular.user@test.com';
-        let token;
-        if (method === 'magic-link') {
-          await Api.auth.sendMagicLink(email);
-          token = await mailToken(nodemailerMock.mock);
-        }
-        sessionProfileStatus = status;
-        await assert.rejects(method === 'password' ? Api.auth.login(email, 'test') : Api.auth.verifyMagicLink(token), error => typeof error._form === 'string');
-      });
+  async function loginProfile (email, password) {
+    await Api.auth.login(email, password);
+    return Api.users.me();
+  }
+
+  async function confirmMagicLink (token, from = '/account?tab=profile#password') {
+    const errorCallback = `/auth/magic-link?from=${encodeURIComponent(from)}`;
+    const result = await app.inject({
+      url: `/api/auth/magic-link/verify?${new URLSearchParams({ token, callbackURL: from, errorCallbackURL: errorCallback })}`,
+      headers: { cookie, accept: 'text/html' },
+    });
+    assert.equal(result.statusCode, 302, result.body);
+    const destination = new URL(result.headers.location);
+    if (destination.searchParams.has('error')) {
+      assert.equal(destination.pathname, '/auth/magic-link');
+      assert.equal(destination.searchParams.get('from'), from);
+      return { error: destination.searchParams.get('error') };
     }
+    assert.equal(result.headers.location, `${process.env.BASE_URL}${from}`);
+    if (result.cookies.length) cookie = result.cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
+    return Api.users.me();
   }
 
   await t.test('login emails retain the requested application destination and reject external destinations', async () => {
@@ -88,7 +110,7 @@ test('web client authentication through the application routes', async (t) => {
       assert.equal(link.searchParams.get('from'), from);
       if (action === 'verify-email') {
         await Api.auth.verifyEmail(link.searchParams.get('token'));
-        assert.equal((await Api.auth.login(email, password)).data.email, email);
+        assert.equal((await loginProfile(email, password)).data.email, email);
       } else {
         await Api.passwords.update(link.searchParams.get('token'), `${password}Changed`);
         assert.equal((await app.prisma.account.findFirst({ where: { user: { email }, providerId: 'credential' } })) !== null, true);
@@ -101,12 +123,12 @@ test('web client authentication through the application routes', async (t) => {
     const response = await Api.auth.register({
       registrationMethod: 'magic-link', firstName: 'Email', lastName: 'Member', email, password: '', callbackURL: '/account?tab=profile',
     });
-    assert.equal(response.status, 200);
+    assert.equal(response.data.status, true);
     assert.equal(await app.prisma.user.count({ where: { email } }), 0);
     const token = await mailToken(nodemailerMock.mock);
     const link = new URL(nodemailerMock.mock.getSentMail().at(-1).text.match(/http[^\s]+/)[0]);
     assert.equal(link.searchParams.get('from'), '/account?tab=profile');
-    const signedIn = await Api.auth.verifyMagicLink(token);
+    const signedIn = await confirmMagicLink(token);
     assert.equal(signedIn.data.email, email);
     assert.equal(signedIn.data.firstName, 'Email');
     assert.equal(signedIn.data.emailVerified, true);
@@ -116,7 +138,7 @@ test('web client authentication through the application routes', async (t) => {
   });
 
   await t.test('a confirmed role update succeeds even when profile reads are unavailable', async () => {
-    await Api.auth.login('admin.user@test.com', 'test');
+    await loginProfile('admin.user@test.com', 'test');
     unavailableProfileId = 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5';
     const promoted = await Api.users.setRole(unavailableProfileId, 'admin');
     assert.equal(promoted.data.user.role, 'admin');
@@ -126,7 +148,7 @@ test('web client authentication through the application routes', async (t) => {
 
   await t.test('an invited user verifies their email and gains or loses admin access on their existing session', async () => {
     const email = 'invited@example.com';
-    await Api.auth.login('admin.user@test.com', 'test');
+    await loginProfile('admin.user@test.com', 'test');
     const invite = await Api.invites.create({ firstName: 'Invited', lastName: 'Person', email });
     await Api.auth.logout();
     process.env.VITE_FEATURE_REGISTRATION = 'false';
@@ -134,15 +156,15 @@ test('web client authentication through the application routes', async (t) => {
     const token = await mailToken(nodemailerMock.mock);
     const userId = signup.data.user.id;
     assert.equal((await app.prisma.invite.findUnique({ where: { id: invite.data.id } })).acceptedById, userId);
-    await Api.auth.login('admin.user@test.com', 'test');
+    await loginProfile('admin.user@test.com', 'test');
     await assert.rejects(Api.users.setRole(userId, 'admin'), { _form: 'This user must verify their email before becoming an administrator.' });
     await Api.auth.logout();
     await Api.auth.verifyEmail(token);
-    await Api.auth.login(email, password);
+    await loginProfile(email, password);
     const memberCookie = cookie;
     // Four synthetic sign-ins share one connection IP; rate limits have separate coverage.
     await app.prisma.rateLimit.deleteMany();
-    await Api.auth.login('admin.user@test.com', 'test');
+    await loginProfile('admin.user@test.com', 'test');
     const adminCookie = cookie;
     assert.equal((await Api.users.setRole(userId, 'admin')).data.user.role, 'admin');
     cookie = memberCookie;
@@ -156,7 +178,7 @@ test('web client authentication through the application routes', async (t) => {
   });
 
   await t.test('the web client promotes verified users and demotes them through Better Auth', async () => {
-    const admin = await Api.auth.login('admin.user@test.com', 'test');
+    const admin = await loginProfile('admin.user@test.com', 'test');
     const memberId = 'dab5dff3-360d-4dbb-98dd-1990dfb5c4c5';
     const pendingId = 'aa1fdcf6-a63c-454e-9775-2d6fd116fdb1';
     await app.prisma.user.update({ where: { id: pendingId }, data: { emailVerified: false } });
@@ -170,13 +192,13 @@ test('web client authentication through the application routes', async (t) => {
     await assert.rejects(Api.users.setRole(pendingId, 'admin'), { _form: 'This user must verify their email before becoming an administrator.' });
     assert.equal((await Api.users.me()).data.id, admin.data.id);
     await Api.auth.logout();
-    await Api.auth.login('regular.user@test.com', 'test');
+    await loginProfile('regular.user@test.com', 'test');
     await assert.rejects(Api.users.setRole(memberId, 'admin'));
     assert.equal((await app.prisma.user.findUnique({ where: { id: memberId } })).role, 'user');
   });
 
   await t.test('profile saves submit only editable profile fields and preserve credentials and roles', async () => {
-    const member = await Api.auth.login('regular.user@test.com', 'test');
+    const member = await loginProfile('regular.user@test.com', 'test');
     const updated = await Api.users.update(member.data.id, {
       ...member.data,
       firstName: 'Updated',
@@ -190,7 +212,7 @@ test('web client authentication through the application routes', async (t) => {
     assert.equal(updated.data.isAdmin, false);
     assert.equal(updated.data.emailVerified, true);
     await Api.auth.logout();
-    assert.equal((await Api.auth.login(member.data.email, 'test')).data.id, member.data.id);
+    assert.equal((await loginProfile(member.data.email, 'test')).data.id, member.data.id);
   });
 
   await t.test('a verified administrator can log in, access admin routes and log out', async () => {
@@ -198,7 +220,7 @@ test('web client authentication through the application routes', async (t) => {
     await app.auth.api.createUser({
       body: { name: 'First Admin', email, password, role: 'admin', data: { firstName: 'First', lastName: 'Admin', emailVerified: true } },
     });
-    const login = await Api.auth.login(email, password);
+    const login = await loginProfile(email, password);
     assert.equal(login.data.email, email);
     assert.equal(login.data.isAdmin, true);
     assert.equal((await Api.users.index()).status, 200);
@@ -208,7 +230,7 @@ test('web client authentication through the application routes', async (t) => {
 
   for (const email of ['regular.user@test.com', 'admin.user@test.com']) {
     await t.test(`${email} can save a profile loaded by the web form`, async () => {
-      const login = await Api.auth.login(email, 'test');
+      const login = await loginProfile(email, 'test');
       const profile = await Api.users.get(login.data.id);
       const saved = await Api.users.update(login.data.id, { ...profile.data, firstName: 'Updated', password: '' });
       assert.equal(saved.status, 200);
@@ -227,22 +249,22 @@ test('web client authentication through the application routes', async (t) => {
     await Api.passwords.reset(email);
     const token = await mailToken(nodemailerMock.mock);
     assert.ok(token);
-    await Api.auth.login(email, password);
+    await loginProfile(email, password);
     await Api.passwords.update(token, `${password}Changed`);
     assert.equal((await Api.users.me()).status, 204, 'Password reset must revoke the old browser session');
     await assert.rejects(Api.passwords.update(token, password), { _form: 'This link is invalid or has expired. Please request a new one.' });
     await assert.rejects(Api.auth.login(email, password), { _form: 'Invalid email and/or password.' });
-    const login = await Api.auth.login(email, `${password}Changed`);
+    const login = await loginProfile(email, `${password}Changed`);
     assert.equal(login.data.email, email);
   });
 
   await t.test('resetting another account preserves the current browser session', async () => {
-    const login = await Api.auth.login('admin.user@test.com', 'test');
+    const login = await loginProfile('admin.user@test.com', 'test');
     await Api.passwords.reset('regular.user@test.com');
     await Api.passwords.update(await mailToken(nodemailerMock.mock), `${password}Changed`);
     assert.equal((await Api.users.me()).data.id, login.data.id);
     await Api.auth.logout();
-    assert.equal((await Api.auth.login('regular.user@test.com', `${password}Changed`)).data.email, 'regular.user@test.com');
+    assert.equal((await loginProfile('regular.user@test.com', `${password}Changed`)).data.email, 'regular.user@test.com');
   });
 
   await t.test('signup remains signed out until email verification, then returns the application profile', async () => {
@@ -253,7 +275,7 @@ test('web client authentication through the application routes', async (t) => {
     await assert.rejects(Api.auth.login(email, password), { _form: 'Please verify your email before logging in.', _code: 'EMAIL_NOT_VERIFIED' });
     await Api.auth.sendVerificationEmail(email);
     await Api.auth.verifyEmail(await mailToken(nodemailerMock.mock));
-    const login = await Api.auth.login(email, password);
+    const login = await loginProfile(email, password);
     assert.equal(login.data.email, email);
     assert.equal(login.data.isAdmin, false);
     assert.equal(login.data.user, undefined, 'The login screen needs the application profile, not the Better Auth wrapper');
@@ -262,7 +284,7 @@ test('web client authentication through the application routes', async (t) => {
   await t.test('unknown reset addresses have the same public response', async () => {
     const known = await Api.passwords.reset('regular.user@test.com');
     const unknown = await Api.passwords.reset('unknown@example.com');
-    assert.equal(known.status, 200);
+    assert.equal(known.error, null);
     assert.deepEqual(known.data, unknown.data);
   });
 
@@ -272,7 +294,7 @@ test('web client authentication through the application routes', async (t) => {
     try {
       await assert.rejects(Api.auth.login('unknown@example.com', password), { _form: 'Invalid email and/or password.' });
       await assert.rejects(Api.auth.verifyEmail('invalid'), { _form: 'This link is invalid or has expired. Please request a new one.' });
-      await assert.rejects(Api.auth.verifyMagicLink('invalid'), { _form: 'This link is invalid or has expired. Please request a new one.' });
+      assert.equal((await confirmMagicLink('invalid')).error, 'INVALID_TOKEN');
       await assert.rejects(Api.auth.sendMagicLink('invalid'), error => typeof error._form === 'string');
       await assert.rejects(Api.passwords.update('invalid', password), { _form: 'This link is invalid or has expired. Please request a new one.' });
       assert.equal(globalThis.window.location, '/login?from=/admin');
@@ -284,13 +306,13 @@ test('web client authentication through the application routes', async (t) => {
 
   await t.test('a magic email link establishes the browser session', async () => {
     const requested = await Api.auth.sendMagicLink('regular.user@test.com');
-    assert.equal(requested.status, 200);
+    assert.equal(requested.error, null);
     assert.equal((await Api.users.me()).status, 204, 'Requesting a link must not sign the browser in');
     const token = await mailToken(nodemailerMock.mock);
-    const login = await Api.auth.verifyMagicLink(token);
+    const login = await confirmMagicLink(token);
     assert.equal(login.data.email, 'regular.user@test.com');
     assert.equal((await Api.users.me()).data.id, login.data.id);
-    await assert.rejects(Api.auth.verifyMagicLink(token), { _form: 'This link is invalid or has expired. Please request a new one.' });
+    assert.ok((await confirmMagicLink(token)).error);
     assert.equal((await Api.users.me()).data.id, login.data.id, 'A failed link must preserve an existing session');
   });
 
@@ -298,7 +320,7 @@ test('web client authentication through the application routes', async (t) => {
     await Api.auth.sendMagicLink('regular.user@test.com');
     const token = await mailToken(nodemailerMock.mock);
     await app.prisma.verification.updateMany({ data: { expiresAt: new Date(0) } });
-    await assert.rejects(Api.auth.verifyMagicLink(token), { _form: 'This link is invalid or has expired. Please request a new one.' });
+    assert.ok((await confirmMagicLink(token)).error);
     assert.equal((await Api.users.me()).status, 204);
   });
 
@@ -307,7 +329,7 @@ test('web client authentication through the application routes', async (t) => {
     await mailToken(nodemailerMock.mock);
     const sentCount = nodemailerMock.mock.getSentMail().length;
     const unknown = await Api.auth.sendMagicLink('unknown@example.com');
-    assert.equal(unknown.status, known.status);
+    assert.equal(unknown.error, known.error);
     assert.deepEqual(unknown.data, known.data);
     assert.equal(nodemailerMock.mock.getSentMail().length, sentCount);
     assert.equal(await app.prisma.user.count({ where: { email: 'unknown@example.com' } }), 0);

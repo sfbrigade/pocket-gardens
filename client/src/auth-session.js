@@ -1,12 +1,17 @@
+import { authPath, loginDestination } from './LoginDestination.js';
+
+export const profileKey = (id) => ['users', 'me', id];
+
 export function clearAccountQueries (queryClient) {
-  // Removal also cancels pending queries. Keep the observed session query.
-  queryClient.removeQueries({
-    predicate: ({ queryKey }) => queryKey.length !== 2 || queryKey[0] !== 'users' || queryKey[1] !== 'me',
-  });
+  // Removing queries cancels pending work before another identity is exposed.
+  queryClient.removeQueries();
 }
 
-export async function setAuthenticatedUser (queryClient, user) {
-  await queryClient.cancelQueries();
-  clearAccountQueries(queryClient);
-  queryClient.setQueryData(['users', 'me'], user);
+export function magicLinkConfirmationURL (token, destination) {
+  const from = loginDestination(destination);
+  return `/api/auth/magic-link/verify?${new URLSearchParams({
+    token,
+    callbackURL: from,
+    errorCallbackURL: authPath('/auth/magic-link', from),
+  })}`;
 }

@@ -4,6 +4,7 @@ import axios from 'axios';
 import { StatusCodes } from 'http-status-codes';
 import { capitalize } from 'inflection';
 import { authPath } from './LoginDestination.js';
+import { authClient } from './auth-client.js';
 
 const instance = axios.create({
   headers: {
@@ -65,21 +66,19 @@ function handleError (error) {
 }
 
 function handleAuthError (error) {
-  const code = error.response?.data?.code;
+  const code = error.code;
   if (code === 'INVALID_EMAIL_OR_PASSWORD') throw { _form: 'Invalid email and/or password.' };
   if (code === 'EMAIL_NOT_VERIFIED') throw { _form: 'Please verify your email before logging in.', _code: code };
   if (code === 'BANNED_USER') throw { _form: 'Your account has been deactivated.' };
   if (code === 'INVALID_TOKEN' || code === 'TOKEN_EXPIRED') throw { _form: 'This link is invalid or has expired. Please request a new one.' };
-  if (error.response?.status === StatusCodes.TOO_MANY_REQUESTS) throw { _form: 'Too many attempts. Please try again in a few minutes.' };
-  throw { _form: error.response?.data?.message || error.message };
+  if (error.status === StatusCodes.TOO_MANY_REQUESTS) throw { _form: 'Too many attempts. Please try again in a few minutes.' };
+  throw { _form: error.message };
 }
 
-async function loadAuthenticatedUser () {
-  const response = await Api.users.me().catch(handleAuthError);
-  if (response.status !== StatusCodes.OK || !response.data?.id) {
-    throw { _form: 'Your session could not be confirmed. Please log in again.' };
-  }
-  return response;
+async function authResult (request) {
+  const result = await request.catch(handleAuthError);
+  if (result.error) handleAuthError(result.error);
+  return result;
 }
 
 const Api = {
@@ -94,36 +93,27 @@ const Api = {
     },
   },
   auth: {
-    async login (email, password) {
-      await instance.post('/api/auth/sign-in/email', { email, password }).catch(handleAuthError);
-      return loadAuthenticatedUser();
+    login (email, password) {
+      return authResult(authClient.signIn.email({ email, password }));
     },
     logout () {
-      return instance.post('/api/auth/sign-out', {}).catch(handleAuthError);
+      return authResult(authClient.signOut());
     },
     register ({ registrationMethod = 'password', password, ...data }) {
       if (registrationMethod === 'magic-link') {
         const { email, firstName, lastName, inviteId, callbackURL } = data;
-        return instance.post('/api/auth/sign-in/magic-link', {
-          email,
-          ...(callbackURL ? { callbackURL } : {}),
-          metadata: { registration: { firstName, lastName, inviteId } },
-        }).catch(handleAuthError);
+        return authResult(authClient.signIn.magicLink({ email, callbackURL, metadata: { registration: { firstName, lastName, inviteId } } }));
       }
-      return instance.post('/api/auth/sign-up/email', { ...data, password }).catch(handleAuthError);
+      return authResult(authClient.signUp.email({ ...data, name: `${data.firstName} ${data.lastName}`, password }));
     },
     sendVerificationEmail (email, callbackURL) {
-      return instance.post('/api/auth/send-verification-email', { email, ...(callbackURL ? { callbackURL } : {}) }).catch(handleAuthError);
+      return authResult(authClient.sendVerificationEmail({ email, callbackURL }));
     },
     verifyEmail (token) {
-      return instance.get('/api/auth/verify-email', { params: { token } }).catch(handleAuthError);
+      return authResult(authClient.verifyEmail({ query: { token } }));
     },
     sendMagicLink (email, callbackURL) {
-      return instance.post('/api/auth/sign-in/magic-link', { email, ...(callbackURL ? { callbackURL } : {}) }).catch(handleAuthError);
-    },
-    async verifyMagicLink (token) {
-      await instance.get('/api/auth/magic-link/verify', { params: { token } }).catch(handleAuthError);
-      return loadAuthenticatedUser();
+      return authResult(authClient.signIn.magicLink({ email, callbackURL }));
     },
   },
   invites: {
@@ -148,10 +138,10 @@ const Api = {
   },
   passwords: {
     reset (email, redirectTo) {
-      return instance.post('/api/auth/request-password-reset', { email, ...(redirectTo ? { redirectTo } : {}) }).catch(handleAuthError);
+      return authResult(authClient.requestPasswordReset({ email, redirectTo }));
     },
     update (token, password) {
-      return instance.post('/api/auth/reset-password', { token, newPassword: password }).catch(handleAuthError);
+      return authResult(authClient.resetPassword({ token, newPassword: password }));
     },
   },
   people: {
@@ -203,8 +193,8 @@ const Api = {
     index (page = 1) {
       return instance.get('/api/users', { params: { page } });
     },
-    me () {
-      return instance.get('/api/users/me');
+    me (signal) {
+      return instance.get('/api/users/me', { signal });
     },
     get (id) {
       return instance.get(`/api/users/${id}`);
@@ -214,7 +204,7 @@ const Api = {
       return instance.patch(`/api/users/${id}`, data).catch(handleError);
     },
     setRole (id, role) {
-      return instance.post('/api/auth/admin/set-role', { userId: id, role }).catch(handleAuthError);
+      return authResult(authClient.admin.setRole({ userId: id, role }));
     },
   },
 };

@@ -98,7 +98,7 @@ test('application Better Auth cutover', async (t) => {
 
   await t.test('access log serializer excludes link tokens and headers', () => {
     for (const [url, route] of [
-      ['/api/auth/links/magic-link?token=secret', '/api/auth/links/magic-link'],
+      ['/auth/magic-link?token=secret', '/auth/*'],
       ['/api/auth/reset-password/secret?callbackURL=/', '/api/auth/*'],
       ['/api/auth/reset-password/encoded%2Dsecret/', '/api/auth/*'],
       ['/api/auth/reset-password', '/api/auth/*'],

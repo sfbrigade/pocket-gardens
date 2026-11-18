@@ -1,3 +1,4 @@
+import { setSession } from './mock-auth-client';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -16,9 +17,11 @@ beforeEach(() => vi.clearAllMocks());
 
 it('provides account, admin and logout actions in the mobile navigation', async () => {
   const profile = { id: 'admin', firstName: 'Admin', lastName: 'Check', email: 'admin@example.com', isAdmin: true, emailVerified: true, picture: null };
+  setSession(profile);
   Api.users.me.mockResolvedValue({ status: 200, data: profile });
   Api.users.get.mockResolvedValue({ status: 200, data: profile });
   Api.auth.logout.mockImplementation(async () => {
+    setSession(null);
     Api.users.me.mockResolvedValue({ status: 204, data: null });
     return { data: { status: true } };
   });
@@ -45,6 +48,7 @@ it('provides account, admin and logout actions in the mobile navigation', async 
 
 it('finishes logout after the mobile drawer closes while the request is pending', async () => {
   const profile = { id: 'admin', firstName: 'Admin', lastName: 'Check', email: 'admin@example.com', isAdmin: true, emailVerified: true, picture: null };
+  setSession(profile);
   Api.users.me.mockResolvedValue({ status: 200, data: profile });
   Api.users.get.mockResolvedValue({ status: 200, data: profile });
   let finishLogout;
@@ -66,6 +70,7 @@ it('finishes logout after the mobile drawer closes while the request is pending'
   await user.click(screen.getByRole('button', { name: 'Close navigation' }));
 
   await act(async () => {
+    setSession(null);
     Api.users.me.mockResolvedValue({ status: 204, data: null });
     finishLogout({ data: { status: true } });
     await logoutResponse;

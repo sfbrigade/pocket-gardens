@@ -9,6 +9,7 @@ export default fp(async function (fastify) {
   const auth = createAuth(fastify.prisma);
   fastify.decorate('auth', auth);
   fastify.decorateRequest('user', null);
+  fastify.decorateRequest('authSession', null);
   fastify.addHook('onRequest', async (request, reply) => {
     if (request.url.startsWith('/api/auth/')) return;
     const response = await auth.api.getSession({ headers: fromNodeHeaders(request.headers), asResponse: true });
@@ -16,6 +17,7 @@ export default fp(async function (fastify) {
     if (cookies.length) reply.header('set-cookie', cookies);
     const session = await response.json();
     if (response.ok && session?.user) {
+      request.authSession = session;
       request.user = new User(session.user);
     }
   });

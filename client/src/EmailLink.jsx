@@ -1,29 +1,26 @@
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Alert, Button, Container, Stack, Title } from '@mantine/core';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from './Api';
 import { authPath, loginDestination } from './LoginDestination';
-import { setAuthenticatedUser } from './auth-session';
+import { magicLinkConfirmationURL } from './auth-session';
 
 export default function EmailLink ({ action }) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const token = searchParams.get('token');
+  const callbackError = searchParams.get('error');
   const verifyingEmail = action === 'verify-email';
   const from = loginDestination(searchParams.get('from'));
   const title = verifyingEmail ? 'Verify your email' : 'Log in with your email link';
   // Only redeem on confirmation, so opening a link does not consume it.
   const mutation = useMutation({
-    mutationFn: () => verifyingEmail ? Api.auth.verifyEmail(token) : Api.auth.verifyMagicLink(token),
-    onSuccess: async (response) => {
+    mutationFn: () => Api.auth.verifyEmail(token),
+    onSuccess: () => {
       if (verifyingEmail) {
         navigate(authPath('/login', from), { replace: true, state: { flash: 'Your email has been verified. You can now log in.', loginMethod: 'password' } });
-      } else {
-        await setAuthenticatedUser(queryClient, response.data);
-        navigate(from, { replace: true });
       }
     },
   });
@@ -37,9 +34,9 @@ export default function EmailLink ({ action }) {
       <Container>
         <Stack w={{ base: '100%', xs: 320 }}>
           <Title>{title}</Title>
-          {!token && <Alert color='red'>This link is invalid. Please request a new one.</Alert>}
+          {(!token || callbackError) && <Alert color='red'>This link is invalid or has expired. Please request a new one.</Alert>}
           {mutation.error && <Alert color='red'>{mutation.error._form}</Alert>}
-          {token && <Button loading={mutation.isPending} onClick={() => mutation.mutate()}>{verifyingEmail ? 'Verify email' : 'Log in'}</Button>}
+          {token && !callbackError && <Button loading={mutation.isPending} onClick={() => verifyingEmail ? mutation.mutate() : window.location.assign(magicLinkConfirmationURL(token, from))}>{verifyingEmail ? 'Verify email' : 'Log in'}</Button>}
           <Link to={authPath('/login', from)}>Back to login</Link>
         </Stack>
       </Container>

@@ -3,10 +3,11 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { MantineProvider } from '@mantine/core';
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createHead, UnheadProvider } from '@unhead/react/client';
 
 import Api from '../src/Api';
+import { setSession } from './mock-auth-client';
 import StaticContextProvider from '../src/StaticContextProvider';
 import AuthContextProvider from '../src/AuthContextProvider';
 import Header from '../src/Header';
@@ -28,7 +29,6 @@ vi.mock('../src/Api', () => ({
       sendVerificationEmail: vi.fn(),
       verifyEmail: vi.fn(),
       sendMagicLink: vi.fn(),
-      verifyMagicLink: vi.fn(),
     },
     passwords: { reset: vi.fn(), update: vi.fn() },
     users: { me: vi.fn(), get: vi.fn(), update: vi.fn() },
@@ -82,13 +82,13 @@ function open (entry = '/login', { accountEditor = false } = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  Api.users.me.mockResolvedValue({ status: 204, data: null });
-  Api.auth.login.mockResolvedValue({ data: profile });
-  Api.auth.logout.mockResolvedValue({ data: { status: true } });
+  setSession(null);
+  Api.users.me.mockResolvedValue({ status: 200, data: profile });
+  Api.auth.login.mockImplementation(async () => { setSession(profile); return { data: { user: profile } }; });
+  Api.auth.logout.mockImplementation(async () => { setSession(null); return { data: { status: true } }; });
   Api.auth.sendMagicLink.mockResolvedValue({ data: { status: true } });
   Api.auth.sendVerificationEmail.mockResolvedValue({ data: { status: true } });
   Api.auth.verifyEmail.mockResolvedValue({ data: { status: true } });
-  Api.auth.verifyMagicLink.mockResolvedValue({ data: profile });
   Api.auth.register.mockResolvedValue({ data: { status: true } });
   Api.passwords.reset.mockResolvedValue({ data: { status: true } });
 });
@@ -158,57 +158,96 @@ describe('login choices', () => {
     expect(screen.getByLabelText('Password', { exact: true })).toBeTruthy();
   });
 
-  for (const method of ['password', 'magic-link']) {
-    it(`discards the previous account's cached data and pending requests after ${method} login`, async () => {
-      const previousProfile = { ...profile, id: 'previous-admin', isAdmin: true };
-      if (method === 'magic-link') Api.users.me.mockResolvedValue({ status: 200, data: previousProfile });
-      const user = open(method === 'password' ? loginEntry : `/auth/magic-link?token=test-token&from=${encodeURIComponent(from)}`);
-      await waitFor(() => expect(Api.users.me).toHaveBeenCalled());
-      if (method === 'magic-link') await screen.findByRole('button', { name: 'Log out' });
-      user.queryClient.setQueryData(['users', previousProfile.id], { data: previousProfile });
-      user.queryClient.setQueryData(['carer-directory', 'Test'], { pages: [{ data: [previousProfile] }] });
-      user.queryClient.setQueryData(['plots', 'capabilities'], { canAssignCarers: true });
-      let complete;
-      const pending = user.queryClient.fetchQuery({
-        queryKey: ['people', 'private-person'],
-        queryFn: () => new Promise(resolve => { complete = resolve; }),
-      }).catch(() => {});
-      if (method === 'password') {
-        await user.type(screen.getByLabelText('Email', { exact: true }), email);
-        await user.click(screen.getByRole('radio', { name: 'Log in with password' }));
-        await user.type(screen.getByLabelText('Password', { exact: true }), 'a long password{Enter}');
-      } else {
-        await user.click(screen.getByRole('button', { name: 'Log in' }));
-      }
-      await screen.findByText('Account destination');
-      expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(profile);
-      expect(user.queryClient.getQueryData(['users', previousProfile.id])).toBeUndefined();
-      expect(user.queryClient.getQueryData(['carer-directory', 'Test'])).toBeUndefined();
-      expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toBeUndefined();
-      await act(async () => { complete({ email: 'private@example.com' }); await pending; });
-      expect(user.queryClient.getQueryData(['people', 'private-person'])).toBeUndefined();
-    });
+  it('clears anonymous cached data and pending requests after explicit password login', async () => {
+    const user = open(loginEntry);
+    user.queryClient.setQueryData(['plots', 'capabilities'], { canAssignCarers: false });
+    let complete;
+    const pending = user.queryClient.fetchQuery({
+      queryKey: ['people', 'private-person'],
+      queryFn: () => new Promise(resolve => { complete = resolve; }),
+    }).catch(() => {});
+    await user.type(screen.getByLabelText('Email', { exact: true }), email);
+    await user.click(screen.getByRole('radio', { name: 'Log in with password' }));
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'test{Enter}');
+    await screen.findByText('Account destination');
+    await act(async () => { complete({ email: 'private@example.com' }); await pending; });
+    expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toBeUndefined();
+    expect(user.queryClient.getQueryData(['people', 'private-person'])).toBeUndefined();
+  });
 
-    it(`does not overwrite a new ${method} session with an older signed-out response`, async () => {
-      let complete;
-      const oldSession = new Promise(resolve => { complete = resolve; });
-      Api.users.me.mockReturnValueOnce(oldSession);
-      const user = open(method === 'password' ? loginEntry : `/auth/magic-link?token=test-token&from=${encodeURIComponent(from)}`);
-      await waitFor(() => expect(Api.users.me).toHaveBeenCalled());
-      if (method === 'password') {
-        await user.type(screen.getByLabelText('Email', { exact: true }), email);
-        await user.click(screen.getByRole('radio', { name: 'Log in with password' }));
-        await user.type(screen.getByLabelText('Password', { exact: true }), 'a long password{Enter}');
-      } else {
-        await user.click(screen.getByRole('button', { name: 'Log in' }));
-      }
-      await screen.findByRole('link', { name: 'Test!' });
-      user.queryClient.setQueryData(['users', profile.id], { data: profile });
-      await act(async () => complete({ status: 204, data: null }));
-      expect(screen.getByRole('link', { name: 'Test!' })).toBeTruthy();
-      expect(user.queryClient.getQueryData(['users', profile.id])).toEqual({ data: profile });
+  it('asks the SDK to confirm an expired session and preserves the protected destination', async () => {
+    setSession(profile);
+    Api.users.me.mockResolvedValueOnce({ status: 204, data: null });
+    open(from);
+    await screen.findByRole('button', { name: 'Email me a login link' });
+    expect(new URL(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href'), 'http://app.test').searchParams.get('from')).toBe(from);
+    expect(screen.queryByRole('link', { name: 'Test!' })).toBeNull();
+  });
+
+  it('hides the previous profile while the new identity profile is pending or fails', async () => {
+    const previous = { ...profile, id: 'previous', firstName: 'Previous' };
+    setSession(previous);
+    Api.users.me.mockResolvedValue({ status: 200, data: previous });
+    const user = open('/account');
+    await screen.findByRole('link', { name: 'Previous!' });
+    let rejectProfile;
+    Api.users.me.mockReturnValueOnce(new Promise((resolve, reject) => { rejectProfile = reject; }));
+    await act(async () => setSession(profile));
+    expect(screen.queryByRole('link', { name: 'Previous!' })).toBeNull();
+    await screen.findByLabelText('Loading session');
+    await act(async () => rejectProfile(new Error('Profile unavailable')));
+    await screen.findByText('Profile unavailable');
+    expect(screen.queryByRole('link', { name: 'Previous!' })).toBeNull();
+    expect(user.queryClient.getQueryData(['users', 'me', previous.id])).toBeUndefined();
+  });
+
+  it('cancels private queries and an old profile response when the SDK changes identity', async () => {
+    const previous = { ...profile, id: 'previous', firstName: 'Previous', isAdmin: true };
+    let finishProfile;
+    setSession(previous);
+    Api.users.me.mockReturnValueOnce(new Promise(resolve => { finishProfile = resolve; }));
+    const user = open('/auth/magic-link?token=test-token');
+    await waitFor(() => expect(Api.users.me).toHaveBeenCalled());
+    user.queryClient.setQueryData(['users', previous.id], { data: previous });
+    user.queryClient.setQueryData(['plots', 'capabilities'], { canAssignCarers: true });
+    let complete;
+    const pending = user.queryClient.fetchQuery({
+      queryKey: ['people', 'private-person'],
+      queryFn: () => new Promise(resolve => { complete = resolve; }),
+    }).catch(() => {});
+    await act(async () => setSession(profile));
+    await screen.findByRole('link', { name: 'Test!' });
+    await act(async () => {
+      finishProfile({ status: 200, data: previous });
+      complete({ email: 'private@example.com' });
+      await pending;
     });
-  }
+    expect(user.queryClient.getQueryData(['users', 'me', profile.id])).toEqual(profile);
+    expect(user.queryClient.getQueryData(['users', previous.id])).toBeUndefined();
+    expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toBeUndefined();
+    expect(user.queryClient.getQueryData(['people', 'private-person'])).toBeUndefined();
+    expect(screen.queryByRole('link', { name: 'Previous!' })).toBeNull();
+  });
+
+  it('navigates through native verification only after confirming a magic link', async () => {
+    const originalWindow = window;
+    const assign = vi.fn();
+    vi.stubGlobal('window', new Proxy(originalWindow, {
+      get: (target, key) => key === 'location' ? { assign } : Reflect.get(target, key, target),
+    }));
+    try {
+      const user = open(`/auth/magic-link?token=test-token&from=${encodeURIComponent(from)}`);
+      expect(assign).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Log in' }));
+      const url = new URL(assign.mock.calls[0][0], 'http://app.test');
+      expect(url.pathname).toBe('/api/auth/magic-link/verify');
+      expect(url.searchParams.get('token')).toBe('test-token');
+      expect(url.searchParams.get('callbackURL')).toBe(from);
+      expect(new URL(url.searchParams.get('errorCallbackURL'), url).searchParams.get('from')).toBe(from);
+    } finally {
+      vi.stubGlobal('window', originalWindow);
+    }
+  });
 
   it('prevents duplicate requests and method changes while an email link is being sent', async () => {
     let complete;
@@ -317,9 +356,7 @@ describe('verification and recovery branches', () => {
   });
 
   it('retains the destination when requesting another expired login link', async () => {
-    Api.auth.verifyMagicLink.mockRejectedValue({ _form: 'This link is invalid or has expired. Please request a new one.' });
-    const user = open(`/auth/magic-link?token=test-token&from=${encodeURIComponent(from)}`);
-    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    const user = open(`/auth/magic-link?error=INVALID_TOKEN&from=${encodeURIComponent(from)}`);
     await screen.findByText(/This link is invalid or has expired/);
     await user.click(screen.getByRole('link', { name: /Back to login|Request a new login link/ }));
     expect(screen.getByTestId('location').textContent).toBe(`/login?from=${encodeURIComponent(from)}`);
@@ -371,6 +408,7 @@ describe('session refresh across tabs', () => {
   ]) {
     it(`${clearCache ? 'clears' : 'preserves'} cached data when focus returns and ${name}`, async () => {
       const previous = { ...profile, id: 'previous', firstName: 'Previous' };
+      setSession(previous);
       Api.users.me.mockResolvedValue({ status: 200, data: previous });
       const user = open('/account');
       await screen.findByRole('link', { name: 'Previous!' });
@@ -383,20 +421,15 @@ describe('session refresh across tabs', () => {
         queryKey: ['people', 'private-person'],
         queryFn: () => new Promise(resolve => { complete = resolve; }),
       }).catch(() => {});
-      try {
-        focusManager.setFocused(false);
-        Api.users.me.mockResolvedValue({ status: nextUser ? 200 : 204, data: nextUser });
-        await act(async () => { focusManager.setFocused(true); });
-        await screen.findByRole('link', { name: nextUser ? `${nextUser.firstName}!` : 'Log in', exact: true });
-        expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(nextUser);
-        expect(user.queryClient.getQueryData(['users', previous.id])).toEqual(clearCache ? undefined : { data: previous });
-        expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toEqual(clearCache ? undefined : { canAssignCarers: true });
-        expect(user.queryClient.getQueryData(['people', 'private-person'])).toEqual(clearCache ? undefined : privatePerson);
-        await act(async () => { complete(privatePerson); await pending; });
-        expect(user.queryClient.getQueryData(['people', 'private-person'])).toEqual(clearCache ? undefined : privatePerson);
-      } finally {
-        focusManager.setFocused(undefined);
-      }
+      Api.users.me.mockResolvedValue({ status: nextUser ? 200 : 204, data: nextUser });
+      await act(async () => { setSession(nextUser); await user.queryClient.invalidateQueries({ queryKey: ['users', 'me', nextUser?.id] }); });
+      await screen.findByRole('link', { name: nextUser ? `${nextUser.firstName}!` : 'Log in', exact: true });
+      expect(user.queryClient.getQueryData(['users', 'me', nextUser?.id]) ?? null).toEqual(nextUser);
+      expect(user.queryClient.getQueryData(['users', previous.id])).toEqual(clearCache ? undefined : { data: previous });
+      expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toEqual(clearCache ? undefined : { canAssignCarers: true });
+      expect(user.queryClient.getQueryData(['people', 'private-person'])).toEqual(clearCache ? undefined : privatePerson);
+      await act(async () => { complete(privatePerson); await pending; });
+      expect(user.queryClient.getQueryData(['people', 'private-person'])).toEqual(clearCache ? undefined : privatePerson);
     });
   }
 });
@@ -406,16 +439,19 @@ describe('leaving a session', () => {
     it(`ignores an old profile save after ${switchAccount ? 'logging in as another account' : 'logging out'}`, async () => {
       const previous = { ...profile, id: 'previous', firstName: 'Previous', picture: null, emailVerified: true };
       const current = { ...profile, id: 'current', firstName: 'Current' };
+      setSession(previous);
       Api.users.me.mockResolvedValue({ status: 200, data: previous });
       Api.users.get.mockResolvedValue({ data: previous });
       let finishSave;
       const save = new Promise(resolve => { finishSave = resolve; });
       Api.users.update.mockReturnValue(save);
       Api.auth.logout.mockImplementation(async () => {
+        setSession(null);
         Api.users.me.mockResolvedValue({ status: 204, data: null });
         return { data: { status: true } };
       });
       Api.auth.login.mockImplementation(async () => {
+        setSession(current);
         Api.users.me.mockResolvedValue({ status: 200, data: current });
         return { data: current };
       });
@@ -436,7 +472,7 @@ describe('leaving a session', () => {
       // A failed refresh must not leave the old mutation's identity in the UI.
       Api.users.me.mockRejectedValue(new Error('Session profile refresh unavailable'));
       await act(async () => { finishSave({ data: { ...previous, firstName: 'PreviousEdited' } }); await save; });
-      expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(switchAccount ? current : null);
+      expect(user.queryClient.getQueryData(['users', 'me', current.id]) ?? null).toEqual(switchAccount ? current : null);
       expect(user.queryClient.getQueryData(['users', previous.id])).toBeUndefined();
       expect(screen.queryByRole('link', { name: 'PreviousEdited!' })).toBeNull();
     });
@@ -445,6 +481,7 @@ describe('leaving a session', () => {
   it('updates the current profile and session after an ordinary profile save', async () => {
     const current = { ...profile, picture: null, emailVerified: true };
     const updated = { ...current, firstName: 'Updated' };
+    setSession(current);
     Api.users.me.mockResolvedValue({ status: 200, data: current });
     Api.users.get.mockResolvedValue({ data: current });
     Api.users.update.mockImplementation(async () => {
@@ -459,14 +496,16 @@ describe('leaving a session', () => {
     await user.click(screen.getByRole('button', { name: 'Submit', exact: true }));
     expect(await screen.findByText('Your account has been updated!')).toBeTruthy();
     expect(await screen.findByRole('link', { name: 'Updated!' })).toBeTruthy();
-    expect(user.queryClient.getQueryData(['users', 'me'])).toEqual(updated);
+    expect(user.queryClient.getQueryData(['users', 'me', current.id])).toEqual(updated);
   });
 
   it('uses the shared logout action to switch accounts without leaving an invitation', async () => {
     const invitedEmail = 'invited@example.com';
+    setSession(profile);
     Api.users.me.mockResolvedValue({ status: 200, data: profile });
     Api.invites.get.mockResolvedValue({ data: { email: invitedEmail } });
     Api.auth.logout.mockImplementationOnce(async () => {
+      setSession(null);
       Api.users.me.mockResolvedValue({ status: 204, data: null });
       return { data: { status: true } };
     });
@@ -480,6 +519,7 @@ describe('leaving a session', () => {
   });
 
   it('shows a logout error and keeps the current user signed in when logout fails', async () => {
+    setSession(profile);
     Api.users.me.mockResolvedValue({ status: 200, data: profile });
     Api.auth.logout.mockRejectedValueOnce({ _form: 'Unable to log out. Please try again.' });
     const user = open('/account');
@@ -489,8 +529,10 @@ describe('leaving a session', () => {
   });
 
   it('clears cached private profiles on logout before another account can log in', async () => {
+    setSession(profile);
     Api.users.me.mockResolvedValue({ status: 200, data: profile });
     Api.auth.logout.mockImplementationOnce(async () => {
+      setSession(null);
       Api.users.me.mockResolvedValue({ status: 204, data: null });
       return { data: { status: true } };
     });
