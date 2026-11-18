@@ -12,7 +12,7 @@ test('existing accounts use email links without registering again', async (t) =>
     await t.test(`an existing ${canCreatePlot ? 'administrator can' : 'regular user cannot'} submit a plot after browser-style email login`, async () => {
       const original = await prisma.user.findUnique({ where: { email } });
       await prisma.account.deleteMany({ where: { userId: original.id } });
-      await prisma.user.update({ where: { id: original.id }, data: { emailVerified: false } });
+      assert.equal(original.emailVerified, true, 'Migrated accounts are already treated as verified');
       process.env.VITE_FEATURE_REGISTRATION = 'false';
       const userCount = await prisma.user.count();
       const plotCount = await prisma.plot.count();
@@ -66,7 +66,7 @@ test('existing accounts use email links without registering again', async (t) =>
     });
   }
 
-  await t.test('an unverified migrated admin retains their account, garden links, and role and can optionally add a password', async () => {
+  await t.test('an unverified existing admin retains their account, garden links, and role and can optionally add a password', async () => {
     const original = await prisma.user.findUnique({ where: { email: 'admin.user@test.com' } });
     await prisma.account.deleteMany({ where: { userId: original.id } });
     await prisma.user.update({

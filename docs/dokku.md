@@ -17,7 +17,7 @@ client address to Better Auth for rate limits and session metadata. Forward
 `/api/...` unchanged. Email links open the web screens on `BASE_URL`.
 
 Review the [account migration and deployment steps](authentication.md#deployment-and-migration)
-before applying `20261116000000_better_auth`. Existing users sign in again using
-an email link, keeping their account IDs and roles. Deploy the server/client pair
-together; retained legacy columns do not synchronize post-cutover passwords or
-make an application-only rollback safe.
+before applying the Better Auth migrations. Existing users are treated as verified
+and sign in again using an email link, keeping their account IDs and roles. Deploy
+the server/client pair together; retained legacy columns do not synchronize
+post-cutover passwords or make an application-only rollback safe.

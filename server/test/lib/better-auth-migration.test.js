@@ -53,7 +53,14 @@ test('Better Auth upgrades existing accounts without replacing garden identities
   };
 
   await execute(path.join(migrations, migrationName, 'migration.sql'));
-  const users = await prisma.user.findMany({ orderBy: { email: 'asc' } });
+  const pending = await prisma.user.create({
+    data: { firstName: 'Pending', lastName: 'Signup', name: 'Pending Signup', email: 'pending-after-cutover@example.com' },
+  });
+  assert.equal(pending.emailVerified, false);
+  assert.equal(pending.legacyHashedPassword, null);
+  const followups = (await readdir(migrations)).filter(name => /^\d+_/.test(name) && name > migrationName).sort();
+  for (const name of followups) await execute(path.join(migrations, name, 'migration.sql'));
+  const users = await prisma.user.findMany({ where: { id: { in: [admin.id, member.id] } }, orderBy: { email: 'asc' } });
   assert.deepEqual(users.map(user => user.id), [admin.id, member.id]);
   for (const [old, user] of [[admin, users[0]], [member, users[1]]]) {
     assert.equal(user.email, old.email);
@@ -61,7 +68,7 @@ test('Better Auth upgrades existing accounts without replacing garden identities
     assert.equal(user.firstName, old.firstName);
     assert.equal(user.lastName, old.lastName);
     assert.equal(user.picture, old.picture);
-    assert.equal(user.emailVerified, false, 'Existing account presence is not email verification');
+    assert.equal(user.emailVerified, true, 'Pre-existing Pocket Gardens accounts are trusted as verified during cutover');
     assert.equal(user.role, old.isAdmin ? 'admin' : 'user');
     assert.equal(user.banned, old.deactivatedAt !== null);
     assert.equal(user.legacyHashedPassword, old.hashedPassword);
@@ -78,6 +85,8 @@ test('Better Auth upgrades existing accounts without replacing garden identities
   assert.equal(await prisma.account.count(), 0, 'Legacy passwords are not imported');
   assert.equal(await prisma.session.count(), 0, 'Legacy sessions are not imported');
   assert.equal((await prisma.user.findUnique({ where: { email: 'EXISTING.ADMIN@EXAMPLE.COM' } })).id, admin.id);
-  const passwordless = await prisma.user.create({ data: { firstName: 'New', lastName: 'User', name: 'New User', email: 'new@example.com', emailVerified: true } });
+  assert.equal((await prisma.user.findUnique({ where: { id: pending.id } })).emailVerified, false, 'The backfill must not verify pending Better Auth signups');
+  const passwordless = await prisma.user.create({ data: { firstName: 'New', lastName: 'User', name: 'New User', email: 'new@example.com' } });
+  assert.equal(passwordless.emailVerified, false, 'New accounts must still default to unverified');
   assert.equal(passwordless.legacyHashedPassword, null, 'Retained legacy fields must permit passwordless signup');
 });

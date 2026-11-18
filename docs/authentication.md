@@ -11,7 +11,9 @@ Pocket Gardens uses [Better Auth](https://better-auth.com/) `1.7.25` under
   before login; the login screen offers verification resends.
 - Existing users sign in with their existing email without registering again.
   Account IDs, roles, bans, profiles, existing Person links, and garden history
-  are preserved. Emails are matched case-insensitively.
+  are preserved. Emails are matched case-insensitively. Pre-Better Auth accounts
+  are treated as email-verified during migration; new accounts still require
+  verification through their normal signup flow.
 - When `VITE_FEATURE_REGISTRATION` is not `true`, signup requires a matching,
   unused invitation. Existing accounts can still log in.
 - Email links open `/auth/magic-link`, `/auth/verify-email`, `/passwords/reset`,
@@ -65,9 +67,10 @@ exclude usable authentication tokens. Forward `/api/...` unchanged to the backen
 1. Configure an HTTPS `BASE_URL`, a private `BETTER_AUTH_SECRET` of at least
    32 characters, SMTP, and the actual `TRUSTED_PROXIES` addresses. Confirm that an
    existing administrator can receive email before cutover.
-2. Back up the database and rehearse `20261116000000_better_auth` on an isolated
-   copy. Deploy the server and client together. Startup applies pending migrations
-   without resetting the database; earlier migrations remain unchanged.
+2. Back up the database and rehearse `20261116000000_better_auth` and
+   `20261118000000_verify_existing_accounts` on an isolated copy. Deploy the server
+   and client together. Startup applies pending migrations without resetting the
+   database; earlier migrations remain unchanged.
 3. Verify email delivery, existing-admin login, plot submission, invitations,
    registration/verification, password recovery, profile editing, and logout.
 
@@ -76,6 +79,13 @@ records, and retains legacy columns for cutover validation. Legacy passwords, re
 tokens, and sessions are not imported: users sign in again and replace old reset
 emails. Retained columns are not authentication authorities and do not synchronize
 new credentials back to the old implementation.
+
+The follow-up migration treats pre-Better Auth accounts as verified, so active
+existing users remain selectable as carers before their first new login. It
+identifies those accounts by the retained `hashedPassword` column, which the old
+schema required and new Better Auth signups leave null. Pending new signups remain
+unverified, and deactivated accounts remain banned. Verification status does not
+sign anyone in; existing users still request and confirm a magic link for access.
 
 An application-only rollback is therefore insufficient. Restore a compatible
 application/database pair while accounting for writes since backup. Investigate
