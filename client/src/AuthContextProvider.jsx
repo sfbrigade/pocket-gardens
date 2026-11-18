@@ -15,15 +15,21 @@ function AuthContextProvider ({ children }) {
   const location = useLocation();
   if (staticContext.authContext?.session) authClient.hydrateSession(staticContext.authContext.session);
   const session = authClient.useSession();
+  const [signedOutSessionId, setSignedOutSessionId] = useState(null);
+  // A successful sign-out revokes this session even if the SDK retains its
+  // snapshot after a failed refresh. A newly issued session remains authoritative.
+  const signedOut = signedOutSessionId !== null && session.data?.session?.id === signedOutSessionId;
   const [sessionObserved, setSessionObserved] = useState(false);
   useEffect(() => {
     if (!session.isPending) setSessionObserved(true);
   }, [session.isPending]);
   // The SDK's server snapshot is pending. Retain the request's profile during
   // SSR and initial hydration, then let useSession own the identity.
-  const identity = session.isPending && !session.error && !sessionObserved
-    ? staticContext.authContext?.user?.id ?? null
-    : session.data?.user?.id ?? null;
+  const identity = signedOut
+    ? null
+    : session.isPending && !session.error && !sessionObserved
+      ? staticContext.authContext?.user?.id ?? null
+      : session.data?.user?.id ?? null;
   const [observedIdentity, setObservedIdentity] = useState(identity);
   const changingIdentity = observedIdentity !== identity;
 
@@ -54,6 +60,7 @@ function AuthContextProvider ({ children }) {
   const signOut = useMutation({
     mutationFn: () => Api.auth.logout(),
     onSuccess: (_, options) => {
+      setSignedOutSessionId(session.data?.session?.id ?? null);
       clearAccountQueries(queryClient);
       if (!options?.stayOnPage) navigate('/', { replace: true });
     },

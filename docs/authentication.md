@@ -42,7 +42,10 @@ changes made in another tab when the application regains focus. Profiles are key
 by the SDK identity; a pending or failed fetch cannot show another account's profile.
 Same-account refreshes preserve application caches, and late profile saves are
 ignored after identity changes. Better Auth owns session observation; the small
-cache bridge only clears application data.
+cache bridge clears application data and remembers the session revoked by a
+successful logout, so a failed SDK refresh cannot revive it. A new session for the
+same account still signs in normally. Public login, confirmation, and recovery
+screens remain available if application-profile loading fails.
 
 Passwordless signup uses `/api/auth/sign-in/magic-link` with `email` and
 `metadata.registration: { firstName, lastName, inviteId? }`. The server validates and
