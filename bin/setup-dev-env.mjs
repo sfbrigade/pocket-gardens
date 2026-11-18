@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'dotenv';
+import { parseEnv } from 'node:util';
 
 export async function setupDevEnv (root = fileURLToPath(new URL('../', import.meta.url)), { nodeEnv = process.env.NODE_ENV } = {}) {
   if (nodeEnv === 'production') throw new Error('Development environment setup must not run in production. Configure BETTER_AUTH_SECRET explicitly.');
@@ -14,7 +14,7 @@ export async function setupDevEnv (root = fileURLToPath(new URL('../', import.me
     if (error.code !== 'ENOENT') throw error;
     contents = await readFile(path.join(root, 'server/example.env'), 'utf8');
   }
-  const config = parse(contents);
+  const config = parseEnv(contents);
   if (config.NODE_ENV === 'production') throw new Error('Development environment setup must not run with a production env file.');
   const secret = config.BETTER_AUTH_SECRET;
   const generatedSecret = !secret || secret.length < 32 || secret.startsWith('replace-with-');
@@ -25,7 +25,7 @@ export async function setupDevEnv (root = fileURLToPath(new URL('../', import.me
   }
   await writeFile(serverEnv, contents, { mode: 0o600 });
   await chmod(serverEnv, 0o600);
-  // Preserve dotenv quoting and consume whole multiline assignments before
+  // Preserve env-file quoting and consume whole multiline assignments before
   // filtering, so private values containing VITE_ lines cannot leak.
   const assignments = /^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?$/gm;
   const clientEnv = [...contents.matchAll(assignments)]
