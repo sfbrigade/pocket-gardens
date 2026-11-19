@@ -22,7 +22,7 @@ export default fp(async function (fastify) {
     }
   });
 
-  const requireUser = (isAdmin) => {
+  const requireUser = (hasAccess = () => true) => {
     return async (request, reply) => {
       if (!request.user) {
         return reply.code(StatusCodes.UNAUTHORIZED).send();
@@ -30,13 +30,14 @@ export default fp(async function (fastify) {
       if (!request.user.isActive) {
         return reply.code(StatusCodes.FORBIDDEN).send();
       }
-      if (isAdmin && !request.user.isAdmin) {
+      if (!hasAccess(request.user)) {
         return reply.code(StatusCodes.FORBIDDEN).send();
       }
     };
   };
 
   // onRequest handler to be used to ensure a user is logged in
-  fastify.decorate('requireUser', requireUser(false));
-  fastify.decorate('requireAdmin', requireUser(true));
+  fastify.decorate('requireUser', requireUser());
+  fastify.decorate('requireAdmin', requireUser(user => user.isAdmin));
+  fastify.decorate('requirePlotCreator', requireUser(user => user.canCreatePlot));
 }, { dependencies: ['prisma'] });

@@ -52,6 +52,14 @@ test('passwordless registration', async (t) => {
     const headers = { cookie };
     assert.equal((await app.inject({ url: '/api/users/me', headers })).json().id, user.id);
     assert.equal((await app.inject({ url: '/api/users', headers })).statusCode, 403);
+    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: true, canAssignCarers: false });
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/plots',
+      headers,
+      payload: { Latitude: 37.77, Longitude: -122.43, 'Location Description': 'Second tree well' },
+    });
+    assert.equal(saved.statusCode, 201, saved.body);
     assertNativeError(await redeem(token));
     assert.equal((await post('/sign-in/email', { email, password })).statusCode, 401);
     assert.equal((await post('/request-password-reset', { email })).statusCode, 200);

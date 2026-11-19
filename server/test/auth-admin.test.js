@@ -34,6 +34,9 @@ test('Better Auth administration', async (t) => {
       assert.equal(response.statusCode, 200, response.body);
       assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).role, role);
       assert.equal((await app.inject({ url: '/api/users', headers: member.headers })).statusCode, expectedStatus);
+      assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: member.headers })).json(), {
+        canCreatePlot: role !== 'user', canAssignCarers: role === 'admin',
+      });
     }
   });
 

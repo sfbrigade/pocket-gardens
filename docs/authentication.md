@@ -39,7 +39,8 @@ Late profile saves and stale snapshots of a successfully logged-out session cann
 restore the previous account. Public authentication screens remain available if
 profile loading fails.
 
-Plot submission requires an active administrator account. New carer assignments
+Plot submission requires a verified, unbanned volunteer or administrator account.
+Plot editing and carer assignment remain administrator-only. New carer assignments
 require verified, unbanned users. Accounts and Person records remain separate;
 existing links are preserved, and matching names or emails do not claim imported
 Person records.
@@ -49,6 +50,8 @@ For subsequent administrators, invite a user, wait for email verification, then 
 **Admin → Users → Edit Profile → Administrator access**. Role changes affect existing
 sessions immediately. Unverified accounts cannot be promoted, and administrators
 cannot remove their own admin access.
+Removing administrator access through the user form returns the account to the
+`volunteer` role, retaining plot submission access.
 
 ## Registration safeguards
 
