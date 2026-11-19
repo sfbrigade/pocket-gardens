@@ -6,7 +6,8 @@ import { authenticate, build } from '#test/helper.js';
 
 test('/api/people', async (t) => {
   const app = await build(t);
-  const adminHeaders = await authenticate(app, 'admin.user@test.com', 'test');
+  let adminHeaders;
+  t.beforeEach(async () => { adminHeaders = await authenticate(app, 'admin.user@test.com', 'test'); });
 
   await t.test('GET /:id', async (t) => {
     await t.test('returns a Person by id', async (t) => {

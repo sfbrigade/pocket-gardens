@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { fileURLToPath } from 'node:url';
 import Email from 'email-templates';
 import nodemailer from 'nodemailer';
 
@@ -50,8 +51,10 @@ export function configureMailer (lib) {
       from: process.env.SMTP_FROM_EMAIL_ADDRESS,
     },
     send: true,
+    preview: false,
     transport,
     views: {
+      root: fileURLToPath(new URL('../emails/', import.meta.url)),
       options: {
         extension: 'ejs',
       },

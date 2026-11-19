@@ -11,6 +11,27 @@ This repository contains a "starter" project for web application development in 
 - Node.js
 - Postgres
 
+## Authentication setup
+
+Authentication uses Better Auth `1.7.25` under `/api/auth`, with the official React
+client and cookie sessions. Email links are the default for signup and login;
+passwords are optional. Existing users sign in without registering again.
+
+Configure `server/.env` using `server/example.env`. Before local startup,
+`npm run dev` runs `bin/setup-dev-env.mjs` to create the env files, generate a private
+persistent auth secret when needed, and copy only public `VITE_` settings into
+`client/.env`. Docker Compose uses this same development command. Production startup
+does not run this helper and requires an explicitly configured secret.
+
+- `BETTER_AUTH_SECRET`: a private random secret of at least 32 characters (for example, generate with `openssl rand -base64 32`). Production startup rejects the example placeholder.
+- `BASE_URL`: the public application origin without `/api`; use HTTPS in production.
+- `TRUSTED_PROXIES`: the actual trusted reverse proxy IP addresses/CIDRs; leave unset for direct connections.
+- `SMTP_ENABLED=true` and SMTP settings: required for registration and authentication mail. Local development can use Mailcatcher.
+- `VITE_FEATURE_REGISTRATION`: when not `true`, new signup requires a matching, unused invitation. Existing users can still request login links.
+
+See the [authentication reference](docs/authentication.md) for existing-account
+migration, deployment checks, password setup, sessions, and administrator access.
+
 ## One-time Setup
 
 1. On Github, "Fork" this git repo to your own account so that you have your own copy.
@@ -58,10 +79,10 @@ This repository contains a "starter" project for web application development in 
    Once you're logged in, you will be in a new shell for the container where you can run the following command:
 
    ```
-   bin/create-admin.js Firstname Lastname email password
+   bin/create-admin.sh Firstname Lastname email
    ```
 
-   Put in your name and email address and a password. This will create a first admin user in the database.
+   Put in your name and email address; the bootstrap CLI prompts for a password and creates a verified administrator. Existing production administrators are preserved by migration and do not need to be recreated. To promote another verified user, use **Admin → Users → Edit Profile → Administrator access**.
 
 7. To stop the server, press CONTROL-C in the window with the running server.
    If it is successful, you will see something like this:

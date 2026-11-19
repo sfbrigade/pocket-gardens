@@ -1,24 +1,17 @@
-import { useNavigate, Link } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import { Box, Container, Stack, Title } from '@mantine/core';
-import { useMutation } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
-import Api from './Api';
-import { useAuthContext } from './AuthContext';
 import RegistrationForm from './RegistrationForm';
+import { authPath, loginDestination } from './LoginDestination';
+import useRegistration from './useRegistration';
 
 function Register () {
-  const authContext = useAuthContext();
-  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const from = loginDestination(searchParams.get('from'));
 
-  const onSubmitMutation = useMutation({
-    mutationFn: (values) => Api.auth.register(values),
-    onSuccess: (response) => {
-      authContext.setUser(response.data);
-      navigate('/');
-    },
-    onError: () => window.scrollTo(0, 0),
-  });
+  const onSubmitMutation = useRegistration({ from });
 
   return (
     <>
@@ -28,9 +21,9 @@ function Register () {
       <Container>
         <Title mb='md'>Register</Title>
         <Stack>
-          <RegistrationForm onSubmitMutation={onSubmitMutation} />
+          <RegistrationForm onSubmitMutation={onSubmitMutation} initialEmail={location.state?.email} />
           <Box>
-            <Link to='/login'>Already have an account?</Link>
+            <Link to={authPath('/login', from)} state={{ email: location.state?.email }}>Already have an account?</Link>
           </Box>
         </Stack>
       </Container>

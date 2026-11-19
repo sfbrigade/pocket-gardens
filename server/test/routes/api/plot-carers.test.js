@@ -38,7 +38,7 @@ test('registered carer selection and plot assignments', async (t) => {
     const member = await authenticate(app, 'regular.user@test.com', 'test');
     assert.equal((await app.inject({ url: '/api/plots/carers', headers: member })).statusCode, 403);
     const admin = await authenticate(app, 'admin.user@test.com', 'test');
-    await prisma.user.update({ where: { email: 'admin.user@test.com' }, data: { deactivatedAt: new Date() } });
+    await prisma.user.update({ where: { email: 'admin.user@test.com' }, data: { banned: true } });
     assert.equal((await app.inject({ url: '/api/plots/carers', headers: admin })).statusCode, 403);
   });
 
@@ -59,8 +59,19 @@ test('registered carer selection and plot assignments', async (t) => {
     assert.equal(changed.statusCode, 409);
     const detail = await app.inject({ url: `/api/plots/${created.json().id}` });
     assert.deepEqual(detail.json().assignedVolunteers, created.json().assignedVolunteers);
-    await prisma.user.update({ where: { id: regularId }, data: { deactivatedAt: new Date() } });
+    await prisma.user.update({ where: { id: regularId }, data: { banned: true } });
     assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers, payload })).statusCode, 200, 'a completed save can still be recovered after a carer is deactivated');
+  });
+
+  await t.test('unverified users cannot be selected as new carers', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
+    await prisma.user.update({ where: { id: regularId }, data: { emailVerified: false } });
+    const response = await app.inject({ url: '/api/plots/carers?search=regular', headers });
+    assert.deepEqual(response.json(), []);
+    const before = await prisma.plot.count();
+    const save = await app.inject({ method: 'POST', url: '/api/plots', headers, payload: { ...validPlot, carerUserIds: [regularId] } });
+    assert.equal(save.statusCode, 422, save.body);
+    assert.equal(await prisma.plot.count(), before);
   });
 
   await t.test('unavailable, malformed, duplicate and names-only carers insert nothing', async () => {

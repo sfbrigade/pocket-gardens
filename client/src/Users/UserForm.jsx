@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { useLocation, useParams } from 'react-router';
-import { Alert, Button, Checkbox, Container, Fieldset, Group, Loader, Stack, TextInput, Title } from '@mantine/core';
-import { hasLength, isEmail, isNotEmpty, useForm } from '@mantine/form';
+import { Link, useLocation, useParams } from 'react-router';
+import { Alert, Button, Container, Fieldset, Group, Loader, Stack, Text, TextInput, Title } from '@mantine/core';
+import { hasLength, useForm } from '@mantine/form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
+import { profileKey } from '../auth-session';
 import { useAuthContext } from '../AuthContext';
 import PhotoInput from '../Components/PhotoInput';
+import UserRoleForm from './UserRoleForm';
 
 function UserForm () {
   const authContext = useAuthContext();
@@ -31,21 +33,10 @@ function UserEditor ({ userId, user }) {
 
   const form = useForm({
     mode: 'uncontrolled',
-    initialValues: {
-      firstName: '',
-      lastName: '',
-      email: '',
-      picture: '',
-      pictureUrl: '',
-      isAdmin: false,
-      ...user,
-      password: '',
-    },
+    initialValues: { firstName: user.firstName, lastName: user.lastName, picture: user.picture },
     validate: {
-      firstName: isNotEmpty('First name is required.'),
-      lastName: isNotEmpty('Last name is required.'),
-      email: isEmail('Please enter a valid email address.'),
-      password: (value) => value ? hasLength({ min: 8 }, 'Passwords must be at least 8 characters.') : null,
+      firstName: hasLength({ min: 2, max: 30 }, 'First name must be between 2 and 30 characters long.'),
+      lastName: hasLength({ min: 2, max: 30 }, 'Last name must be between 2 and 30 characters long.'),
     },
   });
 
@@ -53,11 +44,14 @@ function UserEditor ({ userId, user }) {
     mutationFn: (values) => Api.users.update(userId, values),
     onMutate: () => setSuccess(false),
     onSuccess: (response) => {
+      // This callback can finish after logout or after the editor unmounts.
+      const currentUser = queryClient.getQueryData(profileKey(authContext.user.id));
+      if (currentUser?.id !== authContext.user.id) return;
       queryClient.setQueryData(['users', userId], response);
       if (userId === authContext.user.id) {
-        queryClient.setQueryData(['users', 'me'], response.data);
-        authContext.setUser(response.data);
+        queryClient.setQueryData(profileKey(userId), response.data);
       }
+      form.setValues({ firstName: response.data.firstName, lastName: response.data.lastName, picture: response.data.picture });
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setSuccess(true);
     },
@@ -73,8 +67,8 @@ function UserEditor ({ userId, user }) {
       </Head>
       <Container>
         <Title mb='md'>My Account</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
-          <Fieldset variant='unstyled'>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
+          <Fieldset disabled={onSubmitMutation.isPending} legend='Profile'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {location.state?.flash && <Alert>{location.state?.flash}</Alert>}
               {form.errors?._form && <Alert color='red'>{form.errors._form}</Alert>}
@@ -83,7 +77,7 @@ function UserEditor ({ userId, user }) {
                 {...form.getInputProps('picture')}
                 key={form.key('picture')}
                 label='Picture'
-                valueUrl={form.getValues().pictureUrl}
+                valueUrl={user.pictureUrl}
               />
               <TextInput
                 {...form.getInputProps('firstName')}
@@ -95,31 +89,22 @@ function UserEditor ({ userId, user }) {
                 key={form.key('lastName')}
                 label='Last name'
               />
-              <TextInput
-                {...form.getInputProps('email')}
-                key={form.key('email')}
-                label='Email'
-                type='email'
-              />
-              <TextInput
-                {...form.getInputProps('password')}
-                key={form.key('password')}
-                label='Password'
-                type='password'
-              />
-              {authContext.user.isAdmin && (
-                <Checkbox
-                  {...form.getInputProps('isAdmin', { type: 'checkbox' })}
-                  key={form.key('isAdmin')}
-                  label='Is an Administrator?'
-                />
-              )}
+              <TextInput value={user.email} label='Email' type='email' readOnly />
               <Group>
                 <Button disabled={onSubmitMutation.isPending} type='submit'>Submit</Button>
               </Group>
             </Stack>
           </Fieldset>
         </form>
+        {userId === authContext.user.id && (
+          <Fieldset legend='Sign-in options' mt='md'>
+            <Stack>
+              <Text size='sm'>You can log in with an email link without a password. Add a password if you also want to use password login.</Text>
+              <Link to='/passwords/forgot?from=%2Faccount' state={{ email: user.email }}>Set or reset your password</Link>
+            </Stack>
+          </Fieldset>
+        )}
+        {authContext.user.isAdmin && <UserRoleForm user={user} />}
       </Container>
     </>
   );

@@ -3,6 +3,8 @@
 import axios from 'axios';
 import { StatusCodes } from 'http-status-codes';
 import { capitalize } from 'inflection';
+import { authPath } from './LoginDestination.js';
+import { authClient } from './auth-client.js';
 
 const instance = axios.create({
   headers: {
@@ -13,8 +15,8 @@ const instance = axios.create({
 instance.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === StatusCodes.UNAUTHORIZED) {
-      window.location = '/login';
+    if (error.response?.status === StatusCodes.UNAUTHORIZED && !error.config?.url?.startsWith('/api/auth/') && typeof window !== 'undefined') {
+      window.location = authPath('/login', window.location);
     }
     return Promise.reject(error);
   }
@@ -63,6 +65,22 @@ function handleError (error) {
   throw errors;
 }
 
+function handleAuthError (error) {
+  const code = error.code;
+  if (code === 'INVALID_EMAIL_OR_PASSWORD') throw { _form: 'Invalid email and/or password.' };
+  if (code === 'EMAIL_NOT_VERIFIED') throw { _form: 'Please verify your email before logging in.', _code: code };
+  if (code === 'BANNED_USER') throw { _form: 'Your account has been deactivated.' };
+  if (code === 'INVALID_TOKEN' || code === 'TOKEN_EXPIRED') throw { _form: 'This link is invalid or has expired. Please request a new one.' };
+  if (error.status === StatusCodes.TOO_MANY_REQUESTS) throw { _form: 'Too many attempts. Please try again in a few minutes.' };
+  throw { _form: error.message };
+}
+
+async function authResult (request) {
+  const result = await request.catch(handleAuthError);
+  if (result.error) handleAuthError(result.error);
+  return result;
+}
+
 const Api = {
   calculateLastPage,
   parseLinkHeader,
@@ -76,24 +94,26 @@ const Api = {
   },
   auth: {
     login (email, password) {
-      return instance.post('/api/auth/login', { email, password })
-        .catch((error) => {
-          switch (error.response?.status) {
-            case StatusCodes.NOT_FOUND:
-            case StatusCodes.UNPROCESSABLE_ENTITY:
-              throw { _form: 'Invalid email and/or password' };
-            case StatusCodes.FORBIDDEN:
-              throw { _form: 'Your account has been deactivated.' };
-            default:
-              throw { _form: error.message };
-          }
-        });
+      return authResult(authClient.signIn.email({ email, password }));
     },
     logout () {
-      return instance.delete('/api/auth/logout');
+      return authResult(authClient.signOut());
     },
-    register (data) {
-      return instance.post('/api/auth/register', data).catch(handleError);
+    register ({ registrationMethod = 'password', password, ...data }) {
+      if (registrationMethod === 'magic-link') {
+        const { email, firstName, lastName, inviteId, callbackURL } = data;
+        return authResult(authClient.signIn.magicLink({ email, callbackURL, metadata: { registration: { firstName, lastName, inviteId } } }));
+      }
+      return authResult(authClient.signUp.email({ ...data, name: `${data.firstName} ${data.lastName}`, password }));
+    },
+    sendVerificationEmail (email, callbackURL) {
+      return authResult(authClient.sendVerificationEmail({ email, callbackURL }));
+    },
+    verifyEmail (token) {
+      return authResult(authClient.verifyEmail({ query: { token } }));
+    },
+    sendMagicLink (email, callbackURL) {
+      return authResult(authClient.signIn.magicLink({ email, callbackURL }));
     },
   },
   invites: {
@@ -117,21 +137,11 @@ const Api = {
     },
   },
   passwords: {
-    reset (email) {
-      return instance.post('/api/passwords', { email }).catch((error) => {
-        switch (error.response?.status) {
-          case StatusCodes.NOT_FOUND:
-            throw { email: 'Email not found.' };
-          default:
-            throw { _form: error.message };
-        }
-      });
-    },
-    get (token) {
-      return instance.get(`/api/passwords/${token}`);
+    reset (email, redirectTo) {
+      return authResult(authClient.requestPasswordReset({ email, redirectTo }));
     },
     update (token, password) {
-      return instance.patch(`/api/passwords/${token}`, { password }).catch(handleError);
+      return authResult(authClient.resetPassword({ token, newPassword: password }));
     },
   },
   people: {
@@ -183,14 +193,18 @@ const Api = {
     index (page = 1) {
       return instance.get('/api/users', { params: { page } });
     },
-    me () {
-      return instance.get('/api/users/me');
+    me (signal) {
+      return instance.get('/api/users/me', { signal });
     },
     get (id) {
       return instance.get(`/api/users/${id}`);
     },
-    update (id, data) {
+    update (id, { firstName, lastName, picture }) {
+      const data = { firstName, lastName, ...(picture === undefined ? {} : { picture: picture || null }) };
       return instance.patch(`/api/users/${id}`, data).catch(handleError);
+    },
+    setRole (id, role) {
+      return authResult(authClient.admin.setRole({ userId: id, role }));
     },
   },
 };

@@ -6,7 +6,8 @@ import { authenticate, build, nodemailerMock } from '#test/helper.js';
 
 test('/api/invites', async (t) => {
   const app = await build(t);
-  const adminHeaders = await authenticate(app, 'admin.user@test.com', 'test');
+  let adminHeaders;
+  t.beforeEach(async () => { adminHeaders = await authenticate(app, 'admin.user@test.com', 'test'); });
   const { prisma } = app;
 
   await t.test('GET /', async (t) => {
