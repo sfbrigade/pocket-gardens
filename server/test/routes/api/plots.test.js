@@ -365,20 +365,21 @@ test('/api/plots', async (t) => {
     assert.equal(row.originalPlantDate, null);
   });
 
-  await t.test('anonymous and legacy user accounts cannot submit plots and capabilities reflect the session', async () => {
+  await t.test('anonymous requests cannot submit plots, while existing users can submit but cannot edit', async () => {
+    assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: validPlot })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', payload: { stage: 'active' } })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities' })).json(), { canCreatePlot: false, canAssignCarers: false });
     const member = await authenticate(app, 'regular.user@test.com', 'test');
-    for (const [headers, expected] of [[{}, StatusCodes.UNAUTHORIZED], [member, StatusCodes.FORBIDDEN]]) {
-      assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers, payload: validPlot })).statusCode, expected);
-      assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers, payload: { stage: 'active' } })).statusCode, expected);
-      assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: false, canAssignCarers: false });
-    }
+    assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers: member, payload: validPlot })).statusCode, StatusCodes.CREATED);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers: member, payload: { stage: 'active' } })).statusCode, StatusCodes.FORBIDDEN);
+    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: member })).json(), { canCreatePlot: true, canAssignCarers: false });
     const admin = await authenticate(app, 'admin.user@test.com', 'test');
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: admin })).json(), { canCreatePlot: true, canAssignCarers: true });
   });
 
-  await t.test('new volunteers can submit plots with plants and photos, but cannot edit plots or assign carers', async () => {
+  await t.test('new verified users can submit plots with plants and photos, but cannot edit plots or assign carers', async () => {
     const { user, headers } = await verifiedUser(app);
-    assert.equal(user.role, 'volunteer');
+    assert.equal(user.role, 'user');
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: true, canAssignCarers: false });
     const filename = '56826175-033e-4a89-8d51-8d7f602e01d9.jpg';
     await upload([['640x480.jpg', filename]]);
@@ -415,7 +416,7 @@ test('/api/plots', async (t) => {
   });
 
   for (const data of [{ emailVerified: false }, { banned: true }]) {
-    await t.test(`inactive volunteers cannot submit plots: ${JSON.stringify(data)}`, async () => {
+    await t.test(`inactive users cannot submit plots: ${JSON.stringify(data)}`, async () => {
       const { user, headers } = await verifiedUser(app);
       await prisma.user.update({ where: { id: user.id }, data });
       assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: false, canAssignCarers: false });

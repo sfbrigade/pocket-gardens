@@ -11,7 +11,7 @@ test('Better Auth administration', async (t) => {
     const admin = await verifiedAdmin(app);
     assert.equal(await prisma.user.count({ where: { role: 'admin' } }), 1);
     for (const userId of [admin.user.id, admin.user.id.toUpperCase(), `{${admin.user.id}}`, admin.user.id.replaceAll('-', '')]) {
-      for (const role of ['user', ['user'], 'volunteer', ['volunteer'], []]) {
+      for (const role of ['user', ['user'], []]) {
         const response = await app.inject().post('/api/auth/admin/set-role')
           .headers({ origin: process.env.BASE_URL, ...admin.headers })
           .payload({ userId, role });
@@ -27,7 +27,7 @@ test('Better Auth administration', async (t) => {
     const admin = await verifiedAdmin(app);
     const member = await verifiedUser(app);
     assert.equal((await app.inject({ url: '/api/users', headers: member.headers })).statusCode, 403);
-    for (const [role, expectedStatus] of [['admin', 200], ['volunteer', 403], ['user', 403]]) {
+    for (const [role, expectedStatus] of [['admin', 200], ['user', 403]]) {
       const response = await app.inject().post('/api/auth/admin/set-role')
         .headers({ origin: process.env.BASE_URL, ...admin.headers })
         .payload({ userId: member.user.id, role });
@@ -35,7 +35,7 @@ test('Better Auth administration', async (t) => {
       assert.equal((await prisma.user.findUnique({ where: { id: member.user.id } })).role, role);
       assert.equal((await app.inject({ url: '/api/users', headers: member.headers })).statusCode, expectedStatus);
       assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: member.headers })).json(), {
-        canCreatePlot: role !== 'user', canAssignCarers: role === 'admin',
+        canCreatePlot: true, canAssignCarers: role === 'admin',
       });
     }
   });
@@ -52,7 +52,7 @@ test('Better Auth administration', async (t) => {
         .headers({ origin: process.env.BASE_URL, ...admin.headers }).payload({ userId, role });
       assert.equal(response.statusCode, 400, response.body);
       assert.equal(response.json().code, 'TARGET_EMAIL_NOT_VERIFIED');
-      assert.equal((await prisma.user.findUnique({ where: { id: userId } })).role, 'volunteer');
+      assert.equal((await prisma.user.findUnique({ where: { id: userId } })).role, 'user');
     }
     const token = await mailToken(mail);
     assert.equal((await app.inject(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)).statusCode, 200);
@@ -72,7 +72,7 @@ test('Better Auth administration', async (t) => {
         assert.equal(response.statusCode, status, response.body);
       }
     }
-    assert.equal((await prisma.user.findUnique({ where: { id: pending.user.id } })).role, 'volunteer');
+    assert.equal((await prisma.user.findUnique({ where: { id: pending.user.id } })).role, 'user');
   });
 
   await t.test('HTTP admin creation remains forbidden while trusted bootstrap calls still work', async () => {

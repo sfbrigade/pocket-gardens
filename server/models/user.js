@@ -56,7 +56,7 @@ export class User extends Base {
   }
 
   get canCreatePlot () {
-    return this.isActive && (this.isAdmin || (this.role?.split(',').includes('volunteer') ?? false));
+    return this.isActive && (this.isAdmin || (this.role?.split(',').includes('user') ?? false));
   }
 
   toJSON () {

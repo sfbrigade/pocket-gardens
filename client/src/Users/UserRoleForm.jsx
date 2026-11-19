@@ -14,7 +14,7 @@ function UserRoleForm ({ user }) {
   useEffect(() => setIsAdmin(user.isAdmin), [user.id, user.isAdmin]);
 
   const mutation = useMutation({
-    mutationFn: () => Api.users.setRole(user.id, isAdmin ? 'admin' : 'volunteer'),
+    mutationFn: () => Api.users.setRole(user.id, isAdmin ? 'admin' : 'user'),
     onSuccess: ({ data }) => {
       // Keep the confirmed role even if the background profile refresh fails.
       queryClient.setQueryData(['users', user.id], response => response && ({
