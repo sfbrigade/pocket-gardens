@@ -45,7 +45,7 @@ test('passwordless registration', async (t) => {
     assert.equal(user.lastName, profile.lastName);
     assert.equal(user.name, 'Email Member');
     assert.equal(user.emailVerified, true);
-    assert.equal(user.role, 'user');
+    assert.equal(user.role, 'volunteer');
     assert.equal(await prisma.account.count({ where: { userId: user.id } }), 0);
     const cookie = response.cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
     assert.ok(cookie);
@@ -114,6 +114,7 @@ test('passwordless registration', async (t) => {
     assert.equal(invite.acceptedById, response.json().user.id);
     assert.ok(invite.acceptedAt);
     assert.equal(response.json().user.email, address);
+    assert.equal(response.json().user.role, 'volunteer');
     assert.equal(await prisma.account.count({ where: { userId: invite.acceptedById } }), 0);
   });
 

@@ -108,7 +108,7 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
       enabled: true,
       requireEmailVerification: true,
       customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
-        ...coreFields, role: 'user', banned: false, banReason: null, banExpires: null, ...additionalFields, id,
+        ...coreFields, role: 'volunteer', banned: false, banReason: null, banExpires: null, ...additionalFields, id,
       }),
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: 30 * 60,
@@ -192,8 +192,10 @@ export function createAuth (prisma, { baseURL = process.env.BASE_URL, secret = p
         }
       },
     }), admin({
+      defaultRole: 'volunteer',
       roles: {
         user: userAc,
+        volunteer: userAc,
         admin: defaultAc.newRole({
           user: ['get', 'list', 'set-role', 'ban'],
           session: ['list', 'revoke'],

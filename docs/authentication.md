@@ -9,6 +9,8 @@ Pocket Gardens uses [Better Auth](https://better-auth.com/) `1.7.25` under
 - Email links are the default for signup and login; passwords are optional.
   Signup requires first and last names. Password signup requires email verification
   before login; the login screen offers verification resends.
+- New accounts receive the `volunteer` role through public and invitation signup,
+  using either email links or passwords. Existing accounts keep their roles.
 - Existing users sign in with their existing email without registering again.
   Account IDs, roles, bans, profiles, existing Person links, and garden history
   are preserved. Emails are matched case-insensitively. Pre-Better Auth accounts

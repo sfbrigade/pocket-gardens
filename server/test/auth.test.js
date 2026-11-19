@@ -27,7 +27,7 @@ test('Better Auth foundation, passwords and invitations', async (t) => {
     assert.equal(response.json().token, null);
     assert.equal(response.json().user.name, 'Test Person');
     assert.equal(response.json().user.emailVerified, false);
-    assert.equal(response.json().user.role, 'user');
+    assert.equal(response.json().user.role, 'volunteer');
     assert.equal((await app.inject().post('/api/auth/sign-in/email')
       .headers({ origin: process.env.BASE_URL })
       .payload({ email: 'person@example.com', password })).statusCode, 403);
@@ -272,6 +272,7 @@ test('Better Auth foundation, passwords and invitations', async (t) => {
     assert.ok(accepted.acceptedAt);
     assert.equal(await prisma.account.count({ where: { userId: accepted.acceptedById } }), 1);
     assert.equal(await prisma.user.count({ where: { email: 'invited@example.com' } }), 1);
+    assert.equal((await prisma.user.findUnique({ where: { id: accepted.acceptedById } })).role, 'volunteer');
   });
 
   await t.test('disabled mail prevents registration and invite acceptance', async () => {
