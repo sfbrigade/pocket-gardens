@@ -147,7 +147,7 @@ For a closer look at the tables, fields, and relationships, see the [Prisma Sche
 8. That's it! After all this setup is complete, the only command you need to run to get
    started again is the `docker compose up` command.
 
-## Database Seeding
+## 🌾 Database Seeding
 
 To add sample data to your local database, run the following command after
 starting Docker Compose:
