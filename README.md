@@ -71,7 +71,7 @@ For a closer look at the tables, fields, and relationships, see the [Prisma Sche
 
 1. On Github, "Fork" this git repo to your own account so that you have your own copy.
 
-   Read more about "forking" here:  
+   Read more about "forking" here:
    https://docs.github.com/en/free-pro-team@latest/github/getting-started-with-github/fork-a-repo
 
 2. Clone YOUR copy of the git repo to a "local" directory (on your computer), then change
@@ -147,6 +147,22 @@ For a closer look at the tables, fields, and relationships, see the [Prisma Sche
 8. That's it! After all this setup is complete, the only command you need to run to get
    started again is the `docker compose up` command.
 
+## Database Seeding
+
+To add sample data to your local database, run the following command after
+starting Docker Compose:
+
+```bash
+docker compose exec -e ALLOW_DB_SEED=true server npm run db:seed -w server
+```
+
+This uses the project's existing test fixtures to create sample users, people,
+plants, plots, maintenance records, and invitations without requiring Airtable
+credentials.
+
+Seeding is only available for local development. The command keeps existing administrator
+accounts and skips seeding if any of the other listed models already contain data.
+
 ## Development Tools
 
 This project includes components with helpful developer tools, such as the following:
@@ -203,7 +219,7 @@ running. Use `docker ps` to list and check running containers.
       - For example: `/Users/myusername/Documents`
       - This is called an _absolute_ path
     - If the path _does not start_ with the separator, it means the path starts at the current _working directory_
-      - For example, if the current _working directory_ is: `/Users`  
+      - For example, if the current _working directory_ is: `/Users`
         then the same path as the previous example is: `myusername/Documents`
       - This is called a _relative_ path
     - A path can also start with any of the above special path symbols
@@ -317,14 +333,14 @@ running. Use `docker ps` to list and check running containers.
 
 - Install the Windows Subsystem for Linux (WSL) and make sure to check "Use WSL 2 instead of Hyper-V" when installing Docker Desktop for Windows.
 
-  https://learn.microsoft.com/en-us/windows/wsl/install  
+  https://learn.microsoft.com/en-us/windows/wsl/install
   https://docs.docker.com/desktop/install/windows-install/
 
 - Use Microsoft Terminal to open a command-line shell running in your WSL distribution (typically Ubuntu), and use the git command line to _clone this project into your Linux filesystem_. If you attempt to run this project in Docker from the Windows file system, performance will be degraded and file change detection will not work. Editors like VSCode can edit files in the Linux filesystem of WSL.
 
 ## License
 
-Full Stack Starter  
+Full Stack Starter
 Copyright © 2025 SF Civic Tech
 
 This program is free software: you can redistribute it and/or modify
