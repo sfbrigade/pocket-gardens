@@ -1,17 +1,69 @@
-# Full Stack Starter
+<h3 align="center" style="font-size: 2.1em; font-weight: bolder;">🌱 Pocket Gardens</h3>
 
-This repository contains a "starter" project for web application development in JavaScript. This includes the following components, from front-end to back-end:
+<p align="center">
+  A community gardening platform helping San Francisco residents grow and care for urban green spaces.
+  <br />
+  <br />
+  <a href="https://github.com/sfbrigade/pocket-gardens/issues/new">Report Bug</a>
+  ·
+  <a href="https://github.com/sfbrigade/pocket-gardens/issues/new">Request Feature</a>
+</p>
 
-- React
-- React Router
-- Mantine
-- Vite
-- Fastify
-- Prisma
-- Node.js
-- Postgres
+## 📖 About the Project
 
-## Authentication setup
+**Pocket Gardens** is an open-source web application designed to help people discover and care for neighborhood gardens throughout San Francisco. By making these spaces easier to find and maintain, the project hopes to encourage more people to take part in urban gardening.
+
+Even a small garden can make a difference in a neighborhood. It can catch someone's attention, spark a conversation, or inspire others to get involved and take pride in their neighborhood. But keeping these gardens growing takes time, people, and coordination. As more people pitch in, keeping track of plants, volunteers, and maintenance can become a challenge.
+
+Pocket Gardens brings all of this information together in one place, making it easier for organizers to coordinate everyone's efforts. By taking some of the work out of organizing, the project hopes to encourage more people to get involved and work together to turn overlooked spaces into gardens.
+
+### ✨ Features
+
+Pocket Gardens includes existing functionality alongside features being developed for the platform.
+
+- **Garden Discovery:** Explore neighborhood garden plots through an interactive map and view garden information.
+- **Garden Management:** Organize garden plot information and support tracking gardens throughout their lifecycle.
+- **Plant Library:** Maintain plant information associated with community gardens.
+- **People Management:** Provide administrative tools for viewing and searching people records, with additional functionality under development.
+- **Maintenance Tracking:** Record and manage garden maintenance activities.
+- **Member Authentication:** Allow members to sign in securely using email links or a password.
+
+## 🛠️ Tech Stack
+
+| **Frontend** | **Backend** |
+| :---: | :---: |
+| [![JavaScript][JavaScript.com]][JavaScript-url] | [![Node.js][Node.js.com]][Node.js-url] |
+| [![React][React.com]][React-url] | [![Fastify][Fastify.com]][Fastify-url] |
+| [![React Router][ReactRouter.com]][ReactRouter-url] | [![Prisma][Prisma.com]][Prisma-url] |
+| [![Mantine][Mantine.com]][Mantine-url] | [![PostgreSQL][PostgreSQL.com]][PostgreSQL-url] |
+| [![Vite][Vite.com]][Vite-url] | [![Zod][Zod.com]][Zod-url] |
+
+
+**Development & Infrastructure:** [Docker](https://www.docker.com/), [GitHub Actions](https://github.com/features/actions), [RustFS](https://rustfs.com/), [Airtable](https://www.airtable.com/)
+
+## 🏗️ Architecture
+
+### System Architecture
+
+The diagram below shows how the different parts of Pocket Gardens work together, from the frontend and backend to the database, photo storage, and other services.
+
+![Pocket Gardens Architecture Diagram](docs/images/architecture.jpg)
+
+### System Context
+
+The context diagram illustrates how residents and administrators interact with Pocket Gardens and how the platform exchanges data with external services for mapping, photo storage, email notifications, and garden data imports.
+
+![Pocket Gardens Context Diagram](docs/images/context-diagram.jpg)
+
+### 🗄️ Database Schema
+
+Pocket Gardens uses PostgreSQL and Prisma to organize and store information about gardens, plants, volunteers, user accounts, and maintenance activities. The database contains 22 models that define how this information is stored and connected.
+
+For a closer look at the tables, fields, and relationships, see the [Prisma Schema](server/prisma/schema.prisma).
+
+## 🚀 Getting Started
+
+### Authentication Setup
 
 Authentication uses Better Auth `1.7.25` under `/api/auth`, with the official React
 client and cookie sessions. Email links are the default for signup and login;
@@ -32,11 +84,11 @@ does not run this helper and requires an explicitly configured secret.
 See the [authentication reference](docs/authentication.md) for existing-account
 migration, deployment checks, password setup, sessions, and administrator access.
 
-## One-time Setup
+### One-time Setup
 
 1. On Github, "Fork" this git repo to your own account so that you have your own copy.
 
-   Read more about "forking" here:  
+   Read more about "forking" here:
    https://docs.github.com/en/free-pro-team@latest/github/getting-started-with-github/fork-a-repo
 
 2. Clone YOUR copy of the git repo to a "local" directory (on your computer), then change
@@ -112,6 +164,22 @@ migration, deployment checks, password setup, sessions, and administrator access
 8. That's it! After all this setup is complete, the only command you need to run to get
    started again is the `docker compose up` command.
 
+## 🌾 Database Seeding
+
+To add sample data to your local database, run the following command after
+starting Docker Compose:
+
+```bash
+docker compose exec -e ALLOW_DB_SEED=true server npm run db:seed -w server
+```
+
+This uses the project's existing test fixtures to create sample users, people,
+plants, plots, maintenance records, and invitations without requiring Airtable
+credentials.
+
+Seeding is only available for local development. The command keeps existing administrator
+accounts and skips seeding if any of the other listed models already contain data.
+
 ## Development Tools
 
 This project includes components with helpful developer tools, such as the following:
@@ -168,7 +236,7 @@ running. Use `docker ps` to list and check running containers.
       - For example: `/Users/myusername/Documents`
       - This is called an _absolute_ path
     - If the path _does not start_ with the separator, it means the path starts at the current _working directory_
-      - For example, if the current _working directory_ is: `/Users`  
+      - For example, if the current _working directory_ is: `/Users`
         then the same path as the previous example is: `myusername/Documents`
       - This is called a _relative_ path
     - A path can also start with any of the above special path symbols
@@ -282,14 +350,14 @@ running. Use `docker ps` to list and check running containers.
 
 - Install the Windows Subsystem for Linux (WSL) and make sure to check "Use WSL 2 instead of Hyper-V" when installing Docker Desktop for Windows.
 
-  https://learn.microsoft.com/en-us/windows/wsl/install  
+  https://learn.microsoft.com/en-us/windows/wsl/install
   https://docs.docker.com/desktop/install/windows-install/
 
 - Use Microsoft Terminal to open a command-line shell running in your WSL distribution (typically Ubuntu), and use the git command line to _clone this project into your Linux filesystem_. If you attempt to run this project in Docker from the Windows file system, performance will be degraded and file change detection will not work. Editors like VSCode can edit files in the Linux filesystem of WSL.
 
 ## License
 
-Full Stack Starter  
+Full Stack Starter
 Copyright © 2025 SF Civic Tech
 
 This program is free software: you can redistribute it and/or modify
@@ -304,3 +372,26 @@ GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+<!------- MARKDOWN LINKS & IMAGES ------->
+
+[JavaScript.com]: https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black
+[JavaScript-url]: https://developer.mozilla.org/en-US/docs/Web/JavaScript
+[React.com]: https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB
+[React-url]: https://react.dev/
+[ReactRouter.com]: https://img.shields.io/badge/React_Router-CA4245?style=for-the-badge&logo=reactrouter&logoColor=white
+[ReactRouter-url]: https://reactrouter.com/
+[Mantine.com]: https://img.shields.io/badge/Mantine-339AF0?style=for-the-badge&logo=mantine&logoColor=white
+[Mantine-url]: https://mantine.dev/
+[Vite.com]: https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white
+[Vite-url]: https://vite.dev/
+[Node.js.com]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
+[Node.js-url]: https://nodejs.org/
+[Fastify.com]: https://img.shields.io/badge/Fastify-000000?style=for-the-badge&logo=fastify&logoColor=white
+[Fastify-url]: https://fastify.dev/
+[Prisma.com]: https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white
+[Prisma-url]: https://www.prisma.io/
+[PostgreSQL.com]: https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white
+[PostgreSQL-url]: https://www.postgresql.org/
+[Zod.com]: https://img.shields.io/badge/Zod-3E67B1?style=for-the-badge&logo=zod&logoColor=white
+[Zod-url]: https://zod.dev/
