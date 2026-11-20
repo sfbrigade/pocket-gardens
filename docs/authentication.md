@@ -46,6 +46,9 @@ require verified, unbanned users. Accounts and Person records remain separate;
 existing links are preserved, and matching names or emails do not claim imported
 Person records.
 
+Supplying the legacy `Seth's Notes` field during plot creation also requires an
+administrator. Environmental notes remain available to users submitting plots.
+
 Create the first administrator with the [bootstrap script](../README.md#one-time-setup).
 For subsequent administrators, invite a user, wait for email verification, then use
 **Admin → Users → Edit Profile → Administrator access**. Role changes affect existing
