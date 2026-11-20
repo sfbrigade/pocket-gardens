@@ -26,7 +26,6 @@ test('/api/maintenance-records', async (t) => {
   t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
   const inject = (options) => app.inject({ ...options, headers });
 
-
   await t.test('writes require an active administrator outside anonymous development mode', async () => {
     const anonymous = await app.inject({ method: 'POST', url: '/api/maintenance-records', payload: validRecord });
     assert.strictEqual(anonymous.statusCode, 401);
