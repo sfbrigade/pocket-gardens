@@ -272,6 +272,7 @@ test('Better Auth foundation, passwords and invitations', async (t) => {
     assert.ok(accepted.acceptedAt);
     assert.equal(await prisma.account.count({ where: { userId: accepted.acceptedById } }), 1);
     assert.equal(await prisma.user.count({ where: { email: 'invited@example.com' } }), 1);
+    assert.equal((await prisma.user.findUnique({ where: { id: accepted.acceptedById } })).role, 'user');
   });
 
   await t.test('disabled mail prevents registration and invite acceptance', async () => {

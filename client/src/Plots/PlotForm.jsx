@@ -152,7 +152,7 @@ export default function PlotForm () {
   const stageLabel = stages.find(({ value }) => value === values.stage)?.label;
   if (capability.isPending) return <Container py='xl'><Loader aria-label='Checking garden creation access' /></Container>;
   if (capability.isError) return <Container py='xl'><Alert color='red' title='Unable to check access'><Button variant='subtle' onClick={() => capability.refetch()}>Try again</Button></Alert></Container>;
-  if (!capability.data.canCreatePlot) return <Container py='xl'><Alert title='A staff account is needed'>Please sign in with a staff account to create a garden.</Alert><Group mt='md'><Button onClick={() => navigate('/login', { state: { from: '/plots/new' } })}>Sign in</Button><Button variant='subtle' onClick={() => navigate('/')}>Back to map</Button></Group></Container>;
+  if (!capability.data.canCreatePlot) return <Container py='xl'><Alert title='A verified account is needed'>Please sign in with a verified account to create a garden.</Alert><Group mt='md'><Button onClick={() => navigate('/login', { state: { from: '/plots/new' } })}>Sign in</Button><Button variant='subtle' onClick={() => navigate('/')}>Back to map</Button></Group></Container>;
 
   return (
     <Container size='xl' py='md'>

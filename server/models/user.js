@@ -55,6 +55,10 @@ export class User extends Base {
     return this.emailVerified && !this.banned;
   }
 
+  get canCreatePlot () {
+    return this.isActive && (this.isAdmin || (this.role?.split(',').includes('user') ?? false));
+  }
+
   toJSON () {
     return UserResponseSchema.parse(this);
   }

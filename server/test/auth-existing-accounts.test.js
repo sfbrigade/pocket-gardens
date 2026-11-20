@@ -8,8 +8,8 @@ test('existing accounts use email links without registering again', async (t) =>
   const app = await build(t);
   const { prisma } = app;
 
-  for (const [email, canCreatePlot] of [['admin.user@test.com', true], ['regular.user@test.com', false]]) {
-    await t.test(`an existing ${canCreatePlot ? 'administrator can' : 'regular user cannot'} submit a plot after browser-style email login`, async () => {
+  for (const [email, isAdmin] of [['admin.user@test.com', true], ['regular.user@test.com', false]]) {
+    await t.test(`an existing ${isAdmin ? 'administrator' : 'regular user'} can submit a plot after browser-style email login`, async () => {
       const original = await prisma.user.findUnique({ where: { email } });
       await prisma.account.deleteMany({ where: { userId: original.id } });
       assert.equal(original.emailVerified, true, 'Migrated accounts are already treated as verified');
@@ -44,20 +44,19 @@ test('existing accounts use email links without registering again', async (t) =>
       assert.equal(profile.statusCode, 200, profile.body);
       assert.equal(profile.json().id, original.id);
       assert.equal(profile.json().emailVerified, true);
-      assert.equal(profile.json().isAdmin, canCreatePlot);
+      assert.equal(profile.json().isAdmin, isAdmin);
+      assert.equal((await app.inject({ url: '/api/auth/get-session', headers })).json().user.role, original.role);
       assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), {
-        canCreatePlot, canAssignCarers: canCreatePlot,
+        canCreatePlot: true, canAssignCarers: isAdmin,
       });
       const saved = await app.inject({ method: 'POST', url: '/api/plots', headers, payload });
-      assert.equal(saved.statusCode, canCreatePlot ? 201 : 403, saved.body);
-      assert.equal(await prisma.plot.count(), plotCount + Number(canCreatePlot));
-      if (canCreatePlot) {
-        const plot = await prisma.plot.findUnique({ where: { submissionId: payload.submissionId } });
-        assert.equal(plot.airtableId, saved.json().id);
-        assert.equal(plot.name, payload['Pocket Garden Name']);
-        assert.equal(plot.latitude, payload.Latitude);
-        assert.equal(plot.longitude, payload.Longitude);
-      }
+      assert.equal(saved.statusCode, 201, saved.body);
+      assert.equal(await prisma.plot.count(), plotCount + 1);
+      const plot = await prisma.plot.findUnique({ where: { submissionId: payload.submissionId } });
+      assert.equal(plot.airtableId, saved.json().id);
+      assert.equal(plot.name, payload['Pocket Garden Name']);
+      assert.equal(plot.latitude, payload.Latitude);
+      assert.equal(plot.longitude, payload.Longitude);
       assert.equal(await prisma.user.count(), userCount, 'Existing accounts must not re-register');
       assert.equal(await prisma.account.count({ where: { userId: original.id } }), 0, 'No password is required');
       assert.equal((await app.inject().post('/api/auth/sign-out')

@@ -9,6 +9,8 @@ Pocket Gardens uses [Better Auth](https://better-auth.com/) `1.7.25` under
 - Email links are the default for signup and login; passwords are optional.
   Signup requires first and last names. Password signup requires email verification
   before login; the login screen offers verification resends.
+- New accounts receive the `user` role through public and invitation signup,
+  using either email links or passwords. Existing accounts keep their roles.
 - Existing users sign in with their existing email without registering again.
   Account IDs, roles, bans, profiles, existing Person links, and garden history
   are preserved. Emails are matched case-insensitively. Pre-Better Auth accounts
@@ -37,16 +39,23 @@ Late profile saves and stale snapshots of a successfully logged-out session cann
 restore the previous account. Public authentication screens remain available if
 profile loading fails.
 
-Plot submission requires an active administrator account. New carer assignments
+Plot submission requires a verified, unbanned user or administrator account,
+including existing users without a role change.
+Plot editing and carer assignment remain administrator-only. New carer assignments
 require verified, unbanned users. Accounts and Person records remain separate;
 existing links are preserved, and matching names or emails do not claim imported
 Person records.
+
+Supplying the legacy `Seth's Notes` field during plot creation also requires an
+administrator. Environmental notes remain available to users submitting plots.
 
 Create the first administrator with the [bootstrap script](../README.md#one-time-setup).
 For subsequent administrators, invite a user, wait for email verification, then use
 **Admin → Users → Edit Profile → Administrator access**. Role changes affect existing
 sessions immediately. Unverified accounts cannot be promoted, and administrators
 cannot remove their own admin access.
+Removing administrator access through the user form returns the account to the
+`user` role, retaining plot submission access.
 
 ## Registration safeguards
 

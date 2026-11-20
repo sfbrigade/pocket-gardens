@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import { StatusCodes } from 'http-status-codes';
 import path from 'path';
 
-import { assetExists, authenticate, build, upload } from '#test/helper.js';
+import { assetExists, authenticate, build, upload, verifiedUser } from '#test/helper.js';
 
 test('/api/plots', async (t) => {
   const app = await build(t);
@@ -365,16 +365,105 @@ test('/api/plots', async (t) => {
     assert.equal(row.originalPlantDate, null);
   });
 
-  await t.test('writes require administrators and capabilities reflect the session', async () => {
+  await t.test('anonymous requests cannot submit plots, while existing users can submit but cannot edit', async () => {
+    assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: validPlot })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', payload: { stage: 'active' } })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities' })).json(), { canCreatePlot: false, canAssignCarers: false });
     const member = await authenticate(app, 'regular.user@test.com', 'test');
-    for (const [headers, expected] of [[{}, StatusCodes.UNAUTHORIZED], [member, StatusCodes.FORBIDDEN]]) {
-      assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers, payload: validPlot })).statusCode, expected);
-      assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers, payload: { stage: 'active' } })).statusCode, expected);
-      assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: false, canAssignCarers: false });
-    }
+    assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers: member, payload: validPlot })).statusCode, StatusCodes.CREATED);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers: member, payload: { stage: 'active' } })).statusCode, StatusCodes.FORBIDDEN);
+    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: member })).json(), { canCreatePlot: true, canAssignCarers: false });
     const admin = await authenticate(app, 'admin.user@test.com', 'test');
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: admin })).json(), { canCreatePlot: true, canAssignCarers: true });
   });
+
+  await t.test('new verified users can submit plots with plants and photos, but cannot edit plots or assign carers', async () => {
+    const { user, headers } = await verifiedUser(app);
+    assert.equal(user.role, 'user');
+    assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: true, canAssignCarers: false });
+    const filename = '56826175-033e-4a89-8d51-8d7f602e01d9.jpg';
+    await upload([['640x480.jpg', filename]]);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/plots',
+      headers,
+      payload: {
+        ...validPlot,
+        stage: 'active',
+        environmentalNotes: 'Afternoon shade and sandy soil',
+        Photos: [filename],
+        plants: [{ plantId: 'a1111111-1111-4111-8111-111111111111', quantity: 2 }],
+      },
+    });
+    assert.equal(created.statusCode, StatusCodes.CREATED, created.body);
+    assert.equal(created.json().plants[0].quantity, 2);
+    assert.equal(created.json().Photos.length, 1);
+    assert.equal(created.json().environmentalNotes, 'Afternoon shade and sandy soil');
+    assert.equal((await prisma.plot.findUnique({ where: { airtableId: created.json().id } })).sethsNotes, null);
+    assert.deepEqual(created.json().assignedVolunteers, []);
+    const before = await prisma.plot.count();
+    assert.equal((await app.inject({
+      method: 'POST',
+      url: '/api/plots',
+      headers,
+      payload: { ...validPlot, carerUserIds: [user.id] },
+    })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal(await prisma.plot.count(), before);
+    assert.equal((await app.inject({ url: '/api/plots/carers', headers })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await app.inject({
+      method: 'PATCH', url: `/api/plots/${created.json().id}`, headers, payload: { stage: 'paused' },
+    })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await app.inject({
+      method: 'POST', url: '/api/assets', headers, payload: { contentType: 'image/jpeg', byteSize: 100 },
+    })).statusCode, StatusCodes.OK);
+  });
+
+  await t.test('users cannot write legacy notes during plot creation, including an empty value', async () => {
+    const headers = await authenticate(app, 'regular.user@test.com', 'test');
+    const before = await prisma.plot.count();
+    for (const note of ['Legacy note supplied by a user', '']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/plots',
+        headers,
+        payload: { ...validPlot, "Seth's Notes": note },
+      });
+      assert.equal(response.statusCode, StatusCodes.FORBIDDEN, response.body);
+    }
+    assert.equal(await prisma.plot.count(), before);
+  });
+
+  await t.test('administrators retain legacy note access and unrelated edits preserve the note', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
+    const note = 'Legacy note retained for staff';
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/plots',
+      headers,
+      payload: { ...validPlot, "Seth's Notes": note },
+    });
+    assert.equal(created.statusCode, StatusCodes.CREATED, created.body);
+    assert.equal(created.json()["Seth's Notes"], undefined);
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/api/plots/${created.json().id}`,
+      headers,
+      payload: { environmentalNotes: 'Morning shade' },
+    });
+    assert.equal(edited.statusCode, StatusCodes.OK, edited.body);
+    assert.equal(edited.json()["Seth's Notes"], undefined);
+    assert.equal((await prisma.plot.findUnique({ where: { airtableId: created.json().id } })).sethsNotes, note);
+  });
+
+  for (const data of [{ emailVerified: false }, { banned: true }]) {
+    await t.test(`inactive users cannot submit plots: ${JSON.stringify(data)}`, async () => {
+      const { user, headers } = await verifiedUser(app);
+      await prisma.user.update({ where: { id: user.id }, data });
+      assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: false, canAssignCarers: false });
+      const response = await app.inject({ method: 'POST', url: '/api/plots', headers, payload: validPlot });
+      assert.equal(response.statusCode, StatusCodes.FORBIDDEN);
+    });
+  }
 
   await t.test('unrecorded stages remain null in detail and summary responses', async () => {
     await prisma.plot.update({ where: { airtableId: 'recPlotOutside' }, data: { stage: null } });
@@ -396,7 +485,14 @@ test('/api/plots', async (t) => {
       assert.equal((await app.inject({ url: '/api/plots/capabilities' })).json().canCreatePlot, false);
       process.env.NODE_ENV = 'development';
       assert.equal((await app.inject({ url: '/api/plots/capabilities' })).json().canCreatePlot, true);
-      assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: validPlot })).statusCode, StatusCodes.CREATED);
+      const before = await prisma.plot.count();
+      for (const note of ['Legacy note supplied anonymously', '']) {
+        assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: { ...validPlot, "Seth's Notes": note } })).statusCode, StatusCodes.UNAUTHORIZED);
+      }
+      assert.equal(await prisma.plot.count(), before);
+      const created = await app.inject({ method: 'POST', url: '/api/plots', payload: { ...validPlot, environmentalNotes: 'Morning shade' } });
+      assert.equal(created.statusCode, StatusCodes.CREATED, created.body);
+      assert.equal(created.json().environmentalNotes, 'Morning shade');
       assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', payload: { stage: 'active' } })).statusCode, StatusCodes.UNAUTHORIZED);
       process.env.ALLOW_ANONYMOUS_PLOT_SUBMISSION = 'false';
       assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: validPlot })).statusCode, StatusCodes.UNAUTHORIZED);

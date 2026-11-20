@@ -98,7 +98,7 @@ test('incoming map pins protect recovered drafts', async (t) => {
   await t.test('no creation permission means no incoming pin is applied', async (t) => {
     dom.window.sessionStorage.clear();
     const view = await mount(t, { initialEntry, canCreatePlot: false });
-    await waitFor(() => assert.match(view.container.textContent, /A staff account is needed/));
+    await waitFor(() => assert.match(view.container.textContent, /A verified account is needed/));
     assert.equal(readDraft()?.position ?? null, null);
   });
 });
