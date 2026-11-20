@@ -39,11 +39,41 @@ test('/api/maintenance-records', async (t) => {
     ]);
     assert.deepStrictEqual(data[0].photos, []);
     assert.strictEqual(data[0].date, '2026-08-20');
+    assert.strictEqual(data[0].plotName, 'Alpha Garden');
+    assert.strictEqual(data[0].plotStreetAddress, '100 Test St');
     assert.strictEqual(data[0].estNextVisit, '2026-09-03');
     assert.strictEqual(data[0].createdTime, undefined);
     assert.strictEqual(data[0].airtableId, undefined);
     assert.strictEqual(data[3].date, null);
     assert.strictEqual(data[3].plotId, null);
+  });
+
+  await t.test('GET / returns plot address when plot name is missing', async () => {
+    const plot = await prisma.plot.create({
+      data: {
+        airtableId: 'recTestUnnamedPlot',
+        streetAddress: '300 Test St',
+      },
+    });
+
+    await prisma.maintenanceRecord.create({
+      data: {
+        airtableId: 'recTestUnnamedPlotVisit',
+        plotId: plot.id,
+        activity: ['Watered'],
+      },
+    });
+
+    const response = await app.inject({
+      url: `/api/maintenance-records?plotId=${plot.id}`,
+    });
+
+    assert.strictEqual(response.statusCode, StatusCodes.OK);
+
+    const data = JSON.parse(response.payload);
+    assert.strictEqual(data.length, 1);
+    assert.strictEqual(data[0].plotName, null);
+    assert.strictEqual(data[0].plotStreetAddress, '300 Test St');
   });
 
   await t.test('GET / paginates and filters by plot, volunteer, and inclusive dates', async () => {

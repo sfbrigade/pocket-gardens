@@ -1,34 +1,29 @@
-import { useNavigate, useParams } from 'react-router';
-import { Box, Container, Stack, Title } from '@mantine/core';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link, useParams, useSearchParams } from 'react-router';
+import { Alert, Button, Container, Stack, Title } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
 import { useAuthContext } from '../AuthContext';
 import RegistrationForm from '../RegistrationForm';
+import { authPath, loginDestination } from '../LoginDestination';
+import useRegistration from '../useRegistration';
 
 function Invite () {
-  const { setUser: setAuthUser } = useAuthContext();
-  const navigate = useNavigate();
+  const { user, signOut } = useAuthContext();
   const { inviteId } = useParams();
+  const [searchParams] = useSearchParams();
+  const from = loginDestination(searchParams.get('from'));
 
-  const { data: invite } = useQuery({
+  const { data: invite, isPending, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['invite', inviteId],
-    queryFn: async () => {
-      const response = await Api.invites.get(inviteId);
-      setAuthUser(null);
-      return response.data;
-    },
+    queryFn: () => Api.invites.get(inviteId).then(response => response.data),
+    retry: (count, error) => ![404, 410, 422].includes(error.response?.status) && count < 2,
   });
 
-  const onSubmitMutation = useMutation({
-    mutationFn: (values) => Api.auth.register({ ...values, inviteId }),
-    onSuccess: (response) => {
-      setAuthUser(response.data);
-      navigate('/account', { state: { flash: 'Your account has been created!' } });
-    },
-    onError: () => window.scrollTo(0, 0),
-  });
+  const unavailable = [404, 410, 422].includes(error?.response?.status);
+
+  const onSubmitMutation = useRegistration({ from, inviteId });
 
   return (
     <>
@@ -38,11 +33,23 @@ function Invite () {
       <Container>
         <Title mb='md'>You&apos;re Invited</Title>
         <Stack>
-          {invite?.acceptedAt && <Box>This invite has already been accepted.</Box>}
-          {invite?.revokedAt && <Box>This invite is no longer available.</Box>}
-          {invite && invite.acceptedAt === null && invite.revokedAt === null && (
-            <RegistrationForm onSubmitMutation={onSubmitMutation} />
+          {isPending && <Alert>Loading invitation...</Alert>}
+          {isError && (
+            <Alert color='red'>
+              {unavailable ? 'This invitation link is invalid, has already been used, or is no longer available. Ask an administrator for a new invitation.' : 'Unable to load this invitation. Please try again.'}
+            </Alert>
           )}
+          {isError && !unavailable && <Button loading={isFetching} onClick={() => refetch()}>Try again</Button>}
+          {!isError && invite && (user
+            ? (
+              <>
+                <Alert>You are signed in as {user.email}. Log out before accepting an invitation for another account.</Alert>
+                {signOut.error && <Alert color='red'>{signOut.error._form || 'Unable to log out. Please try again.'}</Alert>}
+                <Button loading={signOut.isPending || signOut.isSuccess} onClick={() => signOut.mutate({ stayOnPage: true })}>Log out to accept invitation</Button>
+              </>
+              )
+            : <RegistrationForm onSubmitMutation={onSubmitMutation} initialEmail={invite.email} />)}
+          <Link to={user ? '/account' : authPath('/login', from)}>{user ? 'Back to your account' : 'Back to login'}</Link>
         </Stack>
       </Container>
     </>

@@ -11,7 +11,9 @@
     "lint": "eslint --fix",
     "lint:check": "eslint",
     "preview": "vite preview",
-    "test": "node --test test/*.test.js"
+    "test": "npm run test:node && npm run test:ui",
+    "test:node": "node --test test/*.test.js",
+    "test:ui": "vitest run"
   },
   "dependencies": {
     "@mantine/core": "^8.3.18",
@@ -21,6 +23,7 @@
     "@tanstack/react-query": "^5.95.2",
     "@unhead/react": "^2.1.12",
     "axios": "^1.14.0",
+    "better-auth": "1.7.25",
     "classnames": "^2.5.1",
     "http-status-codes": "^2.3.0",
     "inflection": "^3.0.2",
@@ -34,15 +37,19 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.4",
     "globals": "^17.4.0",
+    "jsdom": "^26.1.0",
     "neostandard": "^0.13.0",
     "postcss": "^8.5.8",
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
-    "vite": "^8.0.3"
+    "vite": "^8.0.3",
+    "vitest": "5.1.0"
   }
 }

@@ -1,37 +1,28 @@
 import fp from 'fastify-plugin';
 import { StatusCodes } from 'http-status-codes';
 
+import { fromNodeHeaders } from 'better-auth/node';
+import { createAuth } from '#lib/auth.js';
 import User from '#models/user.js';
 
 export default fp(async function (fastify) {
-  // set up secure encrypted cookie-based sessions
-  await fastify.register(import('@fastify/secure-session'), {
-    key: Buffer.from(process.env.SESSION_SECRET, 'hex'),
-    cookie: {
-      path: '/',
-      httpOnly: true,
-      sameSite: true,
-      secure: process.env.BASE_URL?.startsWith('https'),
-    },
-  });
-  // add a user object reference to the request instance
+  const auth = createAuth(fastify.prisma);
+  fastify.decorate('auth', auth);
   fastify.decorateRequest('user', null);
-  // add a hook to check for a signed in user on every request
-  fastify.addHook('onRequest', async (request) => {
-    // first check cookie-based session
-    const id = request.session.get('userId');
-    if (id) {
-      const data = await fastify.prisma.user.findUnique({ where: { id } });
-      if (data) {
-        request.user = new User(data);
-      } else {
-        // session data is invalid, delete
-        request.session.delete();
-      }
+  fastify.decorateRequest('authSession', null);
+  fastify.addHook('onRequest', async (request, reply) => {
+    if (request.url.startsWith('/api/auth/')) return;
+    const response = await auth.api.getSession({ headers: fromNodeHeaders(request.headers), asResponse: true });
+    const cookies = response.headers.getSetCookie();
+    if (cookies.length) reply.header('set-cookie', cookies);
+    const session = await response.json();
+    if (response.ok && session?.user) {
+      request.authSession = session;
+      request.user = new User(session.user);
     }
   });
 
-  const requireUser = (isAdmin) => {
+  const requireUser = (hasAccess = () => true) => {
     return async (request, reply) => {
       if (!request.user) {
         return reply.code(StatusCodes.UNAUTHORIZED).send();
@@ -39,13 +30,14 @@ export default fp(async function (fastify) {
       if (!request.user.isActive) {
         return reply.code(StatusCodes.FORBIDDEN).send();
       }
-      if (isAdmin && !request.user.isAdmin) {
+      if (!hasAccess(request.user)) {
         return reply.code(StatusCodes.FORBIDDEN).send();
       }
     };
   };
 
   // onRequest handler to be used to ensure a user is logged in
-  fastify.decorate('requireUser', requireUser(false));
-  fastify.decorate('requireAdmin', requireUser(true));
-});
+  fastify.decorate('requireUser', requireUser());
+  fastify.decorate('requireAdmin', requireUser(user => user.isAdmin));
+  fastify.decorate('requirePlotCreator', requireUser(user => user.canCreatePlot));
+}, { dependencies: ['prisma'] });

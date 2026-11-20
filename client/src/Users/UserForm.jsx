@@ -1,61 +1,58 @@
-import { useEffect, useState } from 'react';
-import { useLocation, useParams } from 'react-router';
-import { Alert, Button, Checkbox, Container, Fieldset, Group, Stack, TextInput, Title } from '@mantine/core';
-import { hasLength, isEmail, isNotEmpty, useForm } from '@mantine/form';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { Link, useLocation, useParams } from 'react-router';
+import { Alert, Button, Container, Fieldset, Group, Loader, Stack, Text, TextInput, Title } from '@mantine/core';
+import { hasLength, useForm } from '@mantine/form';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
 import Api from '../Api';
+import { profileKey } from '../auth-session';
 import { useAuthContext } from '../AuthContext';
 import PhotoInput from '../Components/PhotoInput';
+import UserRoleForm from './UserRoleForm';
 
 function UserForm () {
   const authContext = useAuthContext();
-  const location = useLocation();
   const params = useParams();
   const userId = params.userId ?? authContext.user.id;
-
-  const form = useForm({
-    mode: 'uncontrolled',
-    initialValues: {
-      firstName: '',
-      lastName: '',
-      email: '',
-      password: '',
-      picture: '',
-      pictureUrl: '',
-      isAdmin: false,
-    },
-    validate: {
-      firstName: isNotEmpty('First name is required.'),
-      lastName: isNotEmpty('Last name is required.'),
-      email: isEmail('Please enter a valid email address.'),
-      password: (value) => value ? hasLength({ min: 8 }, 'Passwords must be at least 8 characters.') : null,
-    },
-  });
-
-  const { data: response, isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ['users', userId],
     queryFn: () => Api.users.get(userId),
     enabled: !!userId,
   });
 
-  useEffect(() => {
-    if (response) {
-      form.initialize({
-        ...response.data,
-        password: '',
-      });
-    }
-  }, [response]);
+  if (query.isPending) return <Container><Loader aria-label='Loading account' /></Container>;
+  if (query.isError && !query.data) return <Container><Alert color='red' title='Unable to load account'><Button variant='subtle' onClick={() => query.refetch()}>Try again</Button></Alert></Container>;
+  return <UserEditor key={userId} userId={userId} user={query.data.data} />;
+}
+
+function UserEditor ({ userId, user }) {
+  const authContext = useAuthContext();
+  const queryClient = useQueryClient();
+  const location = useLocation();
+
+  const form = useForm({
+    mode: 'uncontrolled',
+    initialValues: { firstName: user.firstName, lastName: user.lastName, picture: user.picture },
+    validate: {
+      firstName: hasLength({ min: 2, max: 30 }, 'First name must be between 2 and 30 characters long.'),
+      lastName: hasLength({ min: 2, max: 30 }, 'Last name must be between 2 and 30 characters long.'),
+    },
+  });
 
   const onSubmitMutation = useMutation({
     mutationFn: (values) => Api.users.update(userId, values),
     onMutate: () => setSuccess(false),
     onSuccess: (response) => {
+      // This callback can finish after logout or after the editor unmounts.
+      const currentUser = queryClient.getQueryData(profileKey(authContext.user.id));
+      if (currentUser?.id !== authContext.user.id) return;
+      queryClient.setQueryData(['users', userId], response);
       if (userId === authContext.user.id) {
-        authContext.setUser(response.data);
+        queryClient.setQueryData(profileKey(userId), response.data);
       }
+      form.setValues({ firstName: response.data.firstName, lastName: response.data.lastName, picture: response.data.picture });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
       setSuccess(true);
     },
     onError: (errors) => form.setErrors(errors),
@@ -70,16 +67,17 @@ function UserForm () {
       </Head>
       <Container>
         <Title mb='md'>My Account</Title>
-        <form onSubmit={form.onSubmit(onSubmitMutation.mutateAsync)}>
-          <Fieldset disabled={isLoading} variant='unstyled'>
+        <form onSubmit={form.onSubmit(onSubmitMutation.mutate)}>
+          <Fieldset disabled={onSubmitMutation.isPending} legend='Profile'>
             <Stack w={{ base: '100%', xs: 320 }}>
               {location.state?.flash && <Alert>{location.state?.flash}</Alert>}
               {form.errors?._form && <Alert color='red'>{form.errors._form}</Alert>}
               {success && <Alert>Your account has been updated!</Alert>}
               <PhotoInput
                 {...form.getInputProps('picture')}
+                key={form.key('picture')}
                 label='Picture'
-                valueUrl={form.getValues().pictureUrl}
+                valueUrl={user.pictureUrl}
               />
               <TextInput
                 {...form.getInputProps('firstName')}
@@ -91,31 +89,22 @@ function UserForm () {
                 key={form.key('lastName')}
                 label='Last name'
               />
-              <TextInput
-                {...form.getInputProps('email')}
-                key={form.key('email')}
-                label='Email'
-                type='email'
-              />
-              <TextInput
-                {...form.getInputProps('password')}
-                key={form.key('password')}
-                label='Password'
-                type='password'
-              />
-              {authContext.user.isAdmin && (
-                <Checkbox
-                  {...form.getInputProps('isAdmin', { type: 'checkbox' })}
-                  key={form.key('isAdmin')}
-                  label='Is an Administrator?'
-                />
-              )}
+              <TextInput value={user.email} label='Email' type='email' readOnly />
               <Group>
                 <Button disabled={onSubmitMutation.isPending} type='submit'>Submit</Button>
               </Group>
             </Stack>
           </Fieldset>
         </form>
+        {userId === authContext.user.id && (
+          <Fieldset legend='Sign-in options' mt='md'>
+            <Stack>
+              <Text size='sm'>You can log in with an email link without a password. Add a password if you also want to use password login.</Text>
+              <Link to='/passwords/forgot?from=%2Faccount' state={{ email: user.email }}>Set or reset your password</Link>
+            </Stack>
+          </Fieldset>
+        )}
+        {authContext.user.isAdmin && <UserRoleForm user={user} />}
       </Container>
     </>
   );

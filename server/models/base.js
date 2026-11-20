@@ -2,6 +2,7 @@ import inflection from 'inflection';
 import path from 'path';
 
 import s3 from '#lib/s3.js';
+import { PhotoUploadError, validatePhotoUpload } from '#lib/photo-upload.js';
 
 class Base {
   constructor (fields, data) {
@@ -20,6 +21,9 @@ class Base {
     };
 
     return new Proxy(this, {
+      has (target, property) {
+        return Object.hasOwn(fields, property) || Reflect.has(target, property);
+      },
       get (target, property, receiver) {
         // if the property is in the schema, return it from the data object
         if (Object.hasOwn(fields, property)) {
@@ -96,7 +100,7 @@ class Base {
     return filePath;
   }
 
-  setAsset (attribute, newValue) {
+  setAsset (attribute, newValue, { retainUpload = false, onCopyTarget } = {}) {
     const value = this[attribute];
     if (value === newValue) {
       return;
@@ -106,15 +110,22 @@ class Base {
       const assetDirPath = this.getAssetDirPath(attribute);
       let prevPath;
       let newPath;
-      if (value) {
-        prevPath = path.join(assetDirPath, value);
-        await s3.deleteObject(prevPath);
-      }
+      const field = attribute === 'picture' ? 'picture' : this.__CLASSNAME__ === 'PlotPhoto' ? 'Photos' : 'photos';
+      const sourceETag = newValue ? await validatePhotoUpload(newValue, field) : undefined;
+      if (value) prevPath = path.join(assetDirPath, value);
       if (newValue) {
         newPath = path.join(assetDirPath, newValue);
-        await s3.copyObject(path.join(process.env.AWS_S3_BUCKET, '_uploads', newValue), newPath);
-        await s3.deleteObject(path.join('_uploads', newValue));
+        onCopyTarget?.(newPath);
+        try {
+          await s3.copyObject(path.join(process.env.AWS_S3_BUCKET, '_uploads', newValue), newPath, sourceETag);
+        } catch (error) {
+          if (error.$metadata?.httpStatusCode === 412) throw new PhotoUploadError('The photo changed while saving. Reattach it and try again.', field);
+          throw error;
+        }
+        if (!retainUpload) await s3.deleteObject(path.join('_uploads', newValue));
       }
+      // Keep the previous picture if validation or the conditional copy fails.
+      if (prevPath) await s3.deleteObject(prevPath);
       if (callback) {
         await callback(this.id, prevPath, newPath);
       }

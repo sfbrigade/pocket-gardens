@@ -11,6 +11,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl as getSignedS3Url } from '@aws-sdk/s3-request-presigner';
 import { getSignedUrl as getSignedCloudFrontUrl } from '@aws-sdk/cloudfront-signer';
+import { uploadUrlSeconds } from './upload-policy.js';
 import fs from 'fs';
 import { DateTime } from 'luxon';
 import path from 'path';
@@ -42,12 +43,13 @@ function init () {
   }
 }
 
-function copyObject (CopySource, Key) {
+function copyObject (CopySource, Key, CopySourceIfMatch) {
   init();
   return client.send(
     new CopyObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET,
       CopySource,
+      CopySourceIfMatch,
       Key,
     })
   );
@@ -127,19 +129,21 @@ function getSignedAssetUrl (Key, expiresIn = 60) {
   );
 }
 
-function getSignedUploadUrl (ContentType, Key) {
+function getSignedUploadUrl (ContentType, Key, ContentLength) {
   init();
   return getSignedS3Url(
     signerClient ?? client,
     new PutObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET,
       ContentType,
+      ContentLength,
       Key,
-    })
+    }),
+    { expiresIn: uploadUrlSeconds, signableHeaders: new Set(['content-type', 'content-length']) }
   );
 }
 
-async function objectExists (Key) {
+async function headObject (Key) {
   init();
   try {
     const response = await client.send(
@@ -148,10 +152,21 @@ async function objectExists (Key) {
         Key,
       })
     );
-    return response !== null;
+    return response;
   } catch (err) {
-    return false;
+    if (err.$metadata?.httpStatusCode === 404 || ['NotFound', 'NoSuchKey'].includes(err.name)) return null;
+    throw err;
   }
+}
+
+async function readObjectHeader (Key, IfMatch) {
+  init();
+  const { Body } = await client.send(new GetObjectCommand({ Bucket: process.env.AWS_S3_BUCKET, Key, Range: 'bytes=0-15', IfMatch }));
+  return Buffer.from(await Body.transformToByteArray());
+}
+
+async function objectExists (Key) {
+  return !!(await headObject(Key));
 }
 
 function putObject (Key, filePath, ContentType) {
@@ -176,5 +191,7 @@ export default {
   getSignedAssetUrl,
   getSignedUploadUrl,
   objectExists,
+  headObject,
+  readObjectHeader,
   putObject,
 };

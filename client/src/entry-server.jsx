@@ -23,7 +23,15 @@ export async function render (request, reply, staticContext) {
     ...defaultValue,
     ...staticContext.context,
     env: { ...defaultValue.env, ...staticContext.context.env },
-    authContext: { user: request.user?.toJSON() ?? null },
+    authContext: {
+      user: request.user?.toJSON() ?? null,
+      session: request.authSession
+        ? {
+            user: { id: request.user.id },
+            session: { id: request.authSession.session.id, userId: request.user.id, expiresAt: request.authSession.session.expiresAt },
+          }
+        : null
+    },
   };
   const head = createHead();
   const html = ReactDOMServer.renderToString(

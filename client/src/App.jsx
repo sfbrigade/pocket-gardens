@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Routes, Route } from 'react-router';
 import '@mantine/core/styles.css';
 import { AppShell, Container, Loader, MantineProvider } from '@mantine/core';
@@ -14,8 +14,11 @@ import { useStaticContext } from './StaticContext';
 import AppRedirects from './AppRedirects';
 import AppTheme from './AppTheme';
 import Header from './Header';
+import NavigationLinks from './NavigationLinks';
 import Home from './Home';
+import PlotForm from './Plots/PlotForm';
 import Login from './Login';
+import EmailLink from './EmailLink';
 import InvitesRoutes from './Invites/InvitesRoutes';
 import PasswordsRoutes from './Passwords/PasswordsRoutes';
 import Register from './Register';
@@ -23,9 +26,8 @@ import UsersRoutes from './Users/UsersRoutes';
 
 const AdminRoutes = lazy(() => import('./Admin/AdminRoutes'));
 
-const queryClient = new QueryClient();
-
 function App () {
+  const [queryClient] = useState(() => new QueryClient());
   const [opened, { close, toggle }] = useDisclosure();
   const staticContext = useStaticContext();
   const siteTitle = staticContext?.env?.VITE_SITE_TITLE || 'Pocket Gardens';
@@ -47,7 +49,9 @@ function App () {
               <AppShell.Header>
                 <Header opened={opened} close={close} toggle={toggle} />
               </AppShell.Header>
-              <AppShell.Navbar />
+              <AppShell.Navbar aria-label='Mobile navigation' aria-hidden={!opened} hiddenFrom='sm'>
+                {opened && <NavigationLinks close={close} mobile />}
+              </AppShell.Navbar>
               <AppShell.Main px={0}>
                 <Routes>
                   <Route
@@ -56,7 +60,11 @@ function App () {
                       <AppRedirects>
                         <Routes>
                           <Route path='/' element={<Home />} />
+                          <Route path='/plots/new' element={<PlotForm />} />
+                          <Route path='/plots/:plotId' element={<Home />} />
                           <Route path='/login' element={<Login />} />
+                          <Route path='/auth/verify-email' element={<EmailLink key='verify-email' action='verify-email' />} />
+                          <Route path='/auth/magic-link' element={<EmailLink key='magic-link' action='magic-link' />} />
                           <Route path='/passwords/*' element={<PasswordsRoutes />} />
                           <Route path='/invites/*' element={<InvitesRoutes />} />
                           {staticContext?.env?.VITE_FEATURE_REGISTRATION === 'true' && <Route path='/register' element={<Register />} />}

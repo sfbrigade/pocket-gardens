@@ -1,19 +1,22 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { Button, Paper, Stack, Text } from '@mantine/core';
+import { useDebouncedValue } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { MapContainer } from 'react-leaflet/MapContainer';
 import { TileLayer } from 'react-leaflet/TileLayer';
 import { Marker } from 'react-leaflet/Marker';
+import { Circle } from 'react-leaflet/Circle';
+import { CircleMarker } from 'react-leaflet/CircleMarker';
 import { Popup } from 'react-leaflet/Popup';
-import { useMapEvents } from 'react-leaflet/hooks';
-import { Icon } from 'leaflet';
+import { useMap, useMapEvents } from 'react-leaflet/hooks';
+import { DomEvent, Icon, latLng, latLngBounds } from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerIconRetina from 'leaflet/dist/images/marker-icon-2x.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
 
-import { plotsQueryOptions } from '../plots';
-
-const SAN_FRANCISCO_BOUNDS = [[37.708, -122.515], [37.833, -122.355]];
+import { bufferedBounds, containsBounds, hasCoordinates, plotsQueryOptions, plotStageLabel } from '../plots';
+import { isMapPosition, SAN_FRANCISCO_BOUNDS } from '../map-location';
 
 const gardenIcon = new Icon({
   iconUrl: markerIcon,
@@ -25,57 +28,214 @@ const gardenIcon = new Icon({
   shadowSize: [41, 41],
 });
 
-function PlotMarkers () {
-  const [bounds, setBounds] = useState(null);
-  const map = useMapEvents({ moveend: updateBounds, resize: updateBounds });
+// A viewport update should only mount/unmount pins entering/leaving the margin.
+// Unchanged pins need no Leaflet position updates or popup/handler updates.
+const PlotMarker = memo(function PlotMarker ({ plot, onSelectPlot, onOpenPopup, onClosePopup }) {
+  return (
+    <Marker
+      position={[plot.Latitude, plot.Longitude]}
+      icon={gardenIcon}
+      title={plot['Pocket Garden Name'] || 'Pocket garden'}
+      alt={plot['Pocket Garden Name'] || 'Pocket garden'}
+      eventHandlers={{ popupopen: () => onOpenPopup(plot), popupclose: () => onClosePopup(plot.id) }}
+    >
+      <Popup>
+        <strong>{plot['Pocket Garden Name'] || 'Pocket garden'}</strong>
+        <div>Stage: {plotStageLabel(plot.stage)}</div>
+        {onSelectPlot && <Button size='compact-sm' mt='xs' onClick={() => onSelectPlot(plot.id)}>View garden details</Button>}
+      </Popup>
+    </Marker>
+  );
+});
 
-  function updateBounds () {
+function PlotMarkers ({ selectedPlot, onSelectPlot }) {
+  const [bounds, setBounds] = useState(null);
+  const [markerBounds, setMarkerBounds] = useState(null);
+  const [openPlot, setOpenPlot] = useState(null);
+  const closePopup = useCallback((id) => setOpenPlot((plot) => plot?.id === id ? null : plot), []);
+  const map = useMap();
+  // Only the current coverage is retained. Nearby checks keep their own exact queries.
+  const { data: plots = [], isPending, isFetching, isError, isStale, refetch } = useQuery({ ...plotsQueryOptions(bounds), gcTime: 0 });
+
+  const refreshViewport = useEffectEvent(() => {
     const visible = map.getBounds();
-    setBounds({
+    const next = {
       north: Math.min(90, visible.getNorth()),
       south: Math.max(-90, visible.getSouth()),
       east: Math.max(-180, Math.min(180, visible.getEast())),
       west: Math.max(-180, Math.min(180, visible.getWest())),
-    });
-  }
+    };
+    if (!Object.values(next).every(Number.isFinite) || next.north < next.south || next.east < next.west) return;
+    // Rendering follows settled movement independently of cached fetch coverage.
+    setMarkerBounds(bufferedBounds(next, 0.1));
+    if (containsBounds(bounds, next)) {
+      if ((isError || isStale) && !isFetching) refetch();
+    } else setBounds(bufferedBounds(next));
+  });
 
   useEffect(() => {
-    map.whenReady(updateBounds);
+    let timer;
+    let moving = false;
+    const cancelUpdate = () => clearTimeout(timer);
+    const startMovement = () => { moving = true; cancelUpdate(); };
+    const scheduleUpdate = () => {
+      cancelUpdate();
+      if (!moving) timer = setTimeout(refreshViewport, 250);
+    };
+    const finishMovement = () => { moving = false; scheduleUpdate(); };
+    const events = { movestart: startMovement, zoomstart: startMovement, moveend: finishMovement, resize: scheduleUpdate };
+    map.on(events);
+    map.whenReady(scheduleUpdate);
+    return () => { cancelUpdate(); map.off(events); map.off('load', scheduleUpdate); };
   }, [map]);
 
-  const { data: plots = [], isPending, isFetching, isError } = useQuery(plotsQueryOptions(bounds));
   const status = isError
     ? 'Unable to load gardens. Please try again by moving the map.'
     : isPending || isFetching
       ? 'Loading gardens…'
       : plots.length === 0 ? 'No gardens in this area.' : '';
 
+  const visiblePlots = useMemo(() => {
+    const visible = plots.filter((plot) => plot.id === selectedPlot?.id || plot.id === openPlot?.id || (markerBounds &&
+      plot.Latitude <= markerBounds.north && plot.Latitude >= markerBounds.south &&
+      plot.Longitude <= markerBounds.east && plot.Longitude >= markerBounds.west));
+    // Retain selected/open gardens even if replacement coverage no longer includes them.
+    for (const plot of [selectedPlot, openPlot]) {
+      if (plot && hasCoordinates(plot) && !visible.some(({ id }) => id === plot.id)) visible.push(plot);
+    }
+    return visible;
+  }, [plots, markerBounds, selectedPlot, openPlot]);
   return (
     <>
-      {plots.map((plot) => (
-        <Marker
-          key={plot.id}
-          position={[plot.Latitude, plot.Longitude]}
-          icon={gardenIcon}
-          title={plot['Pocket Garden Name'] || 'Pocket garden'}
-          alt={plot['Pocket Garden Name'] || 'Pocket garden'}
-        >
-          <Popup>
-            <strong>{plot['Pocket Garden Name'] || 'Pocket garden'}</strong>
-            {plot.Status && <div>Status: {plot.Status}</div>}
-          </Popup>
-        </Marker>
+      {visiblePlots.map((plot) => (
+        <PlotMarker key={plot.id} plot={plot} onSelectPlot={onSelectPlot} onOpenPopup={setOpenPlot} onClosePopup={closePopup} />
       ))}
       <div role='status' aria-live='polite' className='map-status' hidden={!status}>{status}</div>
     </>
   );
 }
 
-function LeafletContainer () {
+function NearbyGardens ({ position }) {
+  const point = latLng(position.latitude, position.longitude);
+  const area = point.toBounds(440);
+  const bounds = { north: area.getNorth(), south: area.getSouth(), east: area.getEast(), west: area.getWest() };
+  const query = useQuery(plotsQueryOptions(bounds));
+  const nearby = (query.data ?? []).map((plot) => ({ plot, distance: point.distanceTo([plot.Latitude, plot.Longitude]) }))
+    .filter(({ distance }) => distance <= 200).sort((a, b) => a.distance - b.distance);
+  return (
+    <Text size='sm' role='status'>{query.isError
+      ? 'Could not check nearby gardens.'
+      : query.isPending || query.isFetching
+        ? 'Checking nearby gardens…'
+        : nearby.length ? `${nearby.length} garden${nearby.length === 1 ? '' : 's'} within 200 m. Nearest: ${nearby[0].plot['Pocket Garden Name'] || 'Pocket garden'}, ${Math.round(nearby[0].distance)} m away.` : 'No other gardens recorded within 200 m.'}
+    </Text>
+  );
+}
+
+function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot, mode, disabled, viewportSize }) {
+  const [message, setMessage] = useState('');
+  const [locating, setLocating] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [nearbyPosition] = useDebouncedValue(position, 800);
+  const controls = useRef(null);
+  const locationRequested = useRef(false);
+  const map = useMapEvents({
+    dblclick: ({ latlng, originalEvent }) => {
+      // Markers stop bubbling in Leaflet; also exclude controls and popup content.
+      if (originalEvent?.target?.closest?.('.leaflet-marker-icon, .leaflet-control, .leaflet-popup, .garden-map-controls')) return;
+      const position = { latitude: latlng.lat, longitude: latlng.lng };
+      if (mode === 'explore' && !disabled && isMapPosition(position)) onCreatePlot?.(position);
+    },
+    click: ({ latlng }) => {
+      if (mode === 'pick' && !disabled && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng });
+    },
+    locationfound: ({ latlng, accuracy }) => {
+      const requested = locationRequested.current;
+      locationRequested.current = false;
+      setLocating(false);
+      if (!latLngBounds(SAN_FRANCISCO_BOUNDS).contains(latlng)) { setUserLocation(null); setMessage('Your location is outside this map. Choose a point on the map instead.'); return; }
+      setUserLocation({ center: latlng, accuracy });
+      setMessage(`Location found, accurate to about ${Math.round(accuracy)} metres.`);
+      // Only a button request should recenter the map or place the garden pin.
+      if (requested && !disabled) {
+        map.setView(latlng, 17);
+        if (mode === 'pick') onPositionChange?.({ latitude: latlng.lat, longitude: latlng.lng, accuracy });
+      }
+    },
+    locationerror: () => {
+      locationRequested.current = false;
+      map.stopLocate();
+      setLocating(false);
+      setUserLocation(null);
+      setMessage('Could not use your location. Check location access or choose a point on the map.');
+    },
+  });
+  useEffect(() => {
+    // Reserve double-click for creation only when that shortcut is available.
+    if (mode === 'explore' && onCreatePlot && !disabled) map.doubleClickZoom.disable();
+    else map.doubleClickZoom.enable();
+  }, [map, mode, onCreatePlot, disabled]);
+  useEffect(() => {
+    if (controls.current) { DomEvent.disableClickPropagation(controls.current); DomEvent.disableScrollPropagation(controls.current); }
+  }, []);
+  useEffect(() => {
+    const point = position ? [position.latitude, position.longitude] : selectedPlot ? [selectedPlot.Latitude, selectedPlot.Longitude] : null;
+    if (point && point.every(Number.isFinite) && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(point)) map.setView(point, 17);
+  }, [map, position?.latitude, position?.longitude, selectedPlot?.id]);
+  useEffect(() => {
+    map.invalidateSize();
+  }, [map, viewportSize?.width, viewportSize?.height]);
+  useEffect(() => () => map.stopLocate(), [map]);
+  return (
+    <>
+      <Paper ref={controls} className='garden-map-controls' p='xs' shadow='sm' style={{ position: 'absolute', right: 12, top: 12, zIndex: 1000, maxWidth: 260 }}>
+        <Stack gap='xs'>
+          <Button
+            size='compact-md' disabled={disabled} loading={locating} variant='light' onClick={() => {
+              locationRequested.current = true;
+              setLocating(true);
+              setMessage('Finding your location…');
+              map.stopLocate();
+              map.locate({ watch: true, enableHighAccuracy: true, timeout: 10000 });
+            }}
+          >
+            Use my location
+          </Button>
+          {mode === 'explore' && onCreatePlot && <Text size='sm'>Double-click empty map space to start a garden here, or use Create a garden.</Text>}
+          {mode === 'pick' && <><Button size='compact-md' disabled={disabled} variant='default' onClick={() => { const point = map.getCenter(); onPositionChange?.({ latitude: point.lat, longitude: point.lng }); }}>Place pin at map center</Button><Text size='sm'>Tap the map to place a pin. Drag the pin to adjust it.</Text></>}
+          {message && <Text size='sm' role='status'>{message}</Text>}
+          {mode === 'pick' && position && (position.latitude === nearbyPosition?.latitude && position.longitude === nearbyPosition?.longitude
+            ? <NearbyGardens position={nearbyPosition} />
+            : <Text size='sm' role='status'>Checking nearby gardens…</Text>)}
+        </Stack>
+      </Paper>
+      {userLocation && (
+        <>
+          <Circle center={userLocation.center} radius={userLocation.accuracy} interactive={false} pathOptions={{ color: '#4285f4', weight: 1, opacity: 0.3, fillOpacity: 0.12 }} />
+          <CircleMarker center={userLocation.center} radius={8} interactive={false} pathOptions={{ color: '#fff', weight: 3, fillColor: '#4285f4', fillOpacity: 1 }} />
+        </>
+      )}
+      {position && <Marker
+        position={[position.latitude, position.longitude]} icon={gardenIcon} draggable={!disabled} title='New garden location' eventHandlers={{
+          dragend: ({ target }) => {
+            if (disabled) { target.setLatLng([position.latitude, position.longitude]); return; }
+            const point = target.getLatLng();
+            if (latLngBounds(SAN_FRANCISCO_BOUNDS).contains(point)) onPositionChange?.({ latitude: point.lat, longitude: point.lng });
+            else { target.setLatLng([position.latitude, position.longitude]); setMessage('Keep the pin within this map’s coverage.'); }
+          }
+        }}
+                   />}
+    </>
+  );
+}
+
+function LeafletContainer ({ mode = 'explore', disabled = false, position, onPositionChange, onCreatePlot, selectedPlot, onSelectPlot, viewportSize }) {
   return (
     <MapContainer
       center={[37.7749, -122.4194]}
       zoom={13}
+      // Picker views can unmount mid-zoom; Leaflet's zoom callback outlives the removed map.
+      zoomAnimation={mode !== 'pick'}
       minZoom={13}
       maxBounds={SAN_FRANCISCO_BOUNDS}
       maxBoundsViscosity={1}
@@ -86,7 +246,8 @@ function LeafletContainer () {
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
       />
-      <PlotMarkers />
+      <PlotMarkers selectedPlot={selectedPlot} onSelectPlot={onSelectPlot} />
+      <MapSelection mode={mode} disabled={disabled} position={position} onPositionChange={onPositionChange} onCreatePlot={onCreatePlot} selectedPlot={selectedPlot} viewportSize={viewportSize} />
     </MapContainer>
   );
 }

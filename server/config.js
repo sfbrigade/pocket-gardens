@@ -1,10 +1,8 @@
-import dotenv from 'dotenv';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { loadEnvFile } from 'node:process';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({
-  path: path.resolve(__dirname, '.env')
-});
+try {
+  loadEnvFile(new URL('.env', import.meta.url));
+} catch (error) {
+  // Deployments can supply all configuration through the process environment.
+  if (error.code !== 'ENOENT') throw error;
+}

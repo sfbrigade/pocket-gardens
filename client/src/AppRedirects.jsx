@@ -1,13 +1,17 @@
-import { Navigate, useLocation } from 'react-router';
+import { Navigate, useLocation, matchPath } from 'react-router';
+import { Alert, Button, Container, Loader } from '@mantine/core';
 import { useAuthContext } from './AuthContext';
 import { handleRedirects } from './AppRedirectsConfig';
 
 function AppRedirects ({ children }) {
   const location = useLocation();
   const authContext = useAuthContext();
+  const protectedRoute = ['/account/*', '/admin/*'].some(path => matchPath(path, location.pathname));
+  if (protectedRoute && authContext.profileError && !authContext.user) return <Container><Alert color='red'>{authContext.profileError.message}<Button variant='subtle' onClick={() => authContext.refetchProfile()}>Try again</Button></Alert></Container>;
+  if (authContext.isPending && protectedRoute) return <Container><Loader aria-label='Loading session' /></Container>;
   const result = handleRedirects(authContext, location, location.pathname, (to, state) => {
     if (state) {
-      return <Navigate to={to} state={state} replaces />;
+      return <Navigate to={to} state={state} replace />;
     }
     return <Navigate to={to} />;
   });

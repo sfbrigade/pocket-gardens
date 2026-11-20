@@ -9,8 +9,6 @@
   <a href="https://github.com/sfbrigade/pocket-gardens/issues/new">Request Feature</a>
 </p>
 
-<!-- ABOUT THE PROJECT -->
-
 ## 📖 About the Project
 
 **Pocket Gardens** is an open-source web application designed to help people discover and care for neighborhood gardens throughout San Francisco. By making these spaces easier to find and maintain, the project hopes to encourage more people to take part in urban gardening.
@@ -28,9 +26,7 @@ Pocket Gardens includes existing functionality alongside features being develope
 - **Plant Library:** Maintain plant information associated with community gardens.
 - **People Management:** Provide administrative tools for viewing and searching people records, with additional functionality under development.
 - **Maintenance Tracking:** Record and manage garden maintenance activities.
-- **Member Authentication:** Enable secure member access, with passwordless authentication planned for the MVP.
-
-<!-- TECH STACK -->
+- **Member Authentication:** Allow members to sign in securely using email links or a password.
 
 ## 🛠️ Tech Stack
 
@@ -61,11 +57,32 @@ The context diagram illustrates how residents and administrators interact with P
 
 ### 🗄️ Database Schema
 
-Pocket Gardens uses PostgreSQL and Prisma to organize and store information about gardens, plants, volunteers, user accounts, and maintenance activities. The database contains 17 models that define how this information is stored and connected.
+Pocket Gardens uses PostgreSQL and Prisma to organize and store information about gardens, plants, volunteers, user accounts, and maintenance activities. The database contains 22 models that define how this information is stored and connected.
 
 For a closer look at the tables, fields, and relationships, see the [Prisma Schema](server/prisma/schema.prisma).
 
 ## 🚀 Getting Started
+
+### Authentication Setup
+
+Authentication uses Better Auth `1.7.25` under `/api/auth`, with the official React
+client and cookie sessions. Email links are the default for signup and login;
+passwords are optional. Existing users sign in without registering again.
+
+Configure `server/.env` using `server/example.env`. Before local startup,
+`npm run dev` runs `bin/setup-dev-env.mjs` to create the env files, generate a private
+persistent auth secret when needed, and copy only public `VITE_` settings into
+`client/.env`. Docker Compose uses this same development command. Production startup
+does not run this helper and requires an explicitly configured secret.
+
+- `BETTER_AUTH_SECRET`: a private random secret of at least 32 characters (for example, generate with `openssl rand -base64 32`). Production startup rejects the example placeholder.
+- `BASE_URL`: the public application origin without `/api`; use HTTPS in production.
+- `TRUSTED_PROXIES`: the actual trusted reverse proxy IP addresses/CIDRs; leave unset for direct connections.
+- `SMTP_ENABLED=true` and SMTP settings: required for registration and authentication mail. Local development can use Mailcatcher.
+- `VITE_FEATURE_REGISTRATION`: when not `true`, new signup requires a matching, unused invitation. Existing users can still request login links.
+
+See the [authentication reference](docs/authentication.md) for existing-account
+migration, deployment checks, password setup, sessions, and administrator access.
 
 ### One-time Setup
 
@@ -114,10 +131,10 @@ For a closer look at the tables, fields, and relationships, see the [Prisma Sche
    Once you're logged in, you will be in a new shell for the container where you can run the following command:
 
    ```
-   bin/create-admin.js Firstname Lastname email password
+   bin/create-admin.sh Firstname Lastname email
    ```
 
-   Put in your name and email address and a password. This will create a first admin user in the database.
+   Put in your name and email address; the bootstrap CLI prompts for a password and creates a verified administrator. Existing production administrators are preserved by migration and do not need to be recreated. To promote another verified user, use **Admin → Users → Edit Profile → Administrator access**.
 
 7. To stop the server, press CONTROL-C in the window with the running server.
    If it is successful, you will see something like this:

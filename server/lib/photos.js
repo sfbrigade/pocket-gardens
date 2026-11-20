@@ -23,6 +23,7 @@ export async function syncPhotos ({
   parentId,
   filenames,
   photos,
+  assetOptions,
 }) {
   const desired = (photos ?? filenames ?? []).filter((item) => (
     (typeof item === 'object' && item !== null) || (typeof item === 'string' && item.length > 0)
@@ -60,7 +61,7 @@ export async function syncPhotos ({
       data: { [parentFk]: parentId, position: i },
     });
     const photo = new PhotoClass(row);
-    const handler = photo.setAsset('file', filename);
+    const handler = photo.setAsset('file', filename, assetOptions);
     await delegate.update({
       where: { id: row.id },
       data: pick(row, [...photo.changes]),
