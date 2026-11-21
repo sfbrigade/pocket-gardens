@@ -83,6 +83,20 @@ test('maintenance update workflows', async (t) => {
     assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
   });
 
+  await t.test('a garden stage change during photo copy rolls back new work', async (t) => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const payload = draft({ activity: ['Watered'], photos: [{ upload: filename }] });
+    const copy = s3.copyObject.bind(s3);
+    t.mock.method(s3, 'copyObject', async (...args) => {
+      await app.prisma.plot.update({ where: { id: plotId }, data: { stage: 'paused' } });
+      return copy(...args);
+    });
+    assert.equal((await create(payload)).statusCode, 422);
+    assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 0);
+    assert.equal(await assetExists(`_uploads/${filename}`), true);
+  });
+
   await t.test('failed staging cleanup never exposes a retained copy through public asset reads', async (t) => {
     const filename = `${crypto.randomUUID()}.jpg`;
     await upload([['640x480.jpg', filename]]);

@@ -44,6 +44,10 @@ export default async function (fastify) {
         });
         if (body.plants) await syncMaintenanceRecordPlants(tx, created.id, body.plants);
         if (body.photos) await syncMaintenanceRecordPhotos(tx, created.id, body.photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
+        // Uploads can take time. Prevent a stage change between the final
+        // eligibility check and the commit, without locking during copies.
+        const [currentPlot] = await tx.$queryRaw`SELECT "stage" FROM "Plot" WHERE id = ${plot.id}::uuid FOR SHARE`;
+        validateNewVisit(currentPlot, body);
         const saved = await findMaintenanceRecordById(tx, created.id);
         callbackCompleted = true;
         return saved;
