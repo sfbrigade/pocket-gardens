@@ -86,7 +86,7 @@ function MaintenanceComposer ({ plotId }) {
   const locked = saving || !!draft.attempt;
   const paused = garden.data.stage === 'paused';
   const eligible = ['potential', 'preparing', 'active', 'paused'].includes(garden.data.stage);
-  const hasPausedWork = paused && draft.activity.length > 0;
+  const hasPausedWork = paused && (draft.activity.length > 0 || draft.plants.length > 0);
   const canSubmit = !photoBusy && (!!draft.attempt || (eligible && !hasPausedWork));
   return (
     <Container size='sm' py='md'>
@@ -99,7 +99,7 @@ function MaintenanceComposer ({ plotId }) {
           {hasPausedWork && (
             <Alert color='yellow'>
               This draft contains work selections from before the garden was paused.
-              <Button type='button' variant='subtle' disabled={locked} onClick={() => setDraft((value) => ({ ...value, activity: [] }))}>Remove work selections</Button>
+              <Button type='button' variant='subtle' disabled={locked} onClick={() => setDraft((value) => ({ ...value, activity: [], plants: [] }))}>Remove work selections</Button>
             </Alert>
           )}
           {storageError && <Alert color='yellow'>This browser could not store your draft. Keep this page open until saving succeeds.</Alert>}
