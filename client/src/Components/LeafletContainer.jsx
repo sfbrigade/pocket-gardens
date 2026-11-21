@@ -133,19 +133,23 @@ function NearbyGardens ({ position }) {
   );
 }
 
-function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot, mode, disabled, viewportSize }) {
-  const restoredView = useRef(mode === 'explore' ? readExploreView() : null);
+function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot, mode, disabled, viewportSize, initialView, viewportPlotId }) {
+  const restoredView = useRef(initialView);
   const [message, setMessage] = useState('');
   const [locating, setLocating] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [nearbyPosition] = useDebouncedValue(position, 800);
   const controls = useRef(null);
   const locationRequested = useRef(false);
-  const map = useMapEvents({
+  const map = useMap();
+  const persistView = useCallback(() => {
+    if (!viewportPlotId || !selectedPlot?.id) return;
+    const point = map.getCenter();
+    saveExploreView({ center: [point.lat, point.lng], zoom: map.getZoom(), plotId: viewportPlotId });
+  }, [map, selectedPlot?.id, viewportPlotId]);
+  useMapEvents({
     dragstart: () => { restoredView.current = null; },
-    moveend: () => {
-      if (mode === 'explore') { const point = map.getCenter(); saveExploreView({ center: [point.lat, point.lng], zoom: map.getZoom(), plotId: selectedPlot?.id || null }); }
-    },
+    moveend: persistView,
     dblclick: ({ latlng, originalEvent }) => {
       // Markers stop bubbling in Leaflet; also exclude controls and popup content.
       if (originalEvent?.target?.closest?.('.leaflet-marker-icon, .leaflet-control, .leaflet-popup, .garden-map-controls')) return;
@@ -187,10 +191,11 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
   useEffect(() => {
     const point = position ? [position.latitude, position.longitude] : selectedPlot ? [selectedPlot.Latitude, selectedPlot.Longitude] : null;
     if (point && point.every(Number.isFinite) && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(point)) {
-      if (mode !== 'explore' || restoredView.current?.plotId !== selectedPlot?.id) map.setView(point, 17);
+      if (!restoredView.current || restoredView.current.plotId !== viewportPlotId) map.setView(point, 17);
       restoredView.current = null;
     }
-  }, [map, mode, position?.latitude, position?.longitude, selectedPlot?.id]);
+  }, [map, position?.latitude, position?.longitude, selectedPlot?.id]);
+  useEffect(persistView, [persistView]);
   useEffect(() => {
     map.invalidateSize();
   }, [map, viewportSize?.width, viewportSize?.height]);
@@ -238,8 +243,8 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
   );
 }
 
-function LeafletContainer ({ mode = 'explore', disabled = false, position, onPositionChange, onCreatePlot, selectedPlot, onSelectPlot, viewportSize }) {
-  const restored = mode === 'explore' ? readExploreView() : null;
+function LeafletContainer ({ mode = 'explore', disabled = false, position, onPositionChange, onCreatePlot, selectedPlot, onSelectPlot, viewportSize, viewportPlotId }) {
+  const [restored] = useState(() => readExploreView(viewportPlotId));
   return (
     <MapContainer
       center={restored?.center || [37.7749, -122.4194]}
@@ -257,7 +262,7 @@ function LeafletContainer ({ mode = 'explore', disabled = false, position, onPos
         url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
       />
       <PlotMarkers selectedPlot={selectedPlot} onSelectPlot={onSelectPlot} />
-      <MapSelection mode={mode} disabled={disabled} position={position} onPositionChange={onPositionChange} onCreatePlot={onCreatePlot} selectedPlot={selectedPlot} viewportSize={viewportSize} />
+      <MapSelection mode={mode} disabled={disabled} position={position} onPositionChange={onPositionChange} onCreatePlot={onCreatePlot} selectedPlot={selectedPlot} viewportSize={viewportSize} initialView={restored} viewportPlotId={viewportPlotId} />
     </MapContainer>
   );
 }
