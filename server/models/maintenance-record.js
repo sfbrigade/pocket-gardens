@@ -115,7 +115,7 @@ export const MaintenanceRecordUpdateSchema = z.strictObject({
 export const MaintenanceRecordListQuerySchema = z.strictObject({
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
   offset: z.coerce.number().int().nonnegative().optional(),
-  plotId: z.string().regex(/^(rec[A-Za-z0-9]+|pg_[0-9a-f-]{36}|[0-9a-f-]{36})$/i).optional(),
+  plotId: z.union([z.string().uuid(), z.string().regex(/^rec[A-Za-z0-9]+$/i), z.templateLiteral(['pg_', z.uuid()])]).optional(),
   volunteerId: z.string().uuid().optional(),
   from: DateSchema.optional(),
   to: DateSchema.optional(),
