@@ -1,13 +1,16 @@
 import { useCallback, useState } from 'react';
-import { Alert, Button, Group, Image, Stack, Text } from '@mantine/core';
+import { Button, Group, Image, Stack, Text } from '@mantine/core';
 import DropzoneUploader from '../Components/DropzoneUploader';
 
-export default function MaintenancePhotos ({ photos, onChange, disabled, onBusyChange }) {
+export default function MaintenancePhotos ({ photos, onChange, disabled, onUploadStateChange }) {
   const [statuses, setStatuses] = useState([]);
   const notify = useCallback((next) => {
     setStatuses(next);
-    onBusyChange(next.some(({ status }) => status === 'pending' || status === 'uploading'));
-  }, [onBusyChange]);
+    onUploadStateChange({
+      busy: next.some(({ status }) => status === 'pending' || status === 'uploading'),
+      failed: next.some(({ status }) => status === 'error'),
+    });
+  }, [onUploadStateChange]);
   const restored = photos.filter((photo) => !statuses.some(({ filename }) => filename === photo.upload));
   return (
     <Stack gap='xs'>
@@ -19,9 +22,9 @@ export default function MaintenancePhotos ({ photos, onChange, disabled, onBusyC
         </Group>
       ))}
       <DropzoneUploader multiple append maxFiles={Math.max(0, 4 - restored.length)} disabled={disabled || restored.length >= 4} onStatusChange={notify} onUploaded={({ filename }) => onChange((current) => [...current, { upload: filename }])} onRemoved={({ filename }) => onChange((current) => current.filter((photo) => photo.upload !== filename))}>
-        {({ statuses, onRemove, onRetry, rejectedFiles }) => (
+        {({ statuses, onRemove, onRetry }) => (
           <Stack gap='xs'>
-            {!disabled && photos.length < 4 && <Text role='button' tabIndex={0}>Take or choose photos (JPEG, PNG, WebP, GIF)</Text>}
+            {!disabled && statuses.length + restored.length < 4 && <Button type='button' variant='light'>Take or choose photos (JPEG, PNG, WebP, GIF)</Button>}
             {statuses.map((status) => (
               <Group key={status.id}>
                 <Image src={status.file.preview} alt='Selected visit photo' w={100} h={80} fit='cover' />
@@ -30,7 +33,6 @@ export default function MaintenancePhotos ({ photos, onChange, disabled, onBusyC
                 {status.status === 'error' && <Button type='button' disabled={disabled} onClick={(event) => { event.stopPropagation(); onRetry(status); }}>Retry photo upload</Button>}
               </Group>
             ))}
-            {!!rejectedFiles.length && <Alert color='red'>Choose up to four JPEG, PNG, WebP, or GIF photos, each no larger than 10 MiB.</Alert>}
           </Stack>
         )}
       </DropzoneUploader>

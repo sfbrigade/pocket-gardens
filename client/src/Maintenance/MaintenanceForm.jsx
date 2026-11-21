@@ -20,7 +20,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
   const previousKey = routePlotId !== plotId ? draftKey(routePlotId) : null;
   const navigate = useNavigate();
   const location = useLocation();
-  const quick = new URLSearchParams(location.search).get('quick') === 'photo';
+  const quickRequested = new URLSearchParams(location.search).get('quick') === 'photo';
   const client = useQueryClient();
   const capabilities = useQuery({ queryKey: ['maintenance-capabilities'], queryFn: ({ signal }) => Api.maintenance.capabilities(signal).then(({ data }) => data) });
   const [draft, setDraft] = useState(() => {
@@ -28,7 +28,10 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
     if (restored) return restored;
     return newMaintenanceDraft('');
   });
-  const [photoBusy, setPhotoBusy] = useState(false);
+  const [{ busy: photoBusy, failed: photoFailed }, setUploadState] = useState({ busy: false, failed: false });
+  const quick = quickRequested && !(draft.notes || draft.activity.length || draft.observations.length || draft.plants.length);
+  const uploadsPending = !!draft.uploadsPending || photoBusy || photoFailed;
+  const hasDraftContent = !!(draft.attempt || draft.notes || draft.activity.length || draft.observations.length || draft.photos.length || draft.plants.length || uploadsPending);
   const [formError, setFormError] = useState('');
   const [storageError, setStorageError] = useState(false);
   const submitting = useRef(false);
@@ -54,18 +57,17 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
   const saved = mutation.isSuccess ? mutation.data.data : null;
   const saving = mutation.isPending;
   const error = formError || (mutation.error ? maintenanceError(mutation.error) : '');
-  const hasDraftContent = !!(draft.attempt || draft.notes || draft.activity.length || draft.observations.length);
   const refreshGuard = hasDraftContent && !saved && <DraftRefreshGuard />;
   useEffect(() => { if (!draft.date && capabilities.data) setDraft((value) => ({ ...value, date: capabilities.data.today })); }, [capabilities.data, draft.date]);
   useEffect(() => {
     if (saved) return;
-    persistDraft({ ...draft, uploadsPending: photoBusy });
-  }, [draft, persistDraft, saved, photoBusy]);
+    persistDraft({ ...draft, uploadsPending });
+  }, [draft, persistDraft, saved, uploadsPending]);
 
   function submit (event) {
     event.preventDefault();
     if (submitting.current || saving || !canSubmit) return;
-    if (quick && !draft.photos.length) { setFormError('Add a photo first, or choose Add more details.'); return; }
+    if (quick && !draft.attempt && !draft.photos.length) { setFormError('Add a photo first, or choose Add more details.'); return; }
     const payload = draft.attempt || maintenancePayload(draft, plotId);
     const attempted = { ...draft, attempt: payload, uploadsPending: false };
     if (!persistDraft(attempted)) return;
@@ -118,7 +120,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
             </Checkbox.Group>
           )}
           {draft.uploadsPending && <Alert color='yellow'>A previous photo upload was interrupted. Reattach unfinished photos or continue without them.</Alert>}
-          <MaintenancePhotos photos={draft.photos} disabled={locked} onBusyChange={setPhotoBusy} onChange={(photos) => setDraft((value) => ({ ...value, photos: typeof photos === 'function' ? photos(value.photos) : photos }))} />
+          <MaintenancePhotos photos={draft.photos} disabled={locked} onUploadStateChange={setUploadState} onChange={(photos) => setDraft((value) => ({ ...value, photos: typeof photos === 'function' ? photos(value.photos) : photos }))} />
           {quick && <Button variant='subtle' disabled={locked} onClick={() => navigate(location.pathname, { replace: true })}>Add more details</Button>}
           {!quick && <Textarea label='Anything to add?' value={draft.notes} disabled={locked} onChange={(event) => setDraft({ ...draft, notes: event.currentTarget.value })} autosize minRows={3} />}
           {error && <Alert color='red' role='alert'>{error}{draft.attempt && <Text size='sm'>Retry sends the same attempted update. Review garden history if you no longer want to retry.</Text>}</Alert>}

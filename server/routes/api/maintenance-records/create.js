@@ -47,7 +47,7 @@ export default async function (fastify) {
         const saved = await findMaintenanceRecordById(tx, created.id);
         callbackCompleted = true;
         return saved;
-      });
+      }, { timeout: 60000 });
       await cleanupSubmissionObjects((request.body.photos ?? []).map(({ upload }) => `_uploads/${upload}`), request.log);
       return reply.code(201).send(formatMaintenanceRecord(record));
     } catch (error) {

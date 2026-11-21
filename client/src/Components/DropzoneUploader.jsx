@@ -7,9 +7,7 @@ import uploadPhoto from '../upload-photo';
 
 function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected, append = false, onStatusChange }) {
   const [statuses, setStatuses] = useState([]);
-  const statusCallback = useRef(onStatusChange);
-  statusCallback.current = onStatusChange;
-  useEffect(() => { statusCallback.current?.(statuses); }, [statuses]);
+  useEffect(() => { onStatusChange?.(statuses); }, [onStatusChange, statuses]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
   const disabledRef = useRef(disabled);
   useEffect(() => { disabledRef.current = disabled; }, [disabled]);
@@ -33,6 +31,7 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
   }, []);
 
   async function upload (status) {
+    if (uploads.current.has(status.id)) return;
     const controller = new AbortController();
     uploads.current.set(status.id, controller);
     setStatuses((current) => current.map((entry) => entry.id === status.id ? { ...entry, status: 'uploading', error: null } : entry));
@@ -53,6 +52,10 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
 
   function onDropAccepted (files) {
     if (!active.current || disabledRef.current) return;
+    if (append && maxFiles > 0 && previews.current.size + files.length > maxFiles) {
+      setRejectedFiles(files.map((file) => ({ file, errors: [{ message: 'Too many photos selected.' }] })));
+      return;
+    }
     setRejectedFiles([]);
     const next = files.map((file) => {
       const id = uuid();

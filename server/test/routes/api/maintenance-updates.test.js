@@ -75,6 +75,9 @@ test('maintenance update workflows', async (t) => {
     assert.equal(linked.statusCode, 302);
     assert.equal(linked.headers['cache-control'], 'private, no-store');
     assert.equal((await app.inject({ url: saved.photos[0].url.replace(filename, 'different.jpg') })).statusCode, 404);
+    const importedFile = 'Spring visit.jpg';
+    await app.prisma.maintenanceRecordPhoto.update({ where: { id: saved.photos[0].id }, data: { file: importedFile } });
+    assert.equal((await app.inject({ url: saved.photos[0].url.replace(filename, encodeURIComponent(importedFile)) })).statusCode, 302);
     await app.prisma.maintenanceRecord.update({ where: { id: saved.id }, data: { deletedAt: new Date() } });
     assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 404);
     assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);

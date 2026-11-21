@@ -193,4 +193,40 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.deepEqual(create.mock.calls[0].arguments[0].photos, [{ upload: '55555555-aaaa-4555-8555-555555555555.jpg' }]);
     assert.equal(create.mock.calls[0].arguments[0].notes, 'New growth');
   });
+
+  await t.test('the photo shortcut shows recovered details before submitting', async (t) => {
+    const plot = { id: 'recPlotQuickDraft', stage: 'active' };
+    const options = {
+      initialEntry: `/plots/${plot.id}/updates/new`,
+      queryData: [[['plot', plot.id], plot]],
+    };
+    const first = await mount(t, options);
+    await waitFor(() => first.field('Anything to add?'));
+    await first.change('Anything to add?', 'Keep this note visible');
+    await first.unmount();
+    const quick = await mount(t, { ...options, initialEntry: `${options.initialEntry}?quick=photo` });
+    await waitFor(() => assert.equal(quick.field('Anything to add?').value, 'Keep this note visible'));
+    assert.doesNotMatch(quick.container.textContent, /Add more details/);
+  });
+
+  await t.test('failed photo uploads still ask for reattachment after repeated refreshes', async (t) => {
+    const plot = { id: 'recPlotInterruptedPhoto', stage: 'active' };
+    const options = {
+      initialEntry: `/plots/${plot.id}/updates/new?quick=photo`,
+      queryData: [[['plot', plot.id], plot]],
+    };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'photo.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => { throw new Error('Unavailable'); });
+    const first = await mount(t, options);
+    await waitFor(() => assert.match(first.container.textContent, /Take or choose photos/));
+    await first.upload();
+    await waitFor(() => assert.match(first.container.textContent, /Upload failed/));
+    await first.unmount();
+
+    for (let refresh = 0; refresh < 2; refresh += 1) {
+      const restored = await mount(t, options);
+      await waitFor(() => assert.match(restored.container.textContent, /Reattach unfinished photos/));
+      await restored.unmount();
+    }
+  });
 });

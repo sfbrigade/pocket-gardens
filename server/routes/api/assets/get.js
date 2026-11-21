@@ -15,9 +15,12 @@ export default async function (fastify, opts) {
       if (assetPath === '_uploads' || assetPath.startsWith('_uploads/')) return reply.header('Cache-Control', 'private, no-store').code(404).send();
       if (assetPath.startsWith('maintenance_record_photos/')) {
         reply.header('Cache-Control', 'private, no-store');
-        const match = /^maintenance_record_photos\/([0-9a-f-]{36})\/file\/([a-z0-9_.-]+)$/i.exec(assetPath);
+        const match = /^maintenance_record_photos\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/file\/([^/]+)$/i.exec(assetPath);
         if (!match) return reply.code(404).send();
-        const photo = await fastify.prisma.maintenanceRecordPhoto.findFirst({ where: { id: match[1], file: match[2], pendingRemovalAt: null, maintenanceRecord: { deletedAt: null } } });
+        const photo = await fastify.prisma.maintenanceRecordPhoto.findFirst({
+          where: { id: match[1], file: match[2], pendingRemovalAt: null, maintenanceRecord: { deletedAt: null } },
+          select: { id: true },
+        });
         if (!photo) return reply.code(404).send();
       }
       const url = await s3.getSignedAssetUrl(assetPath, 900);
