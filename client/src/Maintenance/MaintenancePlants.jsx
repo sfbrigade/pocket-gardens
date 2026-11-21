@@ -1,4 +1,4 @@
-import { Alert, Button, Group, NumberInput, Stack, Text } from '@mantine/core';
+import { Button, Group, NumberInput, Stack, Text } from '@mantine/core';
 import PlantPicker from '../Plots/PlantPicker';
 
 export default function MaintenancePlants ({ plants, onChange, disabled }) {
@@ -19,7 +19,6 @@ export default function MaintenancePlants ({ plants, onChange, disabled }) {
           <Button variant='subtle' color='red' disabled={disabled} onClick={() => onChange(plants.filter((_, i) => i !== index))}>Remove plant {index + 1}</Button>
         </Group>
       ))}
-      {!!plants.length && <Alert color='gray'>Plants are linked to this visit. Current and planned garden plantings stay unchanged.</Alert>}
     </Stack>
   );
 }
