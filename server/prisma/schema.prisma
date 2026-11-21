@@ -14,6 +14,8 @@ datasource db {
 }
 
 model User {
+  createdMaintenanceRecords MaintenanceRecord[] @relation("MaintenanceCreatedBy")
+  changedMaintenanceRecords MaintenanceRecord[] @relation("MaintenanceChangedBy")
   id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   firstName               String
   lastName                String
@@ -299,6 +301,19 @@ model PlotAssignedVolunteer {
 }
 
 model MaintenanceRecord {
+  observations String[] @default([])
+  version Int @default(1)
+  editedAt DateTime?
+  deletedAt DateTime?
+  submissionId String? @unique @db.Uuid
+  submissionFingerprint String?
+  lastMutationId String? @db.Uuid
+  lastMutationFingerprint String?
+  creditKind String @default("legacy")
+  createdById String? @db.Uuid
+  lastChangedById String? @db.Uuid
+  createdBy User? @relation("MaintenanceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  lastChangedBy User? @relation("MaintenanceChangedBy", fields: [lastChangedById], references: [id], onDelete: SetNull)
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   airtableId       String    @unique
   airtableNumber   Int?
@@ -363,6 +378,8 @@ model PlantPhoto {
 }
 
 model MaintenanceRecordPhoto {
+  pendingRemovalAt DateTime?
+  @@index([pendingRemovalAt])
   id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   maintenanceRecordId  String   @db.Uuid
   file                 String?

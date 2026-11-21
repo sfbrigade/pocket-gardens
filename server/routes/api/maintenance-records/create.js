@@ -1,3 +1,4 @@
+import { requireMaintenanceWriter } from '#lib/maintenance-policy.js';
 import crypto from 'node:crypto';
 import { StatusCodes } from 'http-status-codes';
 
@@ -14,6 +15,7 @@ import {
 
 export default async function (fastify, opts) {
   fastify.post('/', {
+    onRequest: requireMaintenanceWriter(fastify),
     schema: {
       description: 'Creates a maintenance record.',
       body: MaintenanceRecordCreateSchema,
