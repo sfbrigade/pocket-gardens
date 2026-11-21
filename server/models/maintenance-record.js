@@ -210,7 +210,7 @@ export function findMaintenanceRecordById (prisma, id) {
 
 export function maintenanceRecordFieldsFromBody (body) {
   const data = {};
-  for (const field of ['activity', 'observations', 'notes', 'planting', 'plotId', 'volunteerId']) {
+  for (const field of ['activity', 'observations', 'notes', 'planting']) {
     if (body[field] !== undefined) data[field] = body[field];
   }
   if (body.date !== undefined) data.date = new Date(`${body.date}T00:00:00.000Z`);
@@ -229,18 +229,6 @@ function invalidLink (path, message) {
 }
 
 export async function validateMaintenanceRecordLinks (tx, body, recordId) {
-  if (body.plotId !== undefined && !await tx.plot.findUnique({
-    where: { id: body.plotId },
-    select: { id: true },
-  })) {
-    throw invalidLink('plotId', 'Plot not found');
-  }
-  if (body.volunteerId && !await tx.person.findUnique({
-    where: { id: body.volunteerId },
-    select: { id: true },
-  })) {
-    throw invalidLink('volunteerId', 'Volunteer not found');
-  }
   const plantIds = body.plants?.flatMap(({ plantId }) => plantId ? [plantId] : []) ?? [];
   if (plantIds.length && await tx.plant.count({
     where: { id: { in: plantIds } },
