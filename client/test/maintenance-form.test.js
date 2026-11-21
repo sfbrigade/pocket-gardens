@@ -355,6 +355,30 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Latest saved note'));
   });
 
+  await t.test('an unlinked imported update cannot be edited under another garden', async (t) => {
+    const plot = { id: 'recPlotUnlinked', stage: 'active' };
+    const record = { id: 'unlinked', gardenId: null, version: 1, date: null, notes: 'Imported', activity: [], observations: [], photos: [], plants: [] };
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.match(view.container.textContent, /This update is no longer available in this garden/));
+    assert.equal(view.container.querySelector('form'), null);
+  });
+
+  await t.test('moving an uploaded photo also moves its preview', async (t) => {
+    const plot = { id: 'recPlotOrder', stage: 'active' };
+    const record = { id: 'photo-order', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Evidence', activity: [], observations: [], photos: [{ id: 'existing', url: '/existing.jpg' }], plants: [] };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'new.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => ({}));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.match(view.container.textContent, /Take or choose photos/));
+    await view.upload();
+    await waitFor(() => assert.match(view.container.textContent, /Ready to save/));
+    const firstPreview = () => view.container.querySelector('img[alt="Visit photo 1"]').getAttribute('src');
+    assert.equal(firstPreview(), '/existing.jpg');
+    await view.click('Move photo 2 up');
+    assert.match(firstPreview(), /^blob:/);
+    assert.equal(view.container.querySelector('img[alt="Visit photo 2"]').getAttribute('src'), '/existing.jpg');
+  });
+
   await t.test('removing existing photos requires saved-edit confirmation and reports pending erasure', async (t) => {
     const plot = { id: 'recPlotRemove', stage: 'active' };
     const record = { id: 'remove-photo', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Evidence', activity: [], observations: [], photos: [{ id: 'photo-one', url: '/photo.jpg' }], plants: [] };

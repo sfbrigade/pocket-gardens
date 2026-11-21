@@ -6,7 +6,7 @@ import { cleanupSubmissionObjects } from '#lib/plot-submission.js';
 import { changeMaintenancePhotos, cleanupMaintenancePhotos } from '#lib/maintenance-photos.js';
 import {
   findMaintenanceRecordById, formatMaintenanceRecord, hasMaintenanceContent,
-  maintenanceRecordFieldsFromBody, MaintenanceRecordSchema, MaintenanceRecordUpdateSchema,
+  maintenanceRecordFieldsFromBody, MAINTENANCE_RECORD_SELECT, MaintenanceRecordSchema, MaintenanceRecordUpdateSchema,
   syncMaintenanceRecordPlants, validateMaintenanceRecordLinks,
 } from '#models/maintenance-record.js';
 
@@ -23,19 +23,19 @@ export default async function (fastify) {
     },
   }, async (request, reply) => {
     const body = request.body;
+    const { id } = request.params;
     const fingerprint = maintenanceFingerprint(body);
     const copied = [];
     let callbackCompleted = false;
-    async function recover () {
-      const row = await fastify.prisma.maintenanceRecord.findUnique({ where: { id: request.params.id } });
-      if (row && !row.deletedAt && row.lastMutationId === body.mutationId && row.lastMutationFingerprint === fingerprint) return findMaintenanceRecordById(fastify.prisma, row.id);
-      return null;
-    }
+    const recover = () => fastify.prisma.maintenanceRecord.findFirst({
+      where: { id, deletedAt: null, lastMutationId: body.mutationId, lastMutationFingerprint: fingerprint },
+      select: MAINTENANCE_RECORD_SELECT,
+    });
     let record = await recover();
     if (!record) {
       try {
         record = await fastify.prisma.$transaction(async (tx) => {
-          const existing = await findMaintenanceRecordById(tx, request.params.id);
+          const existing = await findMaintenanceRecordById(tx, id);
           if (!existing) return null;
           if (existing.version !== body.version) throw conflict();
           if (body.activity?.some((value) => !activities.includes(value) && !existing.activity.includes(value))) throw new PhotoUploadError('Choose a supported activity', 'activity');
@@ -64,7 +64,7 @@ export default async function (fastify) {
           const saved = await findMaintenanceRecordById(tx, existing.id);
           callbackCompleted = true;
           return saved;
-        });
+        }, { timeout: 60000 });
       } catch (error) {
         if (!callbackCompleted) await cleanupSubmissionObjects(copied, request.log);
         record = await recover();
@@ -75,8 +75,12 @@ export default async function (fastify) {
     await cleanupSubmissionObjects((body.photos ?? []).flatMap(({ upload }) => upload ? [`_uploads/${upload}`] : []), request.log);
     // Cleanup failures must not turn an already-committed correction into a 500.
     try { await cleanupMaintenancePhotos(fastify.prisma, request.log, { recordId: record.id }); } catch (error) { request.log.warn({ err: error }, 'Maintenance cleanup remains pending'); }
-    const current = await findMaintenanceRecordById(fastify.prisma, record.id);
-    if (!current) return reply.code(404).send(null);
+    const current = await recover();
+    if (!current) {
+      const visible = await fastify.prisma.maintenanceRecord.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
+      if (!visible) return reply.code(404).send(null);
+      throw conflict();
+    }
     return reply.send(formatMaintenanceRecord(current));
   });
 }

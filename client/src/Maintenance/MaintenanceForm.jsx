@@ -8,12 +8,20 @@ import MaintenancePhotos from './MaintenancePhotos';
 import MaintenancePlants from './MaintenancePlants';
 import { clearMaintenanceDraft, draftKey, readMaintenanceDraft, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations, draftFromRecord, editMaintenancePayload } from './maintenance-draft';
 
+function maintenanceRecordQuery (recordId) {
+  return {
+    queryKey: ['maintenance-record', recordId],
+    queryFn: ({ signal }) => Api.maintenance.get(recordId, signal).then(({ data }) => data),
+    retry: false,
+  };
+}
+
 export default function MaintenanceForm () {
   const { plotId, recordId } = useParams();
   const garden = useQuery({ queryKey: ['plot', plotId], queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data) });
-  const record = useQuery({ queryKey: ['maintenance-record', recordId], queryFn: ({ signal }) => Api.maintenance.get(recordId, signal).then(({ data }) => data), enabled: !!recordId, retry: false });
+  const record = useQuery({ ...maintenanceRecordQuery(recordId), enabled: !!recordId });
   if (recordId && record.isPending) return <Container><Loader aria-label='Loading saved update' /></Container>;
-  if (recordId && record.isError) return <Container><Alert color='red'>{record.error.response?.status === 404 ? 'This update no longer exists.' : 'Unable to load the saved update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
+  if (recordId && record.isError && (!record.data || record.error.response?.status === 404)) return <Container><Alert color='red'>{record.error.response?.status === 404 ? 'This update no longer exists.' : 'Unable to load the saved update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
   if (garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
   if (!garden.data) return <Container><Alert color='red'>Unable to load this garden. <Button onClick={() => garden.refetch()}>Try again</Button></Alert></Container>;
   return <MaintenanceComposer key={`${garden.data.id}:${recordId || 'new'}`} plotId={garden.data.id} routePlotId={plotId} garden={garden} recordId={recordId} initialRecord={recordId ? record.data : null} />;
@@ -39,6 +47,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   const hasDraftContent = !!(draft.attempt || draft.notes || draft.activity.length || draft.observations.length || draft.photos.length || draft.plants.length || uploadsPending);
   const [formError, setFormError] = useState('');
   const [conflicted, setConflicted] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const [storageError, setStorageError] = useState(false);
   const submitting = useRef(false);
@@ -100,17 +109,34 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
     if (hasDraftContent && !window.confirm(draft.attempt ? 'The save may have succeeded. Keep this draft and return to garden history?' : 'Leave this update? Your draft will be kept in this tab.')) return;
     navigate(`/plots/${encodeURIComponent(plotId)}?tab=updates`);
   }
+
+  async function loadLatest () {
+    if (reloading || !window.confirm('Replace this unsaved draft with the latest saved update?')) return;
+    setReloading(true);
+    try {
+      const record = await client.fetchQuery({ ...maintenanceRecordQuery(recordId), staleTime: 0 });
+      setDraft(draftFromRecord(record));
+      setConflicted(false);
+      mutation.reset();
+      setFormError('');
+    } catch (failure) {
+      setFormError(maintenanceError(failure));
+      if (failure.response?.status === 404) setDeleted(true);
+    } finally {
+      setReloading(false);
+    }
+  }
   if (capabilities.isPending || garden.isPending) return <Container>{refreshGuard}<Loader aria-label='Loading update form' /></Container>;
   if (capabilities.isError || garden.isError) return <Container>{refreshGuard}<Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
   const canUseForm = editing ? capabilities.data.canManage : capabilities.data.canCreate;
   if (!canUseForm) return <Container>{refreshGuard}<Alert>{editing ? 'Only administrators can edit updates.' : 'Sign in with a verified account to add an update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
-  if (deleted || (initialRecord?.gardenId && initialRecord.gardenId !== garden.data.id)) return <Container>{refreshGuard}<Alert>This update is no longer available in this garden.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
+  if (deleted || (editing && initialRecord.gardenId !== garden.data.id)) return <Container>{refreshGuard}<Alert>This update is no longer available in this garden.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
   if (saved) return <Container size='sm'><Stack><Title order={2}>{editing ? 'Update corrected' : 'Update saved'}</Title><Text>Saved to this garden’s history.</Text>{saved.cleanupPending && <Alert color='yellow'>The edit is saved. Permanent photo erasure is pending and will be retried.</Alert>}<Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Text>{saved.photos?.length || 0} photos attached to this update.</Text>{saved.plants?.map((plant) => <Text key={plant.plantId}>{plant.name}{plant.quantity == null ? '' : ` × ${plant.quantity}`}</Text>)}<Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { if (editing) navigate(`/plots/${encodeURIComponent(plotId)}/updates/new`); else { mutation.reset(); setDraft(newMaintenanceDraft(capabilities.data.today)); } }}>Add another update</Button></Stack></Container>;
-  const locked = saving || !!draft.attempt;
+  const locked = saving || reloading || !!draft.attempt;
   const paused = !editing && garden.data.stage === 'paused';
   const eligible = editing || ['potential', 'preparing', 'active', 'paused'].includes(garden.data.stage);
   const hasPausedWork = paused && (draft.activity.length > 0 || draft.plants.length > 0);
-  const canSubmit = !photoBusy && !photoFailed && !conflicted && (!!draft.attempt || (eligible && !hasPausedWork));
+  const canSubmit = !photoBusy && !photoFailed && !photoFailed && !conflicted && (!!draft.attempt || (eligible && !hasPausedWork));
   // Unchanged imported dates are omitted from PATCH, including legacy future
   // dates. Apply the current date limit when selecting a new value.
   const dateUnchanged = editing && draft.date === draft.baseline.date;
@@ -142,7 +168,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
           <MaintenancePhotos photos={draft.photos} disabled={locked} onUploadStateChange={setUploadState} onChange={(photos) => setDraft((value) => ({ ...value, photos: typeof photos === 'function' ? photos(value.photos) : photos }))} />
           {quick && <Button variant='subtle' disabled={locked} onClick={() => navigate(location.pathname, { replace: true })}>Add more details</Button>}
           {!quick && <Textarea label='Anything to add?' value={draft.notes} disabled={locked} onChange={(event) => { const notes = event.currentTarget.value; setDraft((draft) => ({ ...draft, notes })); }} autosize minRows={3} />}
-          {conflicted && <Alert color='yellow'>Your draft has been preserved. <Button variant='subtle' onClick={async () => { if (!window.confirm('Replace this unsaved draft with the latest saved update?')) return; try { const { data } = await Api.maintenance.get(recordId); setDraft(draftFromRecord(data)); setConflicted(false); setFormError(''); } catch (failure) { setFormError(maintenanceError(failure)); if (failure.response?.status === 404) setDeleted(true); } }}>Load latest update</Button></Alert>}
+          {conflicted && <Alert color='yellow'>Your draft has been preserved. <Button type='button' variant='subtle' loading={reloading} onClick={loadLatest}>Load latest update</Button></Alert>}
           {error && <Alert color='red' role='alert'>{error}{draft.attempt && <Text size='sm'>Retry sends the same attempted update. Review garden history if you no longer want to retry.</Text>}</Alert>}
           <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : editing ? 'Save changes' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button></Group>
         </Stack>

@@ -25,21 +25,29 @@ export async function changeMaintenancePhotos (tx, recordId, photos, assetOption
 // Pending photo rows are the retry queue. Never remove them until S3 confirms
 // deletion; an already-missing object is also a successful, idempotent delete.
 export async function cleanupMaintenancePhotos (prisma, log, { recordId, limit = 100 } = {}) {
-  const rows = await prisma.maintenanceRecordPhoto.findMany({
-    where: { pendingRemovalAt: { not: null }, ...(recordId && { maintenanceRecordId: recordId }) },
-    orderBy: [{ pendingRemovalAt: 'asc' }, { id: 'asc' }],
-    take: limit,
-  });
+  const where = { pendingRemovalAt: { not: null }, ...(recordId && { maintenanceRecordId: recordId }) };
   let removed = 0;
-  for (const row of rows) {
-    try {
-      if (row.file) await s3.deleteObject(`maintenance_record_photos/${row.id}/file/${row.file}`);
-      // API uploads use a unique UUID filename. Finish cleanup of its known
-      // staging copy as well if an earlier post-save cleanup was interrupted.
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i.test(row.file || '')) await s3.deleteObject(`_uploads/${row.file}`);
-      await prisma.maintenanceRecordPhoto.deleteMany({ where: { id: row.id, pendingRemovalAt: { not: null } } });
-      removed += 1;
-    } catch (error) { log.warn({ err: error, photoId: row.id }, 'Maintenance photo erasure is pending; retry cleanup'); }
+  let after;
+  // Walk past failures during scheduled cleanup. A request only processes one batch.
+  while (true) {
+    const rows = await prisma.maintenanceRecordPhoto.findMany({
+      where: { ...where, ...(after && { id: { gt: after } }) },
+      select: { id: true, file: true },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+    for (const row of rows) {
+      try {
+        if (row.file) await s3.deleteObject(`maintenance_record_photos/${row.id}/file/${row.file}`);
+        // API uploads use a unique UUID filename. Finish cleanup of its known
+        // staging copy as well if an earlier post-save cleanup was interrupted.
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i.test(row.file || '')) await s3.deleteObject(`_uploads/${row.file}`);
+        const result = await prisma.maintenanceRecordPhoto.deleteMany({ where: { id: row.id, pendingRemovalAt: { not: null } } });
+        removed += result.count;
+      } catch (error) { log.warn({ err: error, photoId: row.id }, 'Maintenance photo erasure is pending; retry cleanup'); }
+    }
+    if (recordId || rows.length < limit) break;
+    after = rows.at(-1).id;
   }
-  return { removed, pending: await prisma.maintenanceRecordPhoto.count({ where: { pendingRemovalAt: { not: null }, ...(recordId && { maintenanceRecordId: recordId }) } }) };
+  return { removed, pending: await prisma.maintenanceRecordPhoto.count({ where }) };
 }

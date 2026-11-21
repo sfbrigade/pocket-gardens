@@ -210,4 +210,47 @@ test('maintenance update workflows', async (t) => {
     assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), photos: [] })).statusCode, 422);
     assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 302);
   });
+
+  await t.test('cleanup continues past failed entries in an earlier batch', async (t) => {
+    const firstId = '00000000-0000-4000-8000-000000000001';
+    const secondId = '00000000-0000-4000-8000-000000000002';
+    const saved = (await create(draft())).json();
+    await app.prisma.maintenanceRecordPhoto.createMany({
+      data: [firstId, secondId].map((id) => ({ id, maintenanceRecordId: saved.id, file: 'visit.jpg', pendingRemovalAt: new Date() })),
+    });
+    t.mock.method(s3, 'deleteObject', async (key) => {
+      if (key.includes(firstId)) throw new Error('Simulated storage outage for first photo');
+    });
+    const result = await cleanupMaintenancePhotos(app.prisma, { warn () {} }, { limit: 1 });
+    assert.deepEqual(result, { removed: 1, pending: 1 });
+    assert.ok(await app.prisma.maintenanceRecordPhoto.findUnique({ where: { id: firstId } }));
+    assert.equal(await app.prisma.maintenanceRecordPhoto.findUnique({ where: { id: secondId } }), null);
+  });
+
+  await t.test('a save superseded during cleanup returns conflict', async (t) => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const saved = (await create(draft({ photos: [{ upload: filename }] }))).json();
+    const cleaning = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const deleteObject = s3.deleteObject.bind(s3);
+    let firstCleanup = true;
+    t.mock.method(s3, 'deleteObject', async (key) => {
+      if (firstCleanup) {
+        firstCleanup = false;
+        cleaning.resolve();
+        await release.promise;
+      }
+      return deleteObject(key);
+    });
+    const earlier = edit(saved.id, { version: saved.version, mutationId: crypto.randomUUID(), photos: [] });
+    try {
+      await Promise.race([cleaning.promise, earlier.then(() => assert.fail('Edit completed before cleanup'))]);
+      const newer = await edit(saved.id, { version: saved.version + 1, mutationId: crypto.randomUUID(), notes: 'Newer correction' });
+      assert.equal(newer.statusCode, 200, newer.payload);
+    } finally {
+      release.resolve();
+    }
+    assert.equal((await earlier).statusCode, 409);
+  });
 });
