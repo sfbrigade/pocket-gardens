@@ -131,12 +131,15 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   }
 
   function discard () {
-    if (saving || !window.confirm(draft.attempt ? 'A previous save might have succeeded. Discard this local draft? This will not delete any saved update; review garden history before starting again.' : 'Discard this unsaved local draft?')) return;
-    try { window.sessionStorage.removeItem(storageKey); } catch {}
-    setDraft(initialRecord ? draftFromRecord(initialRecord) : newMaintenanceDraft(capabilities.data.today));
+    if (saving || reloading) return;
+    if (conflicted) { loadLatest(); return; }
+    if (!window.confirm(draft.attempt ? 'A previous save might have succeeded. Discard this local draft? This will not delete any saved update; review garden history before starting again.' : 'Discard this unsaved local draft?')) return;
+    const replacement = initialRecord ? draftFromRecord(initialRecord) : newMaintenanceDraft(capabilities.data.today);
+    persistDraft(replacement);
+    setDraft(replacement);
+    setDeleted(false);
     mutation.reset();
     setFormError('');
-    setConflicted(false);
   }
 
   function cancel () {
@@ -167,7 +170,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   if (capabilities.isError || garden.isError) return <Container>{refreshGuard}<Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
   const canUseForm = editing ? capabilities.data.canManage : capabilities.data.canCreate;
   if (!canUseForm) return <Container>{refreshGuard}<Alert>{editing ? 'Only administrators can edit updates.' : 'Sign in with a verified account to add an update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
-  if (deleted || (editing && initialRecord.gardenId !== garden.data.id)) return <Container>{refreshGuard}<Alert>This update is no longer available in this garden.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
+  if (deleted || (editing && initialRecord.gardenId !== garden.data.id)) return <Container>{refreshGuard}<Alert>This update is no longer available in this garden.</Alert>{deleted && !editing && <Button variant='light' onClick={discard}>Discard local draft</Button>}<Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
   if (saved) return <Container size='sm'><Stack><Title order={2}>{editing ? 'Update corrected' : 'Update saved'}</Title><Text>Saved to this garden’s history.</Text>{saved.cleanupPending && <Alert color='yellow'>The edit is saved. Permanent photo erasure is pending and will be retried.</Alert>}<Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Text>{saved.photos?.length || 0} photos attached to this update.</Text>{saved.plants?.map((plant) => <Text key={plant.plantId}>{plant.name}{plant.quantity == null ? '' : ` × ${plant.quantity}`}</Text>)}<Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { if (editing) navigate(`/plots/${encodeURIComponent(plotId)}/updates/new`); else { mutation.reset(); setDraft(newMaintenanceDraft(capabilities.data.today)); } }}>Add another update</Button></Stack></Container>;
   const locked = saving || reloading || !!draft.attempt;
   const paused = !editing && garden.data.stage === 'paused';
