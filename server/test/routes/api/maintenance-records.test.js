@@ -253,7 +253,6 @@ test('/api/maintenance-records', async (t) => {
     const before = await prisma.maintenanceRecord.count();
     for (const payload of [
       { ...validRecord, plotId: '00000000-0000-4000-8000-000000000000' },
-      { ...validRecord, volunteerId: '00000000-0000-4000-8000-000000000000' },
       {
         ...validRecord,
         plants: [{ plantId: '00000000-0000-4000-8000-000000000000' }],

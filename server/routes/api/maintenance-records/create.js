@@ -22,15 +22,16 @@ export default async function (fastify) {
     if (await replayMaintenanceCreate(fastify.prisma, request.body, reply)) return;
     try {
       const record = await fastify.prisma.$transaction(async (tx) => {
-        const plot = await findPlotByPublicId(tx, request.body.plotId);
+        const { plotId, ...body } = request.body;
+        const plot = await findPlotByPublicId(tx, plotId, { select: { id: true, stage: true } });
         if (!plot) throw new PhotoUploadError('Garden not found', 'plotId');
-        validateNewVisit(plot, request.body);
-        const body = { ...request.body, plotId: plot.id };
+        validateNewVisit(plot, body);
         await validateMaintenanceRecordLinks(tx, body);
         const created = await tx.maintenanceRecord.create({
           data: {
             airtableId: `pg_${crypto.randomUUID()}`,
             ...maintenanceRecordFieldsFromBody(body),
+            plotId: plot.id,
             submissionId: body.submissionId,
             submissionFingerprint: maintenanceFingerprint(request.body),
             creditKind: request.user?.isActive && request.user.isAdmin ? 'admin' : 'anonymous',
