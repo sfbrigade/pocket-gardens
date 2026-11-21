@@ -67,7 +67,9 @@ export async function setupPlotTests (t) {
   const { default: PlotForm } = await vite.ssrLoadModule('/src/Plots/PlotForm.jsx');
   const { default: Home } = await vite.ssrLoadModule('/src/Home.jsx');
   const { default: PhotoInput } = await vite.ssrLoadModule('/src/Components/PhotoInput.jsx');
+  const { default: MaintenanceForm } = await vite.ssrLoadModule('/src/Maintenance/MaintenanceForm.jsx');
   const { default: Api } = await vite.ssrLoadModule('/src/Api.js');
+  t.mock.method(Api.maintenance, 'capabilities', async () => ({ data: { canWrite: true, today: '2026-11-15', timeZone: 'America/Los_Angeles', activities: ['Watered', 'Planted'], observations: ['Nothing stood out', 'Plants look dry'] } }));
   t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true, canAssignCarers: true } }));
   // Keep real modal portals so the plant form is outside the garden form in
   // the DOM. Disable animations, which are outside these interaction checks.
@@ -105,6 +107,7 @@ export async function setupPlotTests (t) {
             h(Location),
             h(Routes, null,
               h(Route, { path: '/plots/new', element: h(PlotForm) }),
+              h(Route, { path: '/plots/:plotId/updates/new', element: h(MaintenanceForm) }),
               h(Route, { path: '/photo-input', element: h(PhotoInput, { label: 'Profile photo' }) }),
               showHome && h(Route, { path: '/plots/:plotId', element: h(Home) }),
               h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') })))))))));
