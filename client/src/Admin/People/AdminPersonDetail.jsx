@@ -27,8 +27,8 @@ function AdminPersonDetail () {
     refetch: refetchHistory,
   } = useQuery({
     queryKey: ['maintenanceRecords', id, historyPage],
-    queryFn: async () => {
-      const response = await Api.maintenanceRecords.index(id, historyOffset, historyPageSize);
+    queryFn: async ({ signal }) => {
+      const response = await Api.maintenance.index({ volunteerId: id, offset: historyOffset, pageSize: historyPageSize }, signal);
       return {
         records: response.data,
         hasMore: response.headers['x-next-offset'] != null,

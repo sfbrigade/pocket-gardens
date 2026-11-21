@@ -14,7 +14,6 @@ export default function PlotDetails ({ plot }) {
   ];
   return (
     <Stack gap='md'>
-      <Title order={2}>{plot['Pocket Garden Name'] || 'Pocket garden'}</Title>
       <Group><Badge color='green'>{plotStageLabel(plot.stage)}</Badge></Group>
       {plot.Photos?.map((url) => <Image key={url} src={url} alt='Garden reference photo' radius='md' mah={240} fit='cover' />)}
       <Stack gap='xs'>

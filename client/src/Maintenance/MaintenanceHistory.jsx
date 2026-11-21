@@ -19,7 +19,12 @@ export default function MaintenanceHistory ({ plot }) {
       <Title order={3}>Updates &amp; history</Title>
       <Text size='sm' c='dimmed'>Visit records describe past events. Garden care summaries and the current plant list are managed separately.</Text>
       {query.isPending && <Loader aria-label='Loading updates' />}
-      {query.isError && <Alert color='red' role='alert'>Unable to load updates. <Button variant='subtle' onClick={() => query.refetch()}>Try again</Button></Alert>}
+      {(query.isLoadingError || query.isRefetchError) && (
+        <Alert color='red' role='alert'>
+          {query.isRefetchError ? 'Unable to refresh updates.' : 'Unable to load updates.'}
+          <Button variant='subtle' disabled={query.isFetching} onClick={() => query.refetch()}>Try again</Button>
+        </Alert>
+      )}
       {query.isSuccess && !records.length && <Text>No updates recorded yet.</Text>}
       {records.map((record) => (
         <Card key={record.id} withBorder component='article'>
@@ -36,7 +41,12 @@ export default function MaintenanceHistory ({ plot }) {
           </Stack>
         </Card>
       ))}
-      {query.hasNextPage && <Button variant='light' loading={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>Load more updates</Button>}
+      {query.isFetchNextPageError && <Alert color='red' role='alert'>Unable to load more updates.</Alert>}
+      {query.hasNextPage && (
+        <Button variant='light' disabled={query.isFetching} loading={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>
+          {query.isFetchNextPageError ? 'Try again' : 'Load more updates'}
+        </Button>
+      )}
     </Stack>
   );
 }
