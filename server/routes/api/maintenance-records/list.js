@@ -27,8 +27,8 @@ export default async function (fastify, opts) {
     },
   }, async function (request, reply) {
     const { pageSize = DEFAULT_PAGE_SIZE, offset = 0, plotId, volunteerId, from, to } = request.query;
-    const plot = plotId ? await findPlotByPublicId(fastify.prisma, plotId) : null;
-    if (plotId && !plot) return reply.code(404).send();
+    const plot = plotId ? await findPlotByPublicId(fastify.prisma, plotId, { select: { id: true } }) : null;
+    if (plotId && !plot) return reply.send([]);
     const where = {
       deletedAt: null,
       ...(plotId && { plotId: plot.id }),

@@ -45,9 +45,9 @@ test('/api/maintenance-records', async (t) => {
       'c3333333-3333-4333-8333-333333333333',
       'c4444444-4444-4444-8444-444444444444',
     ]);
-    assert.deepStrictEqual(data[0].plants.map(({ plantId, quantity }) => ({ plantId, quantity })), [
-      { plantId: PLANT_ALPHA_ID, quantity: 4 },
-      { plantId: PLANT_BETA_ID, quantity: 2 },
+    assert.deepStrictEqual(data[0].plants, [
+      { plantId: PLANT_ALPHA_ID, quantity: 4, name: 'California Poppy' },
+      { plantId: PLANT_BETA_ID, quantity: 2, name: 'Lavender' },
     ]);
     assert.deepStrictEqual(data[0].photos, []);
     assert.strictEqual(data[0].date, '2026-08-20');
@@ -106,6 +106,12 @@ test('/api/maintenance-records', async (t) => {
       'c3333333-3333-4333-8333-333333333333',
     ]);
 
+    const missingPlot = await app.inject({
+      url: '/api/maintenance-records?plotId=00000000-0000-0000-0000-000000000000',
+    });
+    assert.strictEqual(missingPlot.statusCode, StatusCodes.OK);
+    assert.deepStrictEqual(missingPlot.json(), []);
+
     const volunteer = await app.inject({
       url: `/api/maintenance-records?volunteerId=${PERSON_ALPHA_ID}`,
     });
@@ -127,6 +133,7 @@ test('/api/maintenance-records', async (t) => {
       'offset=-1',
       'offset=nope',
       'plotId=nope',
+      'plotId=------------------------------------',
       'from=2026-02-30',
       'from=2026-09-02&to=2026-09-01',
       'unknown=true',
@@ -196,9 +203,9 @@ test('/api/maintenance-records', async (t) => {
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.date, '2026-09-02');
     assert.strictEqual(data.notes, 'New growth');
-    assert.deepStrictEqual(data.plants.map(({ plantId, quantity }) => ({ plantId, quantity })), [
-      { plantId: PLANT_BETA_ID, quantity: 2 },
-      { plantId: PLANT_ALPHA_ID, quantity: null },
+    assert.deepStrictEqual(data.plants, [
+      { plantId: PLANT_BETA_ID, quantity: 2, name: 'Lavender' },
+      { plantId: PLANT_ALPHA_ID, quantity: null, name: 'California Poppy' },
     ]);
     assert.strictEqual(data.photos.length, 1);
 
@@ -283,7 +290,7 @@ test('/api/maintenance-records', async (t) => {
     assert.strictEqual(data.notes, null);
     assert.strictEqual(data.estNextVisit, null);
     assert.strictEqual(data.volunteerId, null);
-    assert.deepStrictEqual(data.plants.map(({ plantId, quantity }) => ({ plantId, quantity })), [{ plantId: PLANT_BETA_ID, quantity: 5 }]);
+    assert.deepStrictEqual(data.plants, [{ plantId: PLANT_BETA_ID, quantity: 5, name: 'Lavender' }]);
 
     const oldUpdatedAt = new Date('2000-01-01T00:00:00.000Z');
     await prisma.maintenanceRecord.update({

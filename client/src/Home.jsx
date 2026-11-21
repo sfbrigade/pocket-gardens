@@ -16,6 +16,12 @@ export default function Home () {
   const { plotId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const search = new URLSearchParams(location.search);
+  function selectTab (tab) {
+    if (tab === 'updates') search.set('tab', tab);
+    else search.delete('tab');
+    navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash }, { replace: true, state: location.state });
+  }
   const { data: capabilities } = useQuery({ queryKey: ['plots', 'capabilities'], queryFn: ({ signal }) => Api.plots.capabilities(signal).then(({ data }) => data), enabled: mounted });
   const { data: plot, isPending, isError, error, refetch } = useQuery({
     queryKey: ['plot', plotId],
@@ -30,7 +36,7 @@ export default function Home () {
       {isPending && <Loader aria-label='Loading garden details' />}
       {isError && <Alert color='red' title={error.response?.status === 404 ? 'Garden not found' : 'Unable to load garden'}><Button variant='subtle' onClick={() => refetch()}>Try again</Button></Alert>}
       {plot && (
-        <Tabs keepMounted={false} value={new URLSearchParams(location.search).get('tab') === 'updates' ? 'updates' : 'info'} onChange={(tab) => navigate({ pathname: location.pathname, search: tab === 'updates' ? '?tab=updates' : '' }, { replace: true })}>
+        <Tabs keepMounted={false} value={search.get('tab') === 'updates' ? 'updates' : 'info'} onChange={selectTab}>
           <Tabs.List aria-label='Garden details'><Tabs.Tab value='info'>Info</Tabs.Tab><Tabs.Tab value='updates'>Updates</Tabs.Tab></Tabs.List>
           <Tabs.Panel value='info' pt='md'><PlotDetails plot={plot} /></Tabs.Panel>
           <Tabs.Panel value='updates' pt='md'><MaintenanceHistory plot={plot} /></Tabs.Panel>
