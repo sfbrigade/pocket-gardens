@@ -356,6 +356,7 @@ test('/api/maintenance-records', async (t) => {
       { date: null },
       { activity: [] },
       { plotId: null },
+      { volunteerId: null },
       { unknown: true },
       { plants: [{ plantId: '00000000-0000-4000-8000-000000000000' }] },
     ]) {
