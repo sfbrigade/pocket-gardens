@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Drawer, Group, Loader, Paper, Stack, Tabs } from '@mantine/core';
+import { Alert, Box, Button, Drawer, Group, Loader, Paper, Stack, Tabs, Title } from '@mantine/core';
 import { useMediaQuery, useMounted } from '@mantine/hooks';
 import { useHead } from '@unhead/react';
 import { useQuery } from '@tanstack/react-query';
@@ -36,11 +36,14 @@ export default function Home () {
       {isPending && <Loader aria-label='Loading garden details' />}
       {isError && <Alert color='red' title={error.response?.status === 404 ? 'Garden not found' : 'Unable to load garden'}><Button variant='subtle' onClick={() => refetch()}>Try again</Button></Alert>}
       {plot && (
-        <Tabs keepMounted={false} value={search.get('tab') === 'updates' ? 'updates' : 'info'} onChange={selectTab}>
-          <Tabs.List aria-label='Garden details'><Tabs.Tab value='info'>Info</Tabs.Tab><Tabs.Tab value='updates'>Updates</Tabs.Tab></Tabs.List>
-          <Tabs.Panel value='info' pt='md'><PlotDetails plot={plot} /></Tabs.Panel>
-          <Tabs.Panel value='updates' pt='md'><MaintenanceHistory plot={plot} /></Tabs.Panel>
-        </Tabs>
+        <>
+          <Title order={2}>{plot['Pocket Garden Name'] || 'Pocket garden'}</Title>
+          <Tabs keepMounted={false} value={search.get('tab') === 'updates' ? 'updates' : 'info'} onChange={selectTab}>
+            <Tabs.List aria-label='Garden details'><Tabs.Tab value='info'>Info</Tabs.Tab><Tabs.Tab value='updates'>Updates</Tabs.Tab></Tabs.List>
+            <Tabs.Panel value='info' pt='md'><PlotDetails plot={plot} /></Tabs.Panel>
+            <Tabs.Panel value='updates' pt='md'><MaintenanceHistory plot={plot} /></Tabs.Panel>
+          </Tabs>
+        </>
       )}
     </Stack>
   );
