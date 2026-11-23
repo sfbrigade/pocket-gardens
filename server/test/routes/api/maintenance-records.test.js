@@ -50,6 +50,7 @@ test('/api/maintenance-records', async (t) => {
       { plantId: PLANT_BETA_ID, quantity: 2, name: 'Lavender' },
     ]);
     assert.deepStrictEqual(data[0].photos, []);
+    assert.strictEqual(data[0].cleanupPending, undefined);
     assert.strictEqual(data[0].date, '2026-08-20');
     assert.strictEqual(data[0].plotName, 'Alpha Garden');
     assert.strictEqual(data[0].plotStreetAddress, '100 Test St');
@@ -155,6 +156,10 @@ test('/api/maintenance-records', async (t) => {
     assert.ok(data[0].credit);
     assert.ok(data[0].plants[0].name);
     assert.strictEqual(data[0].createdById, undefined);
+    const visible = await app.inject({ url: `/api/maintenance-records/${RECORD_ALPHA_ID}` });
+    assert.strictEqual(visible.statusCode, 200);
+    assert.deepStrictEqual(visible.json().photos, []);
+    assert.strictEqual(visible.json().cleanupPending, undefined);
     assert.strictEqual((await app.inject({ url: `/api/maintenance-records/${RECORD_BETA_ID}` })).statusCode, 404);
   });
 

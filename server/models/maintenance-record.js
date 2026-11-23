@@ -68,7 +68,6 @@ export const MaintenanceRecordSchema = z.strictObject({
   credit: z.string(),
   version: z.number().int(),
   editedAt: z.iso.datetime().nullable(),
-  cleanupPending: z.boolean(),
   date: DateSchema.nullable(),
   activity: z.array(z.string()),
   notes: z.string().nullable(),
@@ -147,8 +146,9 @@ export const MAINTENANCE_RECORD_SELECT = {
   createdAt: true,
   updatedAt: true,
   photos: {
+    where: { pendingRemovalAt: null },
     orderBy: { position: 'asc' },
-    select: { id: true, file: true, pendingRemovalAt: true },
+    select: { id: true, file: true },
   },
   plants: {
     orderBy: { slot: 'asc' },
@@ -172,7 +172,6 @@ export function formatMaintenanceRecord (record) {
     credit: record.creditKind === 'admin' ? 'Pocket Gardens team' : record.creditKind === 'anonymous' ? 'Anonymous' : (record.volunteer?.name || [record.volunteer?.firstName, record.volunteer?.lastName].filter(Boolean).join(' ') || 'Contributor'),
     version: record.version,
     editedAt: record.editedAt ? formatTimestamp(record.editedAt) : null,
-    cleanupPending: record.photos.some((photo) => photo.pendingRemovalAt),
     date: formatDate(record.date),
     activity: record.activity,
     notes: record.notes,
@@ -184,7 +183,6 @@ export function formatMaintenanceRecord (record) {
     volunteerId: record.volunteerId,
     plants: record.plants.map(({ plantId, quantity, plant }) => ({ plantId, quantity, name: plant?.plantName || plant?.commonName || plant?.latinName || null })),
     photos: record.photos.flatMap((row) => {
-      if (row.pendingRemovalAt) return [];
       const url = new MaintenanceRecordPhoto(row).fileUrl;
       return url ? [{ id: row.id, url }] : [];
     }),
