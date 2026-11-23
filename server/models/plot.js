@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { parseMapCoordinates } from '#lib/airtable-schema.js';
 import { firstPlantedIssue, PLOT_STAGES } from '#lib/plot-lifecycle.js';
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
+import { UploadFilenameSchema } from '#lib/upload-policy.js';
 import PlotPhoto from '#models/plot-photo.js';
 import { PlotPlantsInputSchema, PlotPlantSchema } from '#models/plot-plant.js';
 import { CarerUserIdsSchema } from '#models/plot-carer.js';
@@ -61,7 +62,7 @@ export const PlotFieldsSchema = z.strictObject({
   'Est. Area (Sq. Ft)': z.number().nonnegative().optional(),
   'Location Description': z.string().trim().optional(),
   "Seth's Notes": z.string().optional(),
-  Photos: z.array(z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i, 'Invalid upload filename')).optional(),
+  Photos: z.array(UploadFilenameSchema).optional(),
 });
 
 export const PlotCreateSchema = PlotFieldsSchema.extend({
