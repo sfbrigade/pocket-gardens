@@ -1,5 +1,16 @@
 import { pick } from 'es-toolkit';
 
+export async function preparePhotoAttachment ({ delegate, PhotoClass, data, filename, assetOptions }) {
+  const row = await delegate.create({ data });
+  const photo = new PhotoClass(row);
+  const copy = photo.setAsset('file', filename, assetOptions);
+  await delegate.update({
+    where: { id: row.id },
+    data: pick(row, [...photo.changes]),
+  });
+  return copy;
+}
+
 /**
  * Replace-all photo gallery using setAsset (same deferred S3 copy as User.picture).
  *
@@ -57,16 +68,13 @@ export async function syncPhotos ({
       throw new Error(`Photo ${id} not found`);
     }
 
-    const row = await delegate.create({
+    handlers.push(await preparePhotoAttachment({
+      delegate,
+      PhotoClass,
       data: { [parentFk]: parentId, position: i },
-    });
-    const photo = new PhotoClass(row);
-    const handler = photo.setAsset('file', filename, assetOptions);
-    await delegate.update({
-      where: { id: row.id },
-      data: pick(row, [...photo.changes]),
-    });
-    handlers.push(handler);
+      filename,
+      assetOptions,
+    }));
   }
 
   for (const row of existing) {
