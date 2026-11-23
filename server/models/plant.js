@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { z } from 'zod';
 
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
@@ -109,6 +110,12 @@ export function findPlantById (prisma, id) {
   return prisma.plant.findUnique({
     where: { id },
     include: PLANT_PHOTOS_INCLUDE,
+  });
+}
+
+export function createPlant (prisma, body) {
+  return prisma.plant.create({
+    data: { airtableId: `pg_${crypto.randomUUID()}`, ...plantFieldsFromBody(body) },
   });
 }
 

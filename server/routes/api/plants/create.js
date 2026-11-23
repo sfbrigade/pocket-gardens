@@ -1,10 +1,9 @@
-import crypto from 'node:crypto';
 import { StatusCodes } from 'http-status-codes';
 
 import {
+  createPlant,
   findPlantById,
   formatPlant,
-  plantFieldsFromBody,
   PlantCreateFieldsSchema,
   PlantSchema,
   syncPlantPhotos,
@@ -21,15 +20,9 @@ export default async function (fastify, opts) {
       },
     },
   }, async function (request, reply) {
-    const fields = plantFieldsFromBody(request.body);
     const { photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
-      const created = await tx.plant.create({
-        data: {
-          airtableId: `pg_${crypto.randomUUID()}`,
-          ...fields,
-        },
-      });
+      const created = await createPlant(tx, request.body);
       if (photos !== undefined) {
         await syncPlantPhotos(tx, created.id, photos);
       }

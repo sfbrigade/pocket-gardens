@@ -1,5 +1,4 @@
-import crypto from 'node:crypto';
-import { PlantCreateFieldsSchema, plantFieldsFromBody } from '#models/plant.js';
+import { createPlant, PlantCreateFieldsSchema } from '#models/plant.js';
 import { activities, observations, today } from '#lib/maintenance-policy.js';
 import { errorCodes } from 'fastify';
 import { z } from 'zod';
@@ -256,7 +255,7 @@ export async function syncMaintenanceRecordPlants (tx, recordId, plants) {
   await tx.maintenanceRecordPlant.deleteMany({ where: { maintenanceRecordId: recordId } });
   const rows = [];
   for (const [index, entry] of plants.entries()) {
-    const plantId = entry.plantId || (await tx.plant.create({ data: { airtableId: `pg_${crypto.randomUUID()}`, ...plantFieldsFromBody(entry.newPlant) } })).id;
+    const plantId = entry.plantId || (await createPlant(tx, entry.newPlant)).id;
     rows.push({ maintenanceRecordId: recordId, plantId, quantity: entry.quantity, slot: index + 1 });
   }
   if (rows.length) await tx.maintenanceRecordPlant.createMany({ data: rows });

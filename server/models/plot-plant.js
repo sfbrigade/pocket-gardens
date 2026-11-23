@@ -1,8 +1,7 @@
-import crypto from 'node:crypto';
 import { errorCodes } from 'fastify';
 import { z } from 'zod';
 
-import { PlantCreateFieldsSchema, plantFieldsFromBody } from '#models/plant.js';
+import { createPlant, PlantCreateFieldsSchema } from '#models/plant.js';
 
 const NewPlantSchema = PlantCreateFieldsSchema.pick({ plantName: true, commonName: true, latinName: true });
 
@@ -45,9 +44,7 @@ export async function createPlotPlants (tx, plot, entries = []) {
   for (const entry of entries) {
     let plantId = entry.plantId;
     if (entry.newPlant) {
-      const plant = await tx.plant.create({
-        data: { airtableId: `pg_${crypto.randomUUID()}`, ...plantFieldsFromBody(entry.newPlant) },
-      });
+      const plant = await createPlant(tx, entry.newPlant);
       plantId = plant.id;
     }
     plantings.push({
