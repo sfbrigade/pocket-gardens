@@ -305,6 +305,18 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(payload.plants, undefined);
   });
 
+  await t.test('community contributors cannot open the edit form for their updates', async (t) => {
+    const plot = { id: 'recPlotAlpha', stage: 'active' };
+    const record = { id: 'community-update', gardenId: plot.id, version: 1, date: null, activity: [], observations: [], photos: [], plants: [] };
+    const capabilities = (await Api.maintenance.capabilities()).data;
+    const view = await mount(t, {
+      initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`,
+      queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record], [['maintenance-capabilities'], { ...capabilities, canManage: false }]],
+    });
+    assert.match(view.container.textContent, /Only administrators can edit updates/);
+    assert.equal(view.container.querySelector('form'), null);
+  });
+
   await t.test('an unchanged imported future date permits a note-only correction through native validation', async (t) => {
     const plot = { id: 'recPlotFutureLegacy', stage: 'active' };
     const record = { id: 'future-legacy', gardenId: plot.id, version: 1, date: '2998-01-01', notes: 'Imported note', activity: [], observations: [], photos: [], plants: [] };
