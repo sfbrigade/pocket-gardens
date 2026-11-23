@@ -100,7 +100,7 @@ To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs
 
 ### Maintenance updates
 
-Maintenance history is public. Verified, non-banned contributors can submit visits using the same account eligibility as plot submissions. The public history credits regular users as Community contributor and keeps their account IDs private. Active administrators can correct historical visits at any garden stage. Garden stages restrict new visits. Set `ALLOW_ANONYMOUS_MAINTENANCE_WRITES=true` with `NODE_ENV=development` for account-free local testing. Maintenance dates use the San Francisco calendar (`America/Los_Angeles`), supplied to the client in capabilities.
+Maintenance history is public. Verified, non-banned contributors can submit visits using the same account eligibility as plot submissions. The public history credits regular users as Community contributor and keeps their account IDs private. Active administrators can correct historical visits at any garden stage. Garden stages restrict new visits. Set `ALLOW_ANONYMOUS_MAINTENANCE_WRITES=true` with `NODE_ENV=development` for account-free local testing. The capabilities endpoint supplies today's date on the San Francisco calendar (`America/Los_Angeles`).
 
 Edits require the loaded `version` and a new `mutationId`. Keep that payload unchanged when retrying an uncertain save. Stale/superseded edits return 409 and require review; they never silently overwrite another edit. Imported missing/legacy fields can be preserved by omitting unchanged fields. The client offers no volunteer reassignment and never changes current garden planting inventory or care summaries.
 

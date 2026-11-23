@@ -165,6 +165,7 @@ test('maintenance update workflows', async (t) => {
     const responses = await Promise.all([edit(saved.id, body), edit(saved.id, body)]);
     assert.ok(responses.every(({ statusCode }) => statusCode === 200));
     assert.equal(responses[0].json().version, 2);
+    assert.equal(responses[0].json().cleanupPending, false);
     assert.equal((await edit(saved.id, { ...body, mutationId: crypto.randomUUID(), notes: 'Stale' })).statusCode, 409);
     const later = await edit(saved.id, { version: 2, mutationId: crypto.randomUUID(), observations: ['Nothing stood out'] });
     assert.equal(later.statusCode, 200);
