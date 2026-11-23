@@ -75,7 +75,7 @@ function MaintenanceComposer ({ plotId }) {
   }
   if (capabilities.isPending || garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
   if (capabilities.isError || garden.isError) return <Container><Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
-  if (!capabilities.data.canWrite) return <Container><Alert>Only administrators can record updates here.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
+  if (!capabilities.data.canCreate) return <Container><Alert>Sign in with a verified account to add an update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
   if (saved) return <Container size='sm'><Stack><Title order={2}>Update saved</Title><Text>Saved to this garden’s history.</Text><Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { setSaved(null); setDraft(newMaintenanceDraft(capabilities.data.today)); }}>Add another update</Button></Stack></Container>;
   const locked = saving || !!draft.attempt;
   const paused = garden.data.stage === 'paused';

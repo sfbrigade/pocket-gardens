@@ -179,12 +179,19 @@ function formatTimestamp (date) {
   return date instanceof Date ? date.toISOString() : date;
 }
 
+function maintenanceCredit ({ creditKind, volunteer }) {
+  if (creditKind === 'admin') return 'Pocket Gardens team';
+  if (creditKind === 'community') return 'Community contributor';
+  if (creditKind === 'anonymous') return 'Anonymous';
+  return volunteer?.name || [volunteer?.firstName, volunteer?.lastName].filter(Boolean).join(' ') || 'Contributor';
+}
+
 export function formatMaintenanceRecord (record) {
   if (!record) return record;
   return {
     id: record.id,
     observations: record.observations,
-    credit: record.creditKind === 'admin' ? 'Pocket Gardens team' : record.creditKind === 'anonymous' ? 'Anonymous' : (record.volunteer?.name || [record.volunteer?.firstName, record.volunteer?.lastName].filter(Boolean).join(' ') || 'Contributor'),
+    credit: maintenanceCredit(record),
     version: record.version,
     editedAt: record.editedAt ? formatTimestamp(record.editedAt) : null,
     date: formatDate(record.date),

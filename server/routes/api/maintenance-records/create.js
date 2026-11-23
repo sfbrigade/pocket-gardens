@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { requireMaintenanceWriter, validateNewVisit } from '#lib/maintenance-policy.js';
+import { requireMaintenanceCreator, validateNewVisit } from '#lib/maintenance-policy.js';
 import { maintenanceFingerprint, replayMaintenanceCreate } from '#lib/maintenance-save.js';
 import { PhotoUploadError } from '#lib/photo-upload.js';
 import { findPlotByPublicId } from '#models/plot.js';
@@ -12,7 +12,7 @@ import {
 
 export default async function (fastify) {
   fastify.post('/', {
-    onRequest: requireMaintenanceWriter(fastify),
+    onRequest: requireMaintenanceCreator(fastify),
     schema: {
       description: 'Creates a visit, safely replaying the same submitted draft.',
       body: MaintenanceRecordCreateSchema,
@@ -20,6 +20,7 @@ export default async function (fastify) {
     },
   }, async (request, reply) => {
     if (await replayMaintenanceCreate(fastify.prisma, request.body, reply)) return;
+    const contributor = request.user?.canContribute ? request.user : null;
     try {
       const record = await fastify.prisma.$transaction(async (tx) => {
         const { plotId, ...body } = request.body;
@@ -34,8 +35,8 @@ export default async function (fastify) {
             plotId: plot.id,
             submissionId: body.submissionId,
             submissionFingerprint: maintenanceFingerprint(request.body),
-            creditKind: request.user?.isActive && request.user.isAdmin ? 'admin' : 'anonymous',
-            createdById: request.user?.isActive && request.user.isAdmin ? request.user.id : null,
+            creditKind: contributor ? (contributor.isAdmin ? 'admin' : 'community') : 'anonymous',
+            createdById: contributor?.id ?? null,
           },
         });
         if (body.plants) await syncMaintenanceRecordPlants(tx, created.id, body.plants);

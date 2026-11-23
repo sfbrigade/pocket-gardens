@@ -69,7 +69,7 @@ export async function setupPlotTests (t) {
   const { default: PhotoInput } = await vite.ssrLoadModule('/src/Components/PhotoInput.jsx');
   const { default: MaintenanceForm } = await vite.ssrLoadModule('/src/Maintenance/MaintenanceForm.jsx');
   const { default: Api } = await vite.ssrLoadModule('/src/Api.js');
-  t.mock.method(Api.maintenance, 'capabilities', async () => ({ data: { canWrite: true, today: '2026-11-15', timeZone: 'America/Los_Angeles', activities: ['Watered', 'Planted'], observations: ['Nothing stood out', 'Plants look dry'] } }));
+  t.mock.method(Api.maintenance, 'capabilities', async () => ({ data: { canCreate: true, canManage: true, today: '2026-11-15', activities: ['Watered', 'Planted'], observations: ['Nothing stood out', 'Plants look dry'] } }));
   t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true, canAssignCarers: true } }));
   // Keep real modal portals so the plant form is outside the garden form in
   // the DOM. Disable animations, which are outside these interaction checks.

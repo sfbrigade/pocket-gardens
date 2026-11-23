@@ -10,11 +10,21 @@ export function allowsAnonymousMaintenance (env = process.env) {
   return env.NODE_ENV === 'development' && env.ALLOW_ANONYMOUS_MAINTENANCE_WRITES === 'true';
 }
 
-export function canWriteMaintenance (user, env = process.env) {
+export function canCreateMaintenance (user, env = process.env) {
+  return allowsAnonymousMaintenance(env) || !!user?.canContribute;
+}
+
+export function canManageMaintenance (user, env = process.env) {
   return allowsAnonymousMaintenance(env) || !!(user?.isActive && user?.isAdmin);
 }
 
-export function requireMaintenanceWriter (fastify) {
+export function requireMaintenanceCreator (fastify) {
+  return async (request, reply) => {
+    if (!allowsAnonymousMaintenance()) return fastify.requireContributor(request, reply);
+  };
+}
+
+export function requireMaintenanceManager (fastify) {
   return async (request, reply) => {
     if (!allowsAnonymousMaintenance()) return fastify.requireAdmin(request, reply);
   };

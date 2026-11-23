@@ -9,7 +9,7 @@ export default async function (fastify) {
       response: { 200: z.strictObject({ canCreatePlot: z.boolean(), canAssignCarers: z.boolean() }) },
     },
   }, async (request) => ({
-    canCreatePlot: allowsAnonymousPlotCreation() || !!request.user?.canCreatePlot,
+    canCreatePlot: allowsAnonymousPlotCreation() || !!request.user?.canContribute,
     canAssignCarers: !!(request.user?.isActive && request.user?.isAdmin),
   }));
 }

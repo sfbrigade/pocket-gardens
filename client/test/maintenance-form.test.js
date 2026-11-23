@@ -66,6 +66,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
   await t.test('a save that finishes after leaving refreshes the open garden history', async (t) => {
     const plot = { id: 'recPlotLateSave', stage: 'active', plants: [] };
     const internalId = '11111111-1111-4111-8111-111111111111';
+    const capabilities = (await Api.maintenance.capabilities()).data;
     const pending = Promise.withResolvers();
     const create = t.mock.method(Api.maintenance, 'create', () => pending.promise);
     let records = [];
@@ -74,7 +75,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     const view = await mount(t, {
       initialEntry: `/plots/${internalId}/updates/new`,
       showHome: true,
-      queryData: [[['plot', internalId], plot], [['plot', plot.id], plot]],
+      queryData: [[['plot', internalId], plot], [['plot', plot.id], plot], [['maintenance-capabilities'], { ...capabilities, canManage: false }]],
     });
     await waitFor(() => assert.equal(view.field('When did this happen?').value, '2026-11-15'));
     await view.change('Anything to add?', 'Watered before leaving');
@@ -83,9 +84,10 @@ test('maintenance composer recovers interrupted saves', async (t) => {
 
     await view.navigate(`/plots/${plot.id}?tab=updates`);
     await waitFor(() => assert.match(view.container.textContent, /No updates recorded yet/));
+    assert.equal(view.button('Add an update').getAttribute('href'), `/plots/${plot.id}/updates/new`);
     await interact(() => {
       const [payload] = create.mock.calls[0].arguments;
-      const saved = { ...payload, id: 'saved-late', credit: 'Pocket Gardens team', createdAt: '2026-11-15T12:00:00Z' };
+      const saved = { ...payload, id: 'saved-late', credit: 'Community contributor', createdAt: '2026-11-15T12:00:00Z' };
       records = [saved];
       pending.resolve({ data: saved });
     });

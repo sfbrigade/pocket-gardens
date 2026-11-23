@@ -39,5 +39,5 @@ export default fp(async function (fastify) {
   // onRequest handler to be used to ensure a user is logged in
   fastify.decorate('requireUser', requireUser());
   fastify.decorate('requireAdmin', requireUser(user => user.isAdmin));
-  fastify.decorate('requirePlotCreator', requireUser(user => user.canCreatePlot));
+  fastify.decorate('requireContributor', requireUser(user => user.canContribute));
 }, { dependencies: ['prisma'] });

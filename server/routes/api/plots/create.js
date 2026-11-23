@@ -30,7 +30,7 @@ export default async function (fastify, opts) {
       },
     },
     onRequest: async (request, reply) => {
-      if (!allowsAnonymousPlotCreation()) return fastify.requirePlotCreator(request, reply);
+      if (!allowsAnonymousPlotCreation()) return fastify.requireContributor(request, reply);
     },
   }, async function (request, reply) {
     if (request.body.carerUserIds?.length || request.body["Seth's Notes"] !== undefined) {

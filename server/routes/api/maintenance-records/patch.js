@@ -1,4 +1,4 @@
-import { requireMaintenanceWriter } from '#lib/maintenance-policy.js';
+import { requireMaintenanceManager } from '#lib/maintenance-policy.js';
 import { StatusCodes } from 'http-status-codes';
 import { z } from 'zod';
 
@@ -15,7 +15,7 @@ import {
 
 export default async function (fastify, opts) {
   fastify.patch('/:id', {
-    onRequest: requireMaintenanceWriter(fastify),
+    onRequest: requireMaintenanceManager(fastify),
     schema: {
       description: 'Updates a maintenance record by id.',
       params: z.strictObject({ id: z.string().uuid() }),
