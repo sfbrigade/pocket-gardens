@@ -314,6 +314,25 @@ test('maintenance update workflows', async (t) => {
     assert.equal((await earlier).statusCode, 409);
   });
 
+  await t.test('a verified contributor can add a photo update and only an administrator can delete it', async () => {
+    const contributor = await authenticate(app, 'regular.user@test.com', 'test');
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/maintenance-records',
+      headers: contributor,
+      payload: draft({ notes: undefined, photos: [{ upload: filename }] }),
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const { id, version, photos } = response.json();
+    assert.equal(photos.length, 1);
+    const denied = await app.inject({ method: 'DELETE', url: `/api/maintenance-records/${id}`, headers: contributor, payload: { version } });
+    assert.equal(denied.statusCode, 403);
+    assert.equal((await app.inject({ url: `/api/maintenance-records/${id}` })).statusCode, 200);
+    assert.equal((await remove(id, version)).statusCode, 204);
+  });
+
   await t.test('record deletion retains photos, hides staging copies, and never revives on create replay', async (t) => {
     const filename = `${crypto.randomUUID()}.jpg`;
     await upload([['640x480.jpg', filename]]);

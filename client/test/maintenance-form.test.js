@@ -182,6 +182,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.match(view.container.textContent, /No updates recorded yet/));
     assert.equal(view.button('Add an update').getAttribute('href'), `/plots/${plot.id}/updates/new`);
     assert.ok(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).attempt);
+    assert.equal(view.button('Photo update').getAttribute('href'), `/plots/${plot.id}/updates/new?quick=photo`);
     await interact(() => {
       const [payload] = create.mock.calls[0].arguments;
       const saved = { ...payload, id: 'saved-late', credit: 'Community contributor', createdAt: '2026-11-15T12:00:00Z' };
@@ -190,6 +191,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     });
     await waitFor(() => assert.match(view.container.textContent, /Watered before leaving/));
     assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
+    assert.doesNotMatch(view.container.textContent, /Edit update|Delete update/);
   });
 
   await t.test('quick photo saves one photo and can expand into the same detailed draft', async (t) => {
