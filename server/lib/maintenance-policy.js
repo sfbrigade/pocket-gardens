@@ -3,7 +3,7 @@ import { PhotoUploadError } from '#lib/photo-upload.js';
 
 export const activities = ['Watered', 'Weeded', 'Planted', 'Mulched', 'Cleared litter', 'Just had a look', 'Something else'];
 export const observations = ['Nothing stood out', 'Plants look dry', 'Gaps, or plants missing', 'Weeds taking over', 'Litter or dog waste', 'Something broken', 'Something else'];
-export const maintenanceZone = 'America/Los_Angeles';
+const maintenanceZone = 'America/Los_Angeles';
 export const today = () => DateTime.now().setZone(maintenanceZone).toISODate();
 
 export function allowsAnonymousMaintenance (env = process.env) {
