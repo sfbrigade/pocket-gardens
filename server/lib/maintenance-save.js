@@ -2,8 +2,11 @@ import crypto from 'node:crypto';
 import { formatMaintenanceRecord, MAINTENANCE_RECORD_SELECT } from '#models/maintenance-record.js';
 
 export function maintenanceFingerprint (body) {
-  const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
-  return crypto.createHash('sha256').update(JSON.stringify(stable(body))).digest('hex');
+  const serialized = JSON.stringify(body, (_key, value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]]));
+  });
+  return crypto.createHash('sha256').update(serialized).digest('hex');
 }
 
 export async function replayMaintenanceCreate (prisma, body, reply) {

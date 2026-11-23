@@ -12,8 +12,11 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.equal(view.field('When did this happen?').value, '2026-11-15'));
     const quiet = view.field('Nothing stood out');
     const dry = view.field('Plants look dry');
+    const canUnload = () => dom.window.dispatchEvent(new dom.window.Event('beforeunload', { cancelable: true }));
 
+    assert.equal(canUnload(), true);
     await interact(() => dry.click());
+    assert.equal(canUnload(), false);
     await interact(() => quiet.click());
     assert.equal(quiet.checked, true);
     assert.equal(dry.checked, false);
@@ -22,6 +25,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(dry.checked, true);
     await view.click('Add this update');
     await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.equal(canUnload(), true);
     const [first] = create.mock.calls[0].arguments;
     assert.deepEqual(first.observations, ['Plants look dry']);
     assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);

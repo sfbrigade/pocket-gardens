@@ -3,6 +3,7 @@ import { Alert, Button, Checkbox, Container, Group, Loader, Stack, Text, Textare
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import Api from '../Api';
+import DraftRefreshGuard from '../Components/DraftRefreshGuard';
 import { draftKey, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations } from './maintenance-draft';
 
 export default function MaintenanceForm () {
@@ -38,13 +39,12 @@ function MaintenanceComposer ({ plotId }) {
   });
   const saved = mutation.isSuccess ? mutation.data.data : null;
   const saving = mutation.isPending;
+  const hasDraftContent = !!(draft.attempt || draft.notes || draft.activity.length || draft.observations.length);
+  const refreshGuard = hasDraftContent && !saved && <DraftRefreshGuard />;
   useEffect(() => { if (!draft.date && capabilities.data) setDraft((value) => ({ ...value, date: capabilities.data.today })); }, [capabilities.data, draft.date]);
   useEffect(() => {
     if (saved) return;
     persistDraft(draft);
-    const warn = (event) => { if (draft.attempt || draft.notes || draft.activity.length || draft.observations.length) event.preventDefault(); };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
   }, [draft, persistDraft, saved]);
 
   function submit (event) {
@@ -67,12 +67,12 @@ function MaintenanceComposer ({ plotId }) {
 
   function cancel () {
     if (saving) return;
-    if ((draft.notes || draft.activity.length || draft.observations.length || draft.attempt) && !window.confirm(draft.attempt ? 'The save may have succeeded. Keep this draft and return to garden history?' : 'Leave this update? Your draft will be kept in this tab.')) return;
+    if (hasDraftContent && !window.confirm(draft.attempt ? 'The save may have succeeded. Keep this draft and return to garden history?' : 'Leave this update? Your draft will be kept in this tab.')) return;
     navigate(`/plots/${encodeURIComponent(plotId)}?tab=updates`);
   }
-  if (capabilities.isPending || garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
-  if (capabilities.isError || garden.isError) return <Container><Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
-  if (!capabilities.data.canCreate) return <Container><Alert>Sign in with a verified account to add an update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
+  if (capabilities.isPending || garden.isPending) return <Container>{refreshGuard}<Loader aria-label='Loading update form' /></Container>;
+  if (capabilities.isError || garden.isError) return <Container>{refreshGuard}<Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
+  if (!capabilities.data.canCreate) return <Container>{refreshGuard}<Alert>Sign in with a verified account to add an update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
   if (saved) return <Container size='sm'><Stack><Title order={2}>Update saved</Title><Text>Saved to this garden’s history.</Text><Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { mutation.reset(); setDraft(newMaintenanceDraft(capabilities.data.today)); }}>Add another update</Button></Stack></Container>;
   const locked = saving || !!draft.attempt;
   const paused = garden.data.stage === 'paused';
@@ -81,6 +81,7 @@ function MaintenanceComposer ({ plotId }) {
   const canSubmit = !!draft.attempt || (eligible && !hasPausedWork);
   return (
     <Container size='sm' py='md'>
+      {refreshGuard}
       <form onSubmit={submit}>
         <Stack>
           <Title order={2}>Add an update</Title>
