@@ -359,6 +359,33 @@ test('maintenance update workflows', async (t) => {
     assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 1);
   });
 
+  await t.test('delete recovers a committed write when its acknowledgment is lost', async (t) => {
+    const saved = (await create(draft())).json();
+    const original = app.prisma;
+    const records = original.maintenanceRecord;
+    const lostAcknowledgment = t.mock.fn(async (options) => {
+      await records.updateMany(options);
+      throw new Error('Simulated lost delete acknowledgment');
+    });
+    app.prisma = new Proxy(original, {
+      get (target, property) {
+        if (property === 'maintenanceRecord') {
+          return { updateMany: lostAcknowledgment, findUnique: records.findUnique.bind(records) };
+        }
+        return Reflect.get(target, property);
+      },
+    });
+
+    try {
+      assert.equal((await remove(saved.id, saved.version)).statusCode, 204);
+    } finally {
+      app.prisma = original;
+    }
+    assert.equal(lostAcknowledgment.mock.callCount(), 1);
+    assert.equal((await remove(saved.id, saved.version)).statusCode, 204);
+    assert.equal((await remove(crypto.randomUUID(), saved.version)).statusCode, 404);
+  });
+
   await t.test('stale deletes conflict; edit/delete races never erase a newer correction silently', async () => {
     const saved = (await create(draft())).json();
     assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), notes: 'New correction' })).statusCode, 200);
