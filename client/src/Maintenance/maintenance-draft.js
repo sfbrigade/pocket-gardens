@@ -4,10 +4,10 @@ export function newMaintenanceDraft (date) {
   return { submissionId: crypto.randomUUID(), date, activity: [], observations: [], notes: '', photos: [], plants: [], attempt: null };
 }
 
-export function toggleObservation (selected, value) {
-  if (value === 'Nothing stood out') return selected.includes(value) ? [] : [value];
-  const next = selected.filter((item) => item !== 'Nothing stood out');
-  return next.includes(value) ? next.filter((item) => item !== value) : [...next, value];
+export function selectObservations (previous, next) {
+  const quiet = 'Nothing stood out';
+  if (next.includes(quiet) && !previous.includes(quiet)) return [quiet];
+  return next.filter((observation) => observation !== quiet);
 }
 
 export function maintenancePayload (draft, plotId) {

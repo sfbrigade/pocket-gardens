@@ -3,7 +3,7 @@ import { Alert, Button, Checkbox, Container, Group, Loader, Stack, Text, Textare
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import Api from '../Api';
-import { draftKey, maintenanceError, maintenancePayload, newMaintenanceDraft, toggleObservation } from './maintenance-draft';
+import { draftKey, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations } from './maintenance-draft';
 
 export default function MaintenanceForm () {
   const { plotId } = useParams();
@@ -21,7 +21,6 @@ function MaintenanceComposer ({ plotId }) {
     return newMaintenanceDraft('');
   });
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState(null);
   const [storageError, setStorageError] = useState(false);
   const submitting = useRef(false);
   const persistDraft = useCallback((value) => {
@@ -37,6 +36,7 @@ function MaintenanceComposer ({ plotId }) {
       client.resetQueries({ queryKey: ['maintenance', gardenId], exact: true });
     },
   });
+  const saved = mutation.isSuccess ? mutation.data.data : null;
   const saving = mutation.isPending;
   useEffect(() => { if (!draft.date && capabilities.data) setDraft((value) => ({ ...value, date: capabilities.data.today })); }, [capabilities.data, draft.date]);
   useEffect(() => {
@@ -57,7 +57,6 @@ function MaintenanceComposer ({ plotId }) {
     setDraft(attempted);
     setError('');
     mutation.mutate({ payload, gardenId: garden.data.id }, {
-      onSuccess: ({ data }) => setSaved(data),
       onError: (failure) => {
         setError(maintenanceError(failure));
         if (failure.response?.status === 422) setDraft((value) => ({ ...value, attempt: null }));
@@ -74,7 +73,7 @@ function MaintenanceComposer ({ plotId }) {
   if (capabilities.isPending || garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
   if (capabilities.isError || garden.isError) return <Container><Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
   if (!capabilities.data.canCreate) return <Container><Alert>Sign in with a verified account to add an update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
-  if (saved) return <Container size='sm'><Stack><Title order={2}>Update saved</Title><Text>Saved to this garden’s history.</Text><Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { setSaved(null); setDraft(newMaintenanceDraft(capabilities.data.today)); }}>Add another update</Button></Stack></Container>;
+  if (saved) return <Container size='sm'><Stack><Title order={2}>Update saved</Title><Text>Saved to this garden’s history.</Text><Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { mutation.reset(); setDraft(newMaintenanceDraft(capabilities.data.today)); }}>Add another update</Button></Stack></Container>;
   const locked = saving || !!draft.attempt;
   const paused = garden.data.stage === 'paused';
   const eligible = ['potential', 'preparing', 'active', 'paused'].includes(garden.data.stage);
@@ -97,8 +96,9 @@ function MaintenanceComposer ({ plotId }) {
           {storageError && <Alert color='yellow'>This browser could not store your draft. Keep this page open until saving succeeds.</Alert>}
           <TextInput type='date' label='When did this happen?' required max={capabilities.data.today} value={draft.date} disabled={locked} onChange={(event) => setDraft({ ...draft, date: event.currentTarget.value })} />
           {!paused && <Checkbox.Group label='What did you do?' value={draft.activity} onChange={(activity) => setDraft({ ...draft, activity })}><Stack gap='xs'>{capabilities.data.activities.map((activity) => <Checkbox key={activity} label={activity} value={activity} disabled={locked} />)}</Stack></Checkbox.Group>}
-          <Text fw={500}>What did you see?</Text>
-          <Stack gap='xs'>{capabilities.data.observations.map((observation) => <Checkbox key={observation} label={observation} checked={draft.observations.includes(observation)} disabled={locked} onChange={() => setDraft({ ...draft, observations: toggleObservation(draft.observations, observation) })} />)}</Stack>
+          <Checkbox.Group label='What did you see?' value={draft.observations} disabled={locked} onChange={(observations) => setDraft((current) => ({ ...current, observations: selectObservations(current.observations, observations) }))}>
+            <Stack gap='xs'>{capabilities.data.observations.map((observation) => <Checkbox key={observation} label={observation} value={observation} />)}</Stack>
+          </Checkbox.Group>
           <Textarea label='Anything to add?' value={draft.notes} disabled={locked} onChange={(event) => setDraft({ ...draft, notes: event.currentTarget.value })} autosize minRows={3} />
           {error && <Alert color='red' role='alert'>{error}{draft.attempt && <Text size='sm'>Retry sends the same attempted update. Review garden history if you no longer want to retry.</Text>}</Alert>}
           <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button></Group>

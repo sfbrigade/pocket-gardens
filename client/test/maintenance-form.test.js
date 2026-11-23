@@ -5,6 +5,38 @@ import { draftKey } from '../src/Maintenance/maintenance-draft.js';
 
 test('maintenance composer recovers interrupted saves', async (t) => {
   const { Api, dom, mount } = await setupPlotTests(t);
+  await t.test('observations remain exclusive and another update starts with a fresh draft', async (t) => {
+    const plot = { id: 'recPlotObservations', stage: 'active' };
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { ...payload, id: 'saved-observations' } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.equal(view.field('When did this happen?').value, '2026-11-15'));
+    const quiet = view.field('Nothing stood out');
+    const dry = view.field('Plants look dry');
+
+    await interact(() => dry.click());
+    await interact(() => quiet.click());
+    assert.equal(quiet.checked, true);
+    assert.equal(dry.checked, false);
+    await interact(() => dry.click());
+    assert.equal(quiet.checked, false);
+    assert.equal(dry.checked, true);
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    const [first] = create.mock.calls[0].arguments;
+    assert.deepEqual(first.observations, ['Plants look dry']);
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
+
+    await view.click('Add another update');
+    assert.doesNotMatch(view.container.textContent, /Update saved/);
+    assert.equal(view.field('Plants look dry').checked, false);
+    await interact(() => view.field('Nothing stood out').click());
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    const [second] = create.mock.calls[1].arguments;
+    assert.deepEqual(second.observations, ['Nothing stood out']);
+    assert.notEqual(second.submissionId, first.submissionId);
+  });
+
   await t.test('same-tab restoration retries the original submitted payload', async (t) => {
     const plot = { id: 'recPlotAlpha', stage: 'active', 'Pocket Garden Name': 'Alpha' };
     const responses = [];
