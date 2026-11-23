@@ -8,13 +8,7 @@ export default function DeleteMaintenanceUpdate ({ record, plotId }) {
   const [version, setVersion] = useState(null);
   const historyQuery = { queryKey: ['maintenance', plotId], exact: true };
   const mutation = useMutation({
-    mutationFn: async ({ id, version }) => {
-      try {
-        await Api.maintenance.remove(id, version);
-      } catch (error) {
-        if (error.response?.status !== 404) throw error;
-      }
-    },
+    mutationFn: ({ id, version }) => Api.maintenance.remove(id, version),
     onSuccess: (_result, { id }) => {
       client.resetQueries({ queryKey: ['maintenance-record', id], exact: true });
       client.resetQueries(historyQuery);
