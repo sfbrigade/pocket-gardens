@@ -31,6 +31,17 @@ test('maintenance update workflows', async (t) => {
     assert.equal((await create(draft())).statusCode, 201);
   });
 
+  await t.test('retrying a soft-deleted visit leaves it deleted', async () => {
+    const payload = draft();
+    const created = await create(payload);
+    assert.equal(created.statusCode, 201, created.payload);
+    await app.prisma.maintenanceRecord.update({ where: { id: created.json().id }, data: { deletedAt: new Date() } });
+
+    const replay = await create(payload);
+    assert.equal(replay.statusCode, 410, replay.payload);
+    assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 1);
+  });
+
   await t.test('validates quiet observation exclusivity, blank notes, future dates and untrusted identity', async () => {
     for (const changes of [
       { observations: ['Nothing stood out', 'Plants look dry'] },

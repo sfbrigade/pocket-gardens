@@ -29,7 +29,11 @@ function MaintenanceComposer ({ plotId }) {
   }, [storageKey]);
   const mutation = useMutation({
     mutationFn: ({ payload }) => Api.maintenance.create(payload),
-    onSuccess: (_response, { gardenId }) => {
+    onSuccess: (_response, { payload, gardenId }) => {
+      try {
+        const stored = JSON.parse(window.sessionStorage.getItem(storageKey));
+        if (stored?.submissionId === payload.submissionId) window.sessionStorage.removeItem(storageKey);
+      } catch {}
       client.resetQueries({ queryKey: ['maintenance', gardenId], exact: true });
     },
   });
@@ -53,13 +57,7 @@ function MaintenanceComposer ({ plotId }) {
     setDraft(attempted);
     setError('');
     mutation.mutate({ payload, gardenId: garden.data.id }, {
-      onSuccess: ({ data }) => {
-        try {
-          const stored = JSON.parse(window.sessionStorage.getItem(storageKey));
-          if (stored?.submissionId === attempted.submissionId) window.sessionStorage.removeItem(storageKey);
-        } catch {}
-        setSaved(data);
-      },
+      onSuccess: ({ data }) => setSaved(data),
       onError: (failure) => {
         setError(maintenanceError(failure));
         if (failure.response?.status === 422) setDraft((value) => ({ ...value, attempt: null }));

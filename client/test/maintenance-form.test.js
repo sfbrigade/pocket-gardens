@@ -63,7 +63,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(create.mock.calls[0].arguments[0].notes, 'A note for the paused garden');
   });
 
-  await t.test('a save that finishes after leaving refreshes the open garden history', async (t) => {
+  await t.test('a save that finishes after leaving refreshes history and clears the submitted draft', async (t) => {
     const plot = { id: 'recPlotLateSave', stage: 'active', plants: [] };
     const internalId = '11111111-1111-4111-8111-111111111111';
     const capabilities = (await Api.maintenance.capabilities()).data;
@@ -85,6 +85,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await view.navigate(`/plots/${plot.id}?tab=updates`);
     await waitFor(() => assert.match(view.container.textContent, /No updates recorded yet/));
     assert.equal(view.button('Add an update').getAttribute('href'), `/plots/${plot.id}/updates/new`);
+    assert.ok(JSON.parse(dom.window.sessionStorage.getItem(draftKey(internalId))).attempt);
     await interact(() => {
       const [payload] = create.mock.calls[0].arguments;
       const saved = { ...payload, id: 'saved-late', credit: 'Community contributor', createdAt: '2026-11-15T12:00:00Z' };
@@ -92,5 +93,6 @@ test('maintenance composer recovers interrupted saves', async (t) => {
       pending.resolve({ data: saved });
     });
     await waitFor(() => assert.match(view.container.textContent, /Watered before leaving/));
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(internalId)), null);
   });
 });
