@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 
 import uploadPhoto from '../upload-photo';
 
-function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected, append = false, onStatusChange }) {
+function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected, onStatusChange }) {
   const [statuses, setStatuses] = useState([]);
   useEffect(() => { onStatusChange?.(statuses); }, [onStatusChange, statuses]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
@@ -52,7 +52,7 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
 
   function onDropAccepted (files) {
     if (!active.current || disabledRef.current) return;
-    if (append && maxFiles > 0 && previews.current.size + files.length > maxFiles) {
+    if (multiple && maxFiles > 0 && previews.current.size + files.length > maxFiles) {
       setRejectedFiles(files.map((file) => ({ file, errors: [{ message: 'Too many photos selected.' }] })));
       return;
     }
@@ -63,7 +63,7 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
       previews.current.set(id, preview);
       return { id, file: Object.assign(file, { preview }), status: deferred ? 'selected' : 'pending', filename: null };
     });
-    setStatuses((current) => append ? [...current, ...next] : next);
+    setStatuses((current) => multiple ? [...current, ...next] : next);
     if (deferred) onSelected?.(files[0]);
     else for (const status of next) upload(status);
   }
@@ -80,12 +80,12 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
   const { getRootProps, getInputProps } = useDropzone({
     id,
     multiple,
-    maxFiles: append && maxFiles ? Math.max(1, maxFiles - statuses.length) : maxFiles ?? 0,
+    maxFiles: multiple && maxFiles ? Math.max(1, maxFiles - statuses.length) : maxFiles ?? 0,
     maxSize: 10 * 1024 * 1024,
     accept: { 'image/jpeg': [], 'image/png': [], 'image/webp': [], 'image/gif': [] },
     onDropAccepted,
     onDropRejected: setRejectedFiles,
-    disabled: disabled || (append ? statuses.length >= maxFiles : statuses.length > 0),
+    disabled: disabled || (multiple ? statuses.length >= maxFiles : statuses.length > 0),
   });
 
   return (
