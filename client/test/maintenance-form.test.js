@@ -419,7 +419,6 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     const record = { id: 'conflict', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Original', activity: [], observations: [], photos: [], plants: [] };
     t.mock.method(Api.maintenance, 'update', async () => { throw Object.assign(new Error('Conflict'), { response: { status: 409, data: { message: 'Changed by another editor' } } }); });
     t.mock.method(Api.maintenance, 'get', async () => ({ data: { ...record, version: 2, notes: 'Latest saved note' } }));
-    t.mock.method(dom.window, 'confirm', () => true);
     const view = await mount(t, { initialEntry: '/plots/recPlotConflict/updates/conflict/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
     await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Original'));
     await view.change('Anything to add?', 'My unsaved correction');
@@ -427,6 +426,10 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.match(view.container.textContent, /Your draft has been preserved/));
     assert.equal(view.field('Anything to add?').value, 'My unsaved correction');
     await view.click('Load latest update');
+    await view.click('Keep draft');
+    assert.equal(view.field('Anything to add?').value, 'My unsaved correction');
+    await view.click('Load latest update');
+    await view.click('Replace draft');
     await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Latest saved note'));
     assert.doesNotMatch(view.container.textContent, /Changed by another editor/);
     assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id, record.id)), null);
@@ -502,10 +505,17 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.match(view.container.textContent, /Update saved/));
     assert.equal(create.mock.calls.length, 1);
     await view.click('Add another update');
-    t.mock.method(dom.window, 'confirm', () => true);
     const before = JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId;
     await view.click('Discard local draft');
+    await view.click('Keep draft');
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId, before);
+    await view.click('Discard local draft');
+    await view.click('Discard draft');
     await waitFor(() => assert.notEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId, before));
+    await view.click('Discard local draft');
+    assert.ok(view.button('Discard draft'));
+    await view.navigate('/');
+    await waitFor(() => assert.equal(dom.window.document.querySelector('[role="dialog"]'), null));
   });
 
   await t.test('discarding a conflicted edit picks up the current version', async (t) => {
@@ -517,7 +527,6 @@ test('maintenance composer recovers interrupted saves', async (t) => {
       if (payload.version === 1) throw Object.assign(new Error('Conflict'), { response: { status: 409, data: { message: 'Changed by another editor' } } });
       return { data: { ...latest, ...payload, version: 3 } };
     });
-    t.mock.method(dom.window, 'confirm', () => true);
     const view = await mount(t, {
       initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`,
       queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]],
@@ -527,6 +536,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await view.submit();
     await waitFor(() => assert.match(view.container.textContent, /Your draft has been preserved/));
     await view.click('Discard local draft');
+    await view.click('Replace draft');
     await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Latest saved note'));
     await view.change('Anything to add?', 'New correction');
     await view.submit();
@@ -540,7 +550,6 @@ test('maintenance composer recovers interrupted saves', async (t) => {
       if (payload.notes === 'Deleted visit') throw Object.assign(new Error('Deleted'), { response: { status: 410, data: { message: 'This update was deleted.' } } });
       return { data: { ...payload, id: 'new-visit' } };
     });
-    t.mock.method(dom.window, 'confirm', () => true);
     const view = await mount(t, {
       initialEntry: `/plots/${plot.id}/updates/new`,
       queryData: [[['plot', plot.id], plot]],
@@ -550,7 +559,10 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await view.submit();
     await waitFor(() => assert.match(view.container.textContent, /This update is no longer available in this garden/));
     await view.click('Discard local draft');
+    assert.match(dom.window.document.querySelector('[role="dialog"]').textContent, /A previous save might have succeeded/);
+    await view.click('Discard draft');
     await waitFor(() => assert.equal(view.field('Anything to add?').value, ''));
+    assert.doesNotMatch(view.container.textContent, /This update was deleted/);
     await view.change('Anything to add?', 'New visit');
     await view.submit();
     await waitFor(() => assert.match(view.container.textContent, /Update saved/));

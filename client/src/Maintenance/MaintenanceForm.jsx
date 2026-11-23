@@ -133,13 +133,21 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   function discard () {
     if (saving || reloading) return;
     if (conflicted) { loadLatest(); return; }
-    if (!window.confirm(draft.attempt ? 'A previous save might have succeeded. Discard this local draft? This will not delete any saved update; review garden history before starting again.' : 'Discard this unsaved local draft?')) return;
-    const replacement = initialRecord ? draftFromRecord(initialRecord) : newMaintenanceDraft(capabilities.data.today);
-    persistDraft(replacement);
-    setDraft(replacement);
-    setDeleted(false);
-    mutation.reset();
-    setFormError('');
+    modals.openConfirmModal({
+      modalId: draftModalId,
+      title: 'Discard this local draft?',
+      children: draft.attempt && <Text>A previous save might have succeeded. Any saved update stays in garden history. Review the history before starting again.</Text>,
+      labels: { confirm: 'Discard draft', cancel: 'Keep draft' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => {
+        const replacement = initialRecord ? draftFromRecord(initialRecord) : newMaintenanceDraft(capabilities.data.today);
+        persistDraft(replacement);
+        setDraft(replacement);
+        setDeleted(false);
+        mutation.reset();
+        setFormError('');
+      },
+    });
   }
 
   function cancel () {
@@ -148,23 +156,30 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
     navigate(`/plots/${encodeURIComponent(plotId)}?tab=updates`);
   }
 
-  async function loadLatest () {
-    if (reloading || !window.confirm('Replace this unsaved draft with the latest saved update?')) return;
-    setReloading(true);
-    try {
-      const record = await client.fetchQuery({ ...maintenanceRecordQuery(recordId), staleTime: 0 });
-      clearMaintenanceDraft(storageKey, draft.submissionId);
-      clearMaintenanceDraft(previousKey, draft.submissionId);
-      setDraft(draftFromRecord(record));
-      setConflicted(false);
-      mutation.reset();
-      setFormError('');
-    } catch (failure) {
-      setFormError(maintenanceError(failure));
-      if (failure.response?.status === 404) setDeleted(true);
-    } finally {
-      setReloading(false);
-    }
+  function loadLatest () {
+    if (reloading) return;
+    modals.openConfirmModal({
+      modalId: draftModalId,
+      title: 'Replace this unsaved draft with the latest saved update?',
+      labels: { confirm: 'Replace draft', cancel: 'Keep draft' },
+      onConfirm: async () => {
+        setReloading(true);
+        try {
+          const record = await client.fetchQuery({ ...maintenanceRecordQuery(recordId), staleTime: 0 });
+          clearMaintenanceDraft(storageKey, draft.submissionId);
+          clearMaintenanceDraft(previousKey, draft.submissionId);
+          setDraft(draftFromRecord(record));
+          setConflicted(false);
+          mutation.reset();
+          setFormError('');
+        } catch (failure) {
+          setFormError(maintenanceError(failure));
+          if (failure.response?.status === 404) setDeleted(true);
+        } finally {
+          setReloading(false);
+        }
+      },
+    });
   }
   if (capabilities.isPending || garden.isPending) return <Container>{refreshGuard}<Loader aria-label='Loading update form' /></Container>;
   if (capabilities.isError || garden.isError) return <Container>{refreshGuard}<Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
