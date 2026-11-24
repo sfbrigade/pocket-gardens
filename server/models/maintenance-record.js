@@ -58,11 +58,16 @@ export const MaintenanceRecordPhotoSchema = z.strictObject({
 
 export const MaintenanceRecordPlantSchema = z.strictObject({
   plantId: z.string().uuid(),
+  name: z.string().nullable(),
   quantity: z.number().int().nullable(),
 });
 
 export const MaintenanceRecordSchema = z.strictObject({
   id: z.string().uuid(),
+  observations: z.array(z.string()),
+  credit: z.string(),
+  version: z.number().int(),
+  editedAt: z.iso.datetime().nullable(),
   date: DateSchema.nullable(),
   activity: z.array(z.string()),
   notes: z.string().nullable(),
@@ -109,7 +114,7 @@ export const MaintenanceRecordUpdateSchema = z.strictObject({
 export const MaintenanceRecordListQuerySchema = z.strictObject({
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
   offset: z.coerce.number().int().nonnegative().optional(),
-  plotId: z.string().uuid().optional(),
+  plotId: z.union([z.string().uuid(), z.string().regex(/^rec[A-Za-z0-9]+$/i), z.templateLiteral(['pg_', z.uuid()])]).optional(),
   volunteerId: z.string().uuid().optional(),
   from: DateSchema.optional(),
   to: DateSchema.optional(),
@@ -120,6 +125,11 @@ export const MaintenanceRecordListQuerySchema = z.strictObject({
 
 export const MAINTENANCE_RECORD_SELECT = {
   id: true,
+  observations: true,
+  creditKind: true,
+  version: true,
+  editedAt: true,
+  volunteer: { select: { name: true, firstName: true, lastName: true } },
   date: true,
   activity: true,
   notes: true,
@@ -136,12 +146,13 @@ export const MAINTENANCE_RECORD_SELECT = {
   createdAt: true,
   updatedAt: true,
   photos: {
+    where: { pendingRemovalAt: null },
     orderBy: { position: 'asc' },
     select: { id: true, file: true },
   },
   plants: {
     orderBy: { slot: 'asc' },
-    select: { plantId: true, quantity: true },
+    select: { plantId: true, quantity: true, plant: { select: { plantName: true, commonName: true, latinName: true } } },
   },
 };
 
@@ -157,6 +168,10 @@ export function formatMaintenanceRecord (record) {
   if (!record) return record;
   return {
     id: record.id,
+    observations: record.observations,
+    credit: record.creditKind === 'admin' ? 'Pocket Gardens team' : record.creditKind === 'anonymous' ? 'Anonymous' : (record.volunteer?.name || [record.volunteer?.firstName, record.volunteer?.lastName].filter(Boolean).join(' ') || 'Contributor'),
+    version: record.version,
+    editedAt: record.editedAt ? formatTimestamp(record.editedAt) : null,
     date: formatDate(record.date),
     activity: record.activity,
     notes: record.notes,
@@ -166,7 +181,7 @@ export function formatMaintenanceRecord (record) {
     plotName: record.plot?.name ?? null,
     plotStreetAddress: record.plot?.streetAddress ?? null,
     volunteerId: record.volunteerId,
-    plants: record.plants.map(({ plantId, quantity }) => ({ plantId, quantity })),
+    plants: record.plants.map(({ plantId, quantity, plant }) => ({ plantId, quantity, name: plant?.plantName || plant?.commonName || plant?.latinName || null })),
     photos: record.photos.flatMap((row) => {
       const url = new MaintenanceRecordPhoto(row).fileUrl;
       return url ? [{ id: row.id, url }] : [];
@@ -177,8 +192,8 @@ export function formatMaintenanceRecord (record) {
 }
 
 export function findMaintenanceRecordById (prisma, id) {
-  return prisma.maintenanceRecord.findUnique({
-    where: { id },
+  return prisma.maintenanceRecord.findFirst({
+    where: { id, deletedAt: null },
     select: MAINTENANCE_RECORD_SELECT,
   });
 }
