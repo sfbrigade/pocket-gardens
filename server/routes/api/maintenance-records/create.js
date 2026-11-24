@@ -8,7 +8,7 @@ import { findPlotByPublicId } from '#models/plot.js';
 import {
   findMaintenanceRecordById, formatMaintenanceRecord, maintenanceRecordFieldsFromBody,
   MaintenanceRecordCreateSchema, MaintenanceRecordSchema, syncMaintenanceRecordPhotos,
-  syncMaintenanceRecordPlants, validateMaintenanceRecordLinks,
+  syncMaintenanceRecordPlants,
 } from '#models/maintenance-record.js';
 
 export default async function (fastify) {
@@ -30,7 +30,6 @@ export default async function (fastify) {
         const plot = await findPlotByPublicId(tx, plotId, { select: { id: true, stage: true } });
         if (!plot) throw new PhotoUploadError('Garden not found', 'plotId');
         validateNewVisit(plot, body);
-        await validateMaintenanceRecordLinks(tx, body);
         const created = await tx.maintenanceRecord.create({
           data: {
             airtableId: `pg_${crypto.randomUUID()}`,

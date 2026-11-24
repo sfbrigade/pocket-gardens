@@ -136,7 +136,7 @@ test('maintenance update workflows', async (t) => {
   });
 
   await t.test('new plant names commit with the visit, replay once, and leave inventory unchanged', async () => {
-    const payload = draft({ activity: ['Planted'], plants: [{ newPlant: { plantName: 'Visit-only native' }, quantity: 3 }] });
+    const payload = draft({ notes: undefined, plants: [{ newPlant: { plantName: 'Visit-only native' }, quantity: 3 }] });
     const before = await app.prisma.plotPlant.count();
     const response = await create(payload);
     assert.equal(response.statusCode, 201, response.payload);

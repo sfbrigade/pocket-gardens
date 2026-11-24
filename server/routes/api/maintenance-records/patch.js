@@ -7,7 +7,7 @@ import { changeMaintenancePhotos, cleanupMaintenancePhotos } from '#lib/maintena
 import {
   findMaintenanceRecordById, formatMaintenanceRecord, hasMaintenanceContent,
   maintenanceRecordFieldsFromBody, MAINTENANCE_RECORD_SELECT, MaintenanceRecordSchema, MaintenanceRecordUpdateSchema,
-  syncMaintenanceRecordPlants, validateMaintenanceRecordLinks,
+  syncMaintenanceRecordPlants,
 } from '#models/maintenance-record.js';
 
 const conflict = () => Object.assign(new Error('This update changed since you opened it. Reload and review your changes.'), { statusCode: 409 });
@@ -44,13 +44,8 @@ export default async function (fastify) {
           if (!existing) return false;
           if (existing.version !== body.version) throw conflict();
           if (body.activity?.some((value) => !activities.includes(value) && !existing.activity.includes(value))) throw new PhotoUploadError('Choose a supported activity', 'activity');
-          for (const field of ['activity', 'observations']) {
-            if (body[field] && new Set(body[field]).size !== body[field].length) throw new PhotoUploadError('Choose each option once', field);
-          }
-          if (body.observations?.includes('Nothing stood out') && body.observations.length > 1) throw new PhotoUploadError('Nothing stood out cannot be combined with other observations', 'observations');
           if (body.photos?.length > 4 && (body.photos.some(({ upload }) => upload) || body.photos.length > existing.photos.length)) throw new PhotoUploadError('Attach up to four photos', 'photos');
-          if (hasMaintenanceContent(existing) && !hasMaintenanceContent({ ...existing, ...body })) throw new PhotoUploadError('Keep an activity, observation, photo, or note', 'notes');
-          await validateMaintenanceRecordLinks(tx, body, existing.id);
+          if (hasMaintenanceContent(existing) && !hasMaintenanceContent({ ...existing, ...body })) throw new PhotoUploadError('Keep an activity, observation, plant, photo, or note', 'notes');
           const updated = await tx.maintenanceRecord.updateMany({
             where: { id: existing.id, version: body.version, deletedAt: null },
             data: {
@@ -64,7 +59,7 @@ export default async function (fastify) {
           });
           if (!updated.count) throw conflict();
           if (body.plants !== undefined) await syncMaintenanceRecordPlants(tx, existing.id, body.plants, existing.plants);
-          if (body.photos !== undefined) await changeMaintenancePhotos(tx, existing.id, body.photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
+          if (body.photos !== undefined) await changeMaintenancePhotos(tx, existing, body.photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
           callbackCompleted = true;
           return true;
         }, { timeout: 60000 });

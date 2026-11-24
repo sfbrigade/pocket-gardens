@@ -1,31 +1,36 @@
 import { preparePhotoAttachment } from '#lib/photos.js';
+import { PhotoUploadError } from '#lib/photo-upload.js';
 import { uploadFilenamePattern } from '#lib/upload-policy.js';
 import MaintenanceRecordPhoto from '#models/maintenance-record-photo.js';
 import s3 from '#lib/s3.js';
 
-export async function changeMaintenancePhotos (tx, recordId, photos, assetOptions) {
+export async function changeMaintenancePhotos (tx, record, photos, assetOptions) {
   const delegate = tx.maintenanceRecordPhoto;
-  const existing = await delegate.findMany({ where: { maintenanceRecordId: recordId, pendingRemovalAt: null } });
-  const kept = [];
+  const kept = photos.flatMap(({ id }) => id ? [id] : []);
+  if (kept.some((id) => !record.photos.some((photo) => photo.id === id))) {
+    throw new PhotoUploadError('Photo does not belong to this maintenance record', 'photos');
+  }
   for (const [position, entry] of photos.entries()) {
     if (entry.id) {
-      kept.push(entry.id);
       await delegate.update({ where: { id: entry.id }, data: { position } });
     } else {
       const copy = await preparePhotoAttachment({
         delegate,
         PhotoClass: MaintenanceRecordPhoto,
-        data: { maintenanceRecordId: recordId, position },
+        data: { maintenanceRecordId: record.id, position },
         filename: entry.upload,
         assetOptions,
       });
       await copy?.();
     }
   }
-  await delegate.updateMany({
-    where: { id: { in: existing.filter(({ id }) => !kept.includes(id)).map(({ id }) => id) } },
-    data: { pendingRemovalAt: new Date() },
-  });
+  const removed = record.photos.filter(({ id }) => !kept.includes(id)).map(({ id }) => id);
+  if (removed.length) {
+    await delegate.updateMany({
+      where: { id: { in: removed } },
+      data: { pendingRemovalAt: new Date() },
+    });
+  }
 }
 
 // Pending photo rows are the retry queue. Never remove them until S3 confirms

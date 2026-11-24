@@ -9,6 +9,14 @@ import MaintenanceRecordPhoto from '#models/maintenance-record-photo.js';
 
 const DateSchema = z.iso.date({ error: 'Invalid date' });
 const PlantQuantitySchema = z.number().int().positive().max(2147483647);
+const distinctOptions = (schema) => z.array(schema).refine(
+  (values) => new Set(values).size === values.length,
+  'Choose each option once'
+);
+const ObservationsSchema = distinctOptions(z.enum(observations)).refine(
+  (values) => !values.includes('Nothing stood out') || values.length === 1,
+  'Nothing stood out cannot be combined with other observations'
+);
 
 const PlantInputSchema = z.strictObject({
   plantId: z.string().uuid().optional(),
@@ -69,32 +77,28 @@ export const MaintenanceRecordSchema = z.strictObject({
 export const MaintenanceRecordCreateSchema = z.strictObject({
   submissionId: z.string().uuid(),
   date: DateSchema.refine((value) => value <= today(), 'Choose a date no later than today'),
-  activity: z.array(z.enum(activities)).default([]),
-  observations: z.array(z.enum(observations)).default([]),
+  activity: distinctOptions(z.enum(activities)).default([]),
+  observations: ObservationsSchema.default([]),
   plotId: z.string().min(1).max(100),
   notes: z.string().nullable().optional(),
   planting: z.string().nullable().optional(),
   estNextVisit: DateSchema.nullable().optional(),
   plants: distinctPlantEntries(PlantInputSchema).optional(),
   photos: uniquePhotos(NewPhotoSchema).max(4).optional(),
-}).superRefine((body, ctx) => {
-  for (const field of ['activity', 'observations']) {
-    if (new Set(body[field]).size !== body[field].length) ctx.addIssue({ code: 'custom', path: [field], message: 'Choose each option once' });
-  }
-  if (body.observations.includes('Nothing stood out') && body.observations.length > 1) ctx.addIssue({ code: 'custom', path: ['observations'], message: 'Nothing stood out cannot be combined with other observations' });
-  if (!hasMaintenanceContent(body)) ctx.addIssue({ code: 'custom', path: ['notes'], message: 'Add an activity, observation, photo, or note' });
+}).refine(hasMaintenanceContent, {
+  path: ['notes'], message: 'Add an activity, observation, plant, photo, or note',
 });
 
 export function hasMaintenanceContent (body) {
-  return !!(body.activity?.length || body.observations?.length || body.photos?.length || body.notes?.trim());
+  return !!(body.activity?.length || body.observations?.length || body.plants?.length || body.photos?.length || body.notes?.trim());
 }
 
 export const MaintenanceRecordUpdateSchema = z.strictObject({
   version: z.number().int().positive(),
   mutationId: z.string().uuid(),
   date: DateSchema.refine((value) => value <= today(), 'Choose a date no later than today').optional(),
-  activity: z.array(z.string().trim().min(1)).optional(),
-  observations: z.array(z.enum(observations)).optional(),
+  activity: distinctOptions(z.string().trim().min(1)).optional(),
+  observations: ObservationsSchema.optional(),
   notes: z.string().nullable().optional(),
   planting: z.string().nullable().optional(),
   estNextVisit: DateSchema.nullable().optional(),
@@ -220,22 +224,17 @@ function invalidLink (path, message) {
   return error;
 }
 
-export async function validateMaintenanceRecordLinks (tx, body, recordId) {
-  const plantIds = body.plants?.flatMap(({ plantId }) => plantId ? [plantId] : []) ?? [];
+async function validateMaintenancePlantIds (tx, plants) {
+  const plantIds = plants.flatMap(({ plantId }) => plantId ? [plantId] : []);
   if (plantIds.length && await tx.plant.count({
     where: { id: { in: plantIds } },
   }) !== plantIds.length) {
     throw invalidLink('plants', 'Plant not found');
   }
-  const photoIds = body.photos?.flatMap((photo) => photo.id ? [photo.id] : []) ?? [];
-  if (photoIds.length && await tx.maintenanceRecordPhoto.count({
-    where: { maintenanceRecordId: recordId, pendingRemovalAt: null, id: { in: photoIds } },
-  }) !== photoIds.length) {
-    throw invalidLink('photos', 'Photo does not belong to this maintenance record');
-  }
 }
 
 export async function syncMaintenanceRecordPlants (tx, recordId, plants, existing = []) {
+  await validateMaintenancePlantIds(tx, plants);
   const existingById = new Map(existing.map((row) => [row.id, row]));
   const retainedPlantIds = new Set();
   for (const { id } of plants) {
