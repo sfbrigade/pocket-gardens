@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setupPlotTests, waitFor } from './helpers/plot-harness.js';
+import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
 
 test('garden history loads on the Updates tab and preserves the selected garden', async (t) => {
   const { Api, mount } = await setupPlotTests(t);
@@ -71,5 +71,52 @@ test('garden history loads on the Updates tab and preserves the selected garden'
     await view.click('Delete this update');
     await waitFor(() => assert.match(view.container.textContent, /No updates recorded yet/));
     assert.deepEqual(remove.mock.calls[0].arguments, [record.id, 3]);
+  });
+
+  await t.test('conflict refresh and successful deletion preserve previously loaded pages', async (t) => {
+    const plot = { id: 'recPlotPagedDelete', stage: 'active' };
+    const record = { version: 1, date: null, credit: 'Contributor', activity: [], observations: [], plants: [], photos: [], createdAt: '2026-09-02T12:00:00Z' };
+    const later = { ...record, id: 'later', notes: 'Later visit' };
+    const earlier = { ...record, id: 'earlier', notes: 'Earlier visit' };
+    const removed = { ...record, id: 'remove', notes: 'Remove this visit' };
+    const refresh = Promise.withResolvers();
+    let conflicted = false;
+    let deleted = false;
+    const load = t.mock.method(Api.maintenance, 'index', async ({ offset }) => {
+      if (deleted) await refresh.promise;
+      if (Number(offset) === 0) return { data: [later], headers: { 'x-next-offset': '20' } };
+      return { data: deleted ? [earlier] : [earlier, { ...removed, version: conflicted ? 2 : 1 }], headers: {} };
+    });
+    const remove = t.mock.method(Api.maintenance, 'remove', async (_id, version) => {
+      if (version === 1) {
+        conflicted = true;
+        throw Object.assign(new Error('Conflict'), { response: { status: 409 } });
+      }
+      deleted = true;
+    });
+    const view = await mount(t, {
+      initialEntry: `/plots/${plot.id}?tab=updates`, showHome: true, queryData: [[['plot', plot.id], plot]],
+    });
+    await waitFor(() => assert.ok(view.button('Load more updates')));
+    await view.click('Load more updates');
+    await waitFor(() => assert.match(view.container.textContent, /Remove this visit/));
+    const openDelete = () => interact(() => (
+      [...view.container.querySelectorAll('article')]
+        .find((card) => card.textContent.includes('Remove this visit'))
+        .querySelector('button').click()
+    ));
+    await openDelete();
+    await view.click('Delete this update');
+    await waitFor(() => assert.ok(view.button('Refresh history to review')));
+    await view.click('Refresh history to review');
+    await waitFor(() => assert.equal(load.mock.calls.length, 4));
+    assert.match(view.container.textContent, /Later visit.*Earlier visit.*Remove this visit/s);
+    await openDelete();
+    await view.click('Delete this update');
+    await waitFor(() => assert.doesNotMatch(view.container.textContent, /Remove this visit/));
+    assert.match(view.container.textContent, /Later visit.*Earlier visit/s);
+    assert.deepEqual(remove.mock.calls.map(({ arguments: args }) => args), [['remove', 1], ['remove', 2]]);
+    await interact(() => refresh.resolve());
+    await waitFor(() => assert.equal(load.mock.calls.length, 6));
   });
 });

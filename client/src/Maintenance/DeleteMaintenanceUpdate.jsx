@@ -9,9 +9,17 @@ export default function DeleteMaintenanceUpdate ({ record, plotId }) {
   const historyQuery = { queryKey: ['maintenance', plotId], exact: true };
   const mutation = useMutation({
     mutationFn: ({ id, version }) => Api.maintenance.remove(id, version),
-    onSuccess: (_result, { id }) => {
+    onSuccess: async (_result, { id }) => {
+      await client.cancelQueries(historyQuery);
+      client.setQueryData(historyQuery.queryKey, (history) => history && ({
+        ...history,
+        pages: history.pages.map((page) => ({
+          ...page,
+          data: page.data.filter((record) => record.id !== id),
+        })),
+      }));
       client.resetQueries({ queryKey: ['maintenance-record', id], exact: true });
-      client.resetQueries(historyQuery);
+      client.invalidateQueries(historyQuery);
     },
   });
   const saving = mutation.isPending;
@@ -24,7 +32,7 @@ export default function DeleteMaintenanceUpdate ({ record, plotId }) {
         <Stack>
           <Text>This removes the update from garden history. Its data and attached photos are retained internally. There is no restore screen.</Text>
           {mutation.isError && <Alert color='red' role='alert'>{mutation.error.response?.data?.message || 'Unable to delete this update. Try again.'}</Alert>}
-          {conflicted && <Button variant='light' onClick={() => { setVersion(null); client.resetQueries(historyQuery); }}>Refresh history to review</Button>}
+          {conflicted && <Button variant='light' onClick={() => { setVersion(null); client.invalidateQueries(historyQuery); }}>Refresh history to review</Button>}
           <Group>
             <Button color='red' loading={saving} disabled={conflicted} onClick={() => mutation.mutate({ id: record.id, version }, { onSuccess: () => setVersion(null) })}>Delete this update</Button>
             <Button variant='subtle' disabled={saving} onClick={() => setVersion(null)}>Keep update</Button>
