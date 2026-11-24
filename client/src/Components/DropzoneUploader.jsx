@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useListState } from '@mantine/hooks';
 import { useMutation } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone-esm';
 import { v4 as uuid } from 'uuid';
@@ -6,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 import uploadPhoto from '../upload-photo';
 
 function DropzoneUploader ({ className, children, disabled, id, maxFiles, multiple, onRemoved, onUploaded, deferred = false, onSelected, onStatusChange }) {
-  const [statuses, setStatuses] = useState([]);
+  const [statuses, statusList] = useListState([]);
   useEffect(() => { onStatusChange?.(statuses); }, [onStatusChange, statuses]);
   const [rejectedFiles, setRejectedFiles] = useState([]);
   const disabledRef = useRef(disabled);
@@ -34,17 +35,17 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
     if (uploads.current.has(status.id)) return;
     const controller = new AbortController();
     uploads.current.set(status.id, controller);
-    setStatuses((current) => current.map((entry) => entry.id === status.id ? { ...entry, status: 'uploading', error: null } : entry));
+    statusList.applyWhere(({ id }) => id === status.id, (entry) => ({ ...entry, status: 'uploading', error: null }));
     try {
       const filename = await mutation.mutateAsync({ file: status.file, signal: controller.signal });
       if (controller.signal.aborted || !uploads.current.has(status.id)) return;
       const completed = { ...status, filename, status: 'uploaded', error: null };
       onUploaded?.(completed);
-      setStatuses((current) => current.map((entry) => entry.id === status.id ? completed : entry));
+      statusList.applyWhere(({ id }) => id === status.id, () => completed);
     } catch (error) {
       if (controller.signal.aborted || !uploads.current.has(status.id)) return;
       const failed = { ...status, status: 'error', error };
-      setStatuses((current) => current.map((entry) => entry.id === status.id ? failed : entry));
+      statusList.applyWhere(({ id }) => id === status.id, () => failed);
     } finally {
       if (uploads.current.get(status.id) === controller) uploads.current.delete(status.id);
     }
@@ -63,7 +64,8 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
       previews.current.set(id, preview);
       return { id, file: Object.assign(file, { preview }), status: deferred ? 'selected' : 'pending', filename: null };
     });
-    setStatuses((current) => multiple ? [...current, ...next] : next);
+    if (multiple) statusList.append(...next);
+    else statusList.setState(next);
     if (deferred) onSelected?.(files[0]);
     else for (const status of next) upload(status);
   }
@@ -73,7 +75,7 @@ function DropzoneUploader ({ className, children, disabled, id, maxFiles, multip
     uploads.current.delete(status.id);
     URL.revokeObjectURL(previews.current.get(status.id));
     previews.current.delete(status.id);
-    setStatuses((current) => current.filter(({ id }) => id !== status.id));
+    statusList.filter(({ id }) => id !== status.id);
     onRemoved?.(status);
   }
 
