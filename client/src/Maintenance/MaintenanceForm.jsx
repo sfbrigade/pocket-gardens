@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Alert, Button, Checkbox, Container, Group, Loader, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { modals } from '@mantine/modals';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useLocation } from 'react-router';
 import Api from '../Api';
@@ -31,6 +32,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   const editing = !!recordId;
   const storageKey = draftKey(plotId, recordId);
   const previousKey = routePlotId !== plotId ? draftKey(routePlotId, recordId) : null;
+  const draftModalId = useId();
   const navigate = useNavigate();
   const location = useLocation();
   const quickRequested = new URLSearchParams(location.search).get('quick') === 'photo';
@@ -75,6 +77,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   const saving = mutation.isPending;
   const error = formError || (mutation.error ? maintenanceError(mutation.error) : '');
   const refreshGuard = hasDraftContent && !saved && <DraftRefreshGuard />;
+  useEffect(() => () => modals.close(draftModalId), [draftModalId]);
   useEffect(() => { if (!editing && !draft.date && capabilities.data) setDraft((value) => ({ ...value, date: capabilities.data.today })); }, [capabilities.data, draft.date, editing]);
   useEffect(() => {
     if (saved) return;
@@ -87,13 +90,26 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
     if (quick && !draft.attempt && !draft.photos.length) { setFormError('Add a photo first, or choose Add more details.'); return; }
     const payload = draft.attempt || (editing ? editMaintenancePayload(draft) : maintenancePayload(draft, plotId));
     if (editing && Object.keys(payload).length === 2) { setFormError('Make at least one change before saving.'); return; }
-    if (editing && !draft.attempt && draft.baseline.photos.some(({ id }) => !payload.photos?.some((photo) => photo.id === id)) && payload.photos && !window.confirm('Permanently erase the removed photos when this edit saves?')) return;
     const attempted = { ...draft, attempt: payload, uploadsPending: false };
-    if (!persistDraft(attempted)) return;
+    if (editing && !draft.attempt && payload.photos && draft.baseline.photos.some(({ id }) => !payload.photos.some((photo) => photo.id === id))) {
+      modals.openConfirmModal({
+        modalId: draftModalId,
+        title: 'Permanently erase the removed photos when this edit saves?',
+        labels: { confirm: 'Save and erase photos', cancel: 'Keep editing' },
+        confirmProps: { color: 'red' },
+        onConfirm: () => saveAttempt(attempted),
+      });
+      return;
+    }
+    saveAttempt(attempted);
+  }
+
+  function saveAttempt (attempted) {
+    if (submitting.current || !persistDraft(attempted)) return;
     submitting.current = true;
     setDraft(attempted);
     setFormError('');
-    mutation.mutate({ payload, submissionId: attempted.submissionId, gardenId: garden.data.id }, {
+    mutation.mutate({ payload: attempted.attempt, submissionId: attempted.submissionId, gardenId: garden.data.id }, {
       onError: (failure) => {
         const status = failure.response?.status;
         if (editing && status === 409) setConflicted(true);
@@ -136,7 +152,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   const paused = !editing && garden.data.stage === 'paused';
   const eligible = editing || ['potential', 'preparing', 'active', 'paused'].includes(garden.data.stage);
   const hasPausedWork = paused && (draft.activity.length > 0 || draft.plants.length > 0);
-  const canSubmit = !photoBusy && !photoFailed && !photoFailed && !conflicted && (!!draft.attempt || (eligible && !hasPausedWork));
+  const canSubmit = !photoBusy && !photoFailed && !conflicted && (!!draft.attempt || (eligible && !hasPausedWork));
   // Unchanged imported dates are omitted from PATCH, including legacy future
   // dates. Apply the current date limit when selecting a new value.
   const dateUnchanged = editing && draft.date === draft.baseline.date;

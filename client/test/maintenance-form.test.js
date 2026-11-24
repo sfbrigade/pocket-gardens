@@ -365,6 +365,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(view.field('Anything to add?').value, 'My unsaved correction');
     await view.click('Load latest update');
     await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Latest saved note'));
+    assert.doesNotMatch(view.container.textContent, /Changed by another editor/);
   });
 
   await t.test('an unlinked imported update cannot be edited under another garden', async (t) => {
@@ -394,17 +395,32 @@ test('maintenance composer recovers interrupted saves', async (t) => {
   await t.test('removing existing photos requires saved-edit confirmation and reports pending erasure', async (t) => {
     const plot = { id: 'recPlotRemove', stage: 'active' };
     const record = { id: 'remove-photo', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Evidence', activity: [], observations: [], photos: [{ id: 'photo-one', url: '/photo.jpg' }], plants: [] };
-    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, photos: payload.photos, version: 2, cleanupPending: true } }));
-    const confirm = t.mock.method(dom.window, 'confirm', () => false);
+    let fail = true;
+    const update = t.mock.method(Api.maintenance, 'update', async (_id, payload) => {
+      if (fail) {
+        fail = false;
+        throw new Error('Lost save response');
+      }
+      return { data: { ...record, photos: payload.photos, version: 2, cleanupPending: true } };
+    });
     const view = await mount(t, { initialEntry: '/plots/recPlotRemove/updates/remove-photo/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
     await waitFor(() => assert.match(view.container.textContent, /Remove attached photo 1/));
     await view.click('Remove attached photo 1');
     await view.submit();
     assert.equal(update.mock.calls.length, 0);
-    confirm.mock.restore();
-    t.mock.method(dom.window, 'confirm', () => true);
+    await view.click('Keep editing');
+    assert.equal(update.mock.calls.length, 0);
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id, record.id))).attempt, null);
+
     await view.submit();
+    await view.click('Save and erase photos');
+    await waitFor(() => assert.match(view.container.textContent, /Unable to save/));
+    const attempted = update.mock.calls[0].arguments[1];
+    assert.deepEqual(attempted.photos, []);
+    assert.deepEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id, record.id))).attempt, attempted);
+
+    await view.click('Try again');
     await waitFor(() => assert.match(view.container.textContent, /Permanent photo erasure is pending/));
-    assert.deepEqual(update.mock.calls[0].arguments[1].photos, []);
+    assert.deepEqual(update.mock.calls[1].arguments[1], attempted);
   });
 });
