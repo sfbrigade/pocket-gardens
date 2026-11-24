@@ -21,7 +21,6 @@ function MaintenanceComposer ({ plotId }) {
     try { const value = JSON.parse(window.sessionStorage.getItem(storageKey)); if (value?.submissionId) return value; } catch {}
     return newMaintenanceDraft('');
   });
-  const [error, setError] = useState('');
   const [storageError, setStorageError] = useState(false);
   const submitting = useRef(false);
   const persistDraft = useCallback((value) => {
@@ -39,6 +38,7 @@ function MaintenanceComposer ({ plotId }) {
   });
   const saved = mutation.isSuccess ? mutation.data.data : null;
   const saving = mutation.isPending;
+  const error = mutation.error ? maintenanceError(mutation.error) : '';
   const hasDraftContent = !!(draft.attempt || draft.notes || draft.activity.length || draft.observations.length);
   const refreshGuard = hasDraftContent && !saved && <DraftRefreshGuard />;
   useEffect(() => { if (!draft.date && capabilities.data) setDraft((value) => ({ ...value, date: capabilities.data.today })); }, [capabilities.data, draft.date]);
@@ -55,10 +55,8 @@ function MaintenanceComposer ({ plotId }) {
     submitting.current = true;
     persistDraft(attempted);
     setDraft(attempted);
-    setError('');
     mutation.mutate({ payload, gardenId: garden.data.id }, {
       onError: (failure) => {
-        setError(maintenanceError(failure));
         if (failure.response?.status === 422) setDraft((value) => ({ ...value, attempt: null }));
       },
       onSettled: () => { submitting.current = false; },
