@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { assetExists, authenticate, build, upload } from '#test/helper.js';
@@ -132,6 +133,33 @@ test('maintenance update workflows', async (t) => {
     assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 0);
     assert.equal(await assetExists(`_uploads/${filename}`), true);
     copy.mock.restore();
+    assert.equal((await create(payload)).statusCode, 201);
+  });
+
+  await t.test('an expired commit removes copied photos and retains staging', async (t) => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const copy = t.mock.method(s3, 'copyObject');
+    const original = app.prisma;
+    const timeout = 2000;
+    const runTransaction = (work, options) => original.$transaction(async (tx) => {
+      const result = await work(tx);
+      await delay(timeout);
+      return result;
+    }, { ...options, timeout });
+    app.prisma = new Proxy(original, {
+      get: (target, property) => property === '$transaction' ? runTransaction : Reflect.get(target, property),
+    });
+    const payload = draft({ photos: [{ upload: filename }] });
+    try {
+      const response = await create(payload);
+      assert.equal(response.statusCode, 500, response.payload);
+    } finally {
+      app.prisma = original;
+    }
+    const [, destination] = copy.mock.calls[0].arguments;
+    assert.equal(await assetExists(destination), false);
+    assert.equal(await assetExists(`_uploads/${filename}`), true);
     assert.equal((await create(payload)).statusCode, 201);
   });
 

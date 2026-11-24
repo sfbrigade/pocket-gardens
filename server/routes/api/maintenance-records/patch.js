@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { activities, requireMaintenanceManager } from '#lib/maintenance-policy.js';
-import { maintenanceFingerprint } from '#lib/maintenance-save.js';
+import { maintenanceFingerprint, transactionRolledBack } from '#lib/maintenance-save.js';
 import { PhotoUploadError } from '#lib/photo-upload.js';
 import { cleanupPhotoObjects } from '#lib/photos.js';
 import { changeMaintenancePhotos, cleanupMaintenancePhotos } from '#lib/maintenance-photos.js';
@@ -64,7 +64,7 @@ export default async function (fastify) {
           return true;
         }, { timeout: 60000 });
       } catch (error) {
-        if (!callbackCompleted) await cleanupPhotoObjects(copied, request.log);
+        if (!callbackCompleted || transactionRolledBack(error)) await cleanupPhotoObjects(copied, request.log);
         committed = Boolean(await recover());
         if (!committed) throw error;
       }

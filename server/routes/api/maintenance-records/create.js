@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { requireMaintenanceCreator, validateNewVisit } from '#lib/maintenance-policy.js';
-import { maintenanceFingerprint, replayMaintenanceCreate } from '#lib/maintenance-save.js';
+import { maintenanceFingerprint, replayMaintenanceCreate, transactionRolledBack } from '#lib/maintenance-save.js';
 import { PhotoUploadError } from '#lib/photo-upload.js';
 import { cleanupPhotoObjects } from '#lib/photos.js';
 import { findPlotByPublicId } from '#models/plot.js';
@@ -54,7 +54,7 @@ export default async function (fastify) {
       await cleanupPhotoObjects((request.body.photos ?? []).map(({ upload }) => `_uploads/${upload}`), request.log);
       return reply.code(201).send(formatMaintenanceRecord(record));
     } catch (error) {
-      if (!callbackCompleted) await cleanupPhotoObjects(copied, request.log);
+      if (!callbackCompleted || transactionRolledBack(error)) await cleanupPhotoObjects(copied, request.log);
       if (await replayMaintenanceCreate(fastify.prisma, request.body, reply)) return;
       throw error;
     }

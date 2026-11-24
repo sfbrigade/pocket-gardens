@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
 import { formatMaintenanceRecord, MAINTENANCE_RECORD_SELECT } from '#models/maintenance-record.js';
 
+export function transactionRolledBack (error) {
+  // Prisma also uses P2028 for ambiguous transaction errors. An expired commit
+  // carries a timeout and closes the transaction before the database can commit.
+  return error.code === 'P2034' ||
+    (error.code === 'P2028' && error.meta?.operation === 'commit' && Number.isFinite(error.meta?.timeout));
+}
+
 export function maintenanceFingerprint (body) {
   const serialized = JSON.stringify(body, (_key, value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
