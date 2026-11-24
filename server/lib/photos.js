@@ -1,4 +1,12 @@
 import { pick } from 'es-toolkit';
+import s3 from '#lib/s3.js';
+
+export async function cleanupPhotoObjects (keys, log) {
+  const results = await Promise.allSettled(keys.map((key) => s3.deleteObject(key)));
+  for (const result of results) {
+    if (result.status === 'rejected') log.warn({ err: result.reason }, 'Photo storage cleanup could not complete');
+  }
+}
 
 export async function preparePhotoAttachment ({ delegate, PhotoClass, data, filename, assetOptions }) {
   const row = await delegate.create({ data });

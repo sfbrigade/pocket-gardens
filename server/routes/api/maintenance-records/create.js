@@ -1,9 +1,9 @@
-import { cleanupSubmissionObjects } from '#lib/plot-submission.js';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { requireMaintenanceCreator, validateNewVisit } from '#lib/maintenance-policy.js';
 import { maintenanceFingerprint, replayMaintenanceCreate } from '#lib/maintenance-save.js';
 import { PhotoUploadError } from '#lib/photo-upload.js';
+import { cleanupPhotoObjects } from '#lib/photos.js';
 import { findPlotByPublicId } from '#models/plot.js';
 import {
   findMaintenanceRecordById, formatMaintenanceRecord, maintenanceRecordFieldsFromBody,
@@ -52,10 +52,10 @@ export default async function (fastify) {
         callbackCompleted = true;
         return saved;
       }, { timeout: 60000 });
-      await cleanupSubmissionObjects((request.body.photos ?? []).map(({ upload }) => `_uploads/${upload}`), request.log);
+      await cleanupPhotoObjects((request.body.photos ?? []).map(({ upload }) => `_uploads/${upload}`), request.log);
       return reply.code(201).send(formatMaintenanceRecord(record));
     } catch (error) {
-      if (!callbackCompleted) await cleanupSubmissionObjects(copied, request.log);
+      if (!callbackCompleted) await cleanupPhotoObjects(copied, request.log);
       if (await replayMaintenanceCreate(fastify.prisma, request.body, reply)) return;
       throw error;
     }

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { activities, requireMaintenanceManager } from '#lib/maintenance-policy.js';
 import { maintenanceFingerprint } from '#lib/maintenance-save.js';
 import { PhotoUploadError } from '#lib/photo-upload.js';
-import { cleanupSubmissionObjects } from '#lib/plot-submission.js';
+import { cleanupPhotoObjects } from '#lib/photos.js';
 import { changeMaintenancePhotos, cleanupMaintenancePhotos } from '#lib/maintenance-photos.js';
 import {
   findMaintenanceRecordById, formatMaintenanceRecord, hasMaintenanceContent,
@@ -69,13 +69,13 @@ export default async function (fastify) {
           return true;
         }, { timeout: 60000 });
       } catch (error) {
-        if (!callbackCompleted) await cleanupSubmissionObjects(copied, request.log);
+        if (!callbackCompleted) await cleanupPhotoObjects(copied, request.log);
         committed = Boolean(await recover());
         if (!committed) throw error;
       }
     }
     if (!committed) return reply.code(404).send(null);
-    await cleanupSubmissionObjects((body.photos ?? []).flatMap(({ upload }) => upload ? [`_uploads/${upload}`] : []), request.log);
+    await cleanupPhotoObjects((body.photos ?? []).flatMap(({ upload }) => upload ? [`_uploads/${upload}`] : []), request.log);
     // Cleanup failures must not turn an already-committed correction into a 500.
     try { await cleanupMaintenancePhotos(fastify.prisma, request.log, { recordId: id }); } catch (error) { request.log.warn({ err: error }, 'Maintenance cleanup remains pending'); }
     const current = await fastify.prisma.maintenanceRecord.findFirst({
