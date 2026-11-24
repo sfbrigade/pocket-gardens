@@ -1,5 +1,6 @@
 import { Alert, Badge, Button, Card, Group, Image, Loader, Stack, Text, Title } from '@mantine/core';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import Api from '../Api';
 
 export function recordDate (date) {
@@ -7,6 +8,7 @@ export function recordDate (date) {
 }
 
 export default function MaintenanceHistory ({ plot }) {
+  const { data: capabilities } = useQuery({ queryKey: ['maintenance-capabilities'], queryFn: ({ signal }) => Api.maintenance.capabilities(signal).then(({ data }) => data) });
   const query = useInfiniteQuery({
     queryKey: ['maintenance', plot.id],
     queryFn: ({ signal, pageParam }) => Api.maintenance.index({ plotId: plot.id, offset: pageParam, pageSize: 20 }, signal),
@@ -17,6 +19,7 @@ export default function MaintenanceHistory ({ plot }) {
   return (
     <Stack>
       <Title order={3}>Updates &amp; history</Title>
+      {capabilities?.canCreate && ['potential', 'preparing', 'active', 'paused'].includes(plot.stage) && <Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/updates/new`}>Add an update</Button>}
       <Text size='sm' c='dimmed'>Visit records describe past events. Garden care summaries and the current plant list are managed separately.</Text>
       {query.isPending && <Loader aria-label='Loading updates' />}
       {(query.isLoadingError || query.isRefetchError) && (

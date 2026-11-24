@@ -145,6 +145,9 @@ const Api = {
     },
   },
   maintenance: {
+    create (data) {
+      return instance.post('/api/maintenance-records', data);
+    },
     capabilities (signal) {
       return instance.get('/api/maintenance-records/capabilities', { signal });
     },

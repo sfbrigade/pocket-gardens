@@ -1,3 +1,4 @@
+import { activities, observations, today } from '#lib/maintenance-policy.js';
 import { errorCodes } from 'fastify';
 import { z } from 'zod';
 
@@ -91,13 +92,27 @@ const OptionalFields = {
 };
 
 export const MaintenanceRecordCreateSchema = z.strictObject({
-  date: DateSchema,
-  activity: ActivitySchema,
-  plotId: z.string().uuid(),
-  ...OptionalFields,
+  submissionId: z.string().uuid(),
+  date: DateSchema.refine((value) => value <= today(), 'Choose a date no later than today'),
+  activity: z.array(z.enum(activities)).default([]),
+  observations: z.array(z.enum(observations)).default([]),
+  plotId: z.string().min(1).max(100),
+  notes: z.string().nullable().optional(),
+  planting: z.string().nullable().optional(),
+  estNextVisit: DateSchema.nullable().optional(),
   plants: PlantsInputSchema.optional(),
-  photos: uniquePhotos(NewPhotoSchema).optional(),
+  photos: uniquePhotos(NewPhotoSchema).max(4).optional(),
+}).superRefine((body, ctx) => {
+  for (const field of ['activity', 'observations']) {
+    if (new Set(body[field]).size !== body[field].length) ctx.addIssue({ code: 'custom', path: [field], message: 'Choose each option once' });
+  }
+  if (body.observations.includes('Nothing stood out') && body.observations.length > 1) ctx.addIssue({ code: 'custom', path: ['observations'], message: 'Nothing stood out cannot be combined with other observations' });
+  if (!hasMaintenanceContent(body)) ctx.addIssue({ code: 'custom', path: ['notes'], message: 'Add an activity, observation, photo, or note' });
 });
+
+export function hasMaintenanceContent (body) {
+  return !!(body.activity?.length || body.observations?.length || body.photos?.length || body.notes?.trim());
+}
 
 export const MaintenanceRecordUpdateSchema = z.strictObject({
   date: DateSchema.optional(),
@@ -164,12 +179,19 @@ function formatTimestamp (date) {
   return date instanceof Date ? date.toISOString() : date;
 }
 
+function maintenanceCredit ({ creditKind, volunteer }) {
+  if (creditKind === 'admin') return 'Pocket Gardens team';
+  if (creditKind === 'community') return 'Community contributor';
+  if (creditKind === 'anonymous') return 'Anonymous';
+  return volunteer?.name || [volunteer?.firstName, volunteer?.lastName].filter(Boolean).join(' ') || 'Contributor';
+}
+
 export function formatMaintenanceRecord (record) {
   if (!record) return record;
   return {
     id: record.id,
     observations: record.observations,
-    credit: record.creditKind === 'admin' ? 'Pocket Gardens team' : record.creditKind === 'anonymous' ? 'Anonymous' : (record.volunteer?.name || [record.volunteer?.firstName, record.volunteer?.lastName].filter(Boolean).join(' ') || 'Contributor'),
+    credit: maintenanceCredit(record),
     version: record.version,
     editedAt: record.editedAt ? formatTimestamp(record.editedAt) : null,
     date: formatDate(record.date),
@@ -200,7 +222,7 @@ export function findMaintenanceRecordById (prisma, id) {
 
 export function maintenanceRecordFieldsFromBody (body) {
   const data = {};
-  for (const field of ['activity', 'notes', 'planting', 'plotId', 'volunteerId']) {
+  for (const field of ['activity', 'observations', 'notes', 'planting', 'plotId', 'volunteerId']) {
     if (body[field] !== undefined) data[field] = body[field];
   }
   if (body.date !== undefined) data.date = new Date(`${body.date}T00:00:00.000Z`);

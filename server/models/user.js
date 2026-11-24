@@ -55,7 +55,7 @@ export class User extends Base {
     return this.emailVerified && !this.banned;
   }
 
-  get canCreatePlot () {
+  get canContribute () {
     return this.isActive && (this.isAdmin || (this.role?.split(',').includes('user') ?? false));
   }
 

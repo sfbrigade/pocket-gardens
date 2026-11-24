@@ -14,6 +14,7 @@ const RECORD_ALPHA_ID = 'c1111111-1111-4111-8111-111111111111';
 const RECORD_BETA_ID = 'c2222222-2222-4222-8222-222222222222';
 
 const validRecord = {
+  submissionId: '55555555-aaaa-4555-8555-555555555555',
   date: '2026-09-02',
   activity: ['Watered'],
   plotId: PLOT_ALPHA_ID,
@@ -23,17 +24,49 @@ test('/api/maintenance-records', async (t) => {
   const app = await build(t);
   const { prisma } = app;
 
-  await t.test('writes require an active administrator outside anonymous development mode', async () => {
+  await t.test('anonymous visitors can read but cannot submit maintenance updates', async () => {
+    const capabilities = await app.inject({ url: '/api/maintenance-records/capabilities' });
+    assert.strictEqual(capabilities.json().canCreate, false);
+    assert.strictEqual(capabilities.json().canManage, false);
     const anonymous = await app.inject({ method: 'POST', url: '/api/maintenance-records', payload: validRecord });
-    assert.strictEqual(anonymous.statusCode, 401);
-    const regular = await authenticate(app, 'regular.user@test.com', 'test');
-    const denied = await app.inject({ method: 'PATCH', url: `/api/maintenance-records/${RECORD_ALPHA_ID}`, headers: regular, payload: { notes: 'Change' } });
-    assert.strictEqual(denied.statusCode, 403);
-    const admin = await authenticate(app, 'admin.user@test.com', 'test');
-    await prisma.user.update({ where: { id: '555740af-17e9-48a3-93b8-d5236dfd2c29' }, data: { banned: true } });
-    const inactive = await app.inject({ method: 'POST', url: '/api/maintenance-records', headers: admin, payload: validRecord });
-    assert.strictEqual(inactive.statusCode, StatusCodes.FORBIDDEN);
+    assert.strictEqual(anonymous.statusCode, StatusCodes.UNAUTHORIZED);
   });
+
+  await t.test('verified users can submit updates with private account attribution', async () => {
+    const email = 'regular.user@test.com';
+    const headers = await authenticate(app, email, 'test');
+    const capabilities = await app.inject({ url: '/api/maintenance-records/capabilities', headers });
+    assert.strictEqual(capabilities.json().canCreate, true);
+    assert.strictEqual(capabilities.json().canManage, false);
+
+    const response = await app.inject({ method: 'POST', url: '/api/maintenance-records', headers, payload: validRecord });
+    assert.strictEqual(response.statusCode, StatusCodes.CREATED, response.body);
+    const { id } = response.json();
+    const { createdById } = await prisma.maintenanceRecord.findUniqueOrThrow({ where: { id } });
+    const { id: userId } = await prisma.user.findUniqueOrThrow({ where: { email } });
+    assert.strictEqual(createdById, userId);
+    const publicRecord = (await app.inject({ url: `/api/maintenance-records/${id}` })).json();
+    for (const record of [response.json(), publicRecord]) {
+      assert.strictEqual(record.credit, 'Community contributor');
+      assert.strictEqual(record.createdById, undefined);
+      assert.strictEqual(record.volunteerId, null);
+    }
+
+    const denied = await app.inject({ method: 'PATCH', url: `/api/maintenance-records/${id}`, headers, payload: { notes: 'Change' } });
+    assert.strictEqual(denied.statusCode, StatusCodes.FORBIDDEN);
+  });
+
+  for (const data of [{ emailVerified: false }, { banned: true }]) {
+    await t.test(`inactive users cannot submit updates: ${JSON.stringify(data)}`, async () => {
+      const email = 'regular.user@test.com';
+      const headers = await authenticate(app, email, 'test');
+      await prisma.user.update({ where: { email }, data });
+      const capabilities = await app.inject({ url: '/api/maintenance-records/capabilities', headers });
+      assert.strictEqual(capabilities.json().canCreate, false);
+      const response = await app.inject({ method: 'POST', url: '/api/maintenance-records', headers, payload: validRecord });
+      assert.strictEqual(response.statusCode, StatusCodes.FORBIDDEN);
+    });
+  }
 
   await t.test('GET / returns stable camelCase records newest first', async () => {
     const response = await app.inject({ url: '/api/maintenance-records' });
@@ -185,6 +218,9 @@ test('/api/maintenance-records', async (t) => {
 
   await t.test('POST / creates scalar and related data', async () => {
     const headers = await authenticate(app, 'admin.user@test.com', 'test');
+    const capabilities = await app.inject({ url: '/api/maintenance-records/capabilities', headers });
+    assert.strictEqual(capabilities.json().canCreate, true);
+    assert.strictEqual(capabilities.json().canManage, true);
     const filename = '11111111-aaaa-4111-8111-111111111111.jpg';
     await upload([['640x480.jpg', filename]]);
     const response = await app.inject({
@@ -196,7 +232,6 @@ test('/api/maintenance-records', async (t) => {
         activity: ['Watered', 'Planted'],
         notes: 'New growth',
         estNextVisit: '2026-09-16',
-        volunteerId: PERSON_ALPHA_ID,
         plants: [
           { plantId: PLANT_BETA_ID, quantity: 2 },
           { plantId: PLANT_ALPHA_ID },
@@ -258,7 +293,6 @@ test('/api/maintenance-records', async (t) => {
     const before = await prisma.maintenanceRecord.count();
     for (const payload of [
       { ...validRecord, plotId: '00000000-0000-4000-8000-000000000000' },
-      { ...validRecord, volunteerId: '00000000-0000-4000-8000-000000000000' },
       {
         ...validRecord,
         plants: [{ plantId: '00000000-0000-4000-8000-000000000000' }],

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useBeforeUnload, useLocation, useNavigate } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { Alert, Anchor, Box, Button, Container, Fieldset, Group, Loader, Modal, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery, useMounted, useSessionStorage } from '@mantine/hooks';
 import { useForm } from '@mantine/form';
@@ -11,6 +11,7 @@ import { v4 as uuid } from 'uuid';
 import Api from '../Api';
 import uploadPhoto from '../upload-photo';
 import { isMapPosition } from '../map-location';
+import DraftRefreshGuard from '../Components/DraftRefreshGuard';
 import GardenMap from '../Components/GardenMap';
 import PhotoInput from '../Components/PhotoInput';
 import PlantPicker from './PlantPicker';
@@ -18,11 +19,6 @@ import CarerPicker from './CarerPicker';
 import usePlotSuggestions from './usePlotSuggestions';
 import { changePlotPhoto, matchingPlotSubmission, preparePlotSubmission } from './plot-submission';
 import { beds, createPlotDraft, hasDraftContent, maxPlantQuantity, permissions, plotDraftErrors, plotFormErrors, soils, stages, sunLevels } from './plot-form';
-
-function RefreshGuard () {
-  useBeforeUnload(useCallback((event) => { event.preventDefault(); event.returnValue = true; }, []));
-  return null;
-}
 
 export default function PlotForm () {
   useHead({ title: 'Create a garden' });
@@ -156,7 +152,7 @@ export default function PlotForm () {
 
   return (
     <Container size='xl' py='md'>
-      {dirty && <RefreshGuard />}
+      {dirty && <DraftRefreshGuard />}
       <Group justify='space-between' mb='lg'><div><Title order={1}>Create a new garden</Title><Text c='dimmed'>Add a garden to Pocket Gardens. You can fill the rest in later.</Text></div><Button variant='subtle' onClick={() => navigate('/')}>Back to map</Button></Group>
       {pendingPosition && (
         <Alert color='yellow' title='You have an unfinished garden' role='alert' mb='lg'>
