@@ -41,7 +41,7 @@ export default function MaintenanceForm () {
   const recordUnavailable = !!(recordId && record.isError && record.error.response?.status === 404);
   if (recordId && !record.data) {
     if (recordUnavailable) return <UnavailableMaintenanceUpdate key={storageKey} plotId={gardenId} storageKey={storageKey} previousKey={previousKey} />;
-    return <Container><Alert color='red'>Unable to load the saved update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(gardenId)}?tab=updates`}>Back to updates</Button></Container>;
+    return <Container><Alert color='red'>Unable to load the saved update. <Button onClick={() => record.refetch()}>Try again</Button></Alert><Button component={Link} to={`/plots/${encodeURIComponent(gardenId)}?tab=updates`}>Back to updates</Button></Container>;
   }
   return <MaintenanceComposer key={storageKey} plotId={gardenId} garden={garden} capabilities={capabilities} recordId={recordId} record={record} recordUnavailable={recordUnavailable} storageKey={storageKey} previousKey={previousKey} />;
 }
@@ -149,28 +149,28 @@ function MaintenanceComposer ({ plotId, garden, capabilities, recordId, record, 
   const saving = latestSave?.status === 'pending';
   const failure = latestSave?.error;
   const status = failure?.response?.status;
-  const conflicted = editing && status === 409;
+  const conflicted = status === 409;
   const deleted = status === 404 || status === 410;
-  const reloading = conflicted && record.isFetching;
+  const reloading = editing && conflicted && record.isFetching;
   const error = formError || (failure ? maintenanceError(failure) : '');
   const refreshGuard = hasDraftContent && !saved && <DraftRefreshGuard />;
   useEffect(() => () => modals.close(draftModalId), [draftModalId]);
   useEffect(() => {
     if (saved || saving || deleted || recordUnavailable) return;
-    if (draft.attempt && (status === 409 || status === 422)) {
+    if (draft.attempt && (status === 422 || (editing && conflicted))) {
       setFieldValue('attempt', null);
       return;
     }
-    if (editing && !hasDraftContent) {
+    if (!hasDraftContent) {
       clearMaintenanceDraft(storageKey, draft.submissionId);
       clearMaintenanceDraft(previousKey, draft.submissionId);
-      if (draft.version !== initialRecord.version && getValues() === draft) {
+      if (editing && draft.version !== initialRecord.version && getValues() === draft) {
         replaceDraft(draftFromRecord(initialRecord));
       }
       return;
     }
     persistDraft({ ...draft, uploadsPending });
-  }, [deleted, draft, editing, getValues, hasDraftContent, initialRecord, persistDraft, previousKey, recordUnavailable, replaceDraft, saved, saving, setFieldValue, status, storageKey, uploadsPending]);
+  }, [conflicted, deleted, draft, editing, getValues, hasDraftContent, initialRecord, persistDraft, previousKey, recordUnavailable, replaceDraft, saved, saving, setFieldValue, status, storageKey, uploadsPending]);
 
   function submit (draft) {
     if (!canSubmit || client.isMutating(saveFilter)) return;
@@ -201,7 +201,7 @@ function MaintenanceComposer ({ plotId, garden, capabilities, recordId, record, 
 
   function discard () {
     if (saving || reloading) return;
-    if (conflicted) { loadLatest(); return; }
+    if (editing && conflicted) { loadLatest(); return; }
     modals.openConfirmModal({
       modalId: draftModalId,
       title: 'Discard this local draft?',
@@ -290,9 +290,9 @@ function MaintenanceComposer ({ plotId, garden, capabilities, recordId, record, 
           <MaintenancePhotos key={draft.submissionId} photos={draft.photos} disabled={locked} onUploadStateChange={setUploadState} onChange={(photos) => setFieldValue('photos', photos)} />
           {quick && <Button variant='subtle' disabled={locked} onClick={() => { setDetailsExpanded(true); navigate(location.pathname, { replace: true }); }}>Add more details</Button>}
           {!quick && <Textarea label='Anything to add?' disabled={locked} {...form.getInputProps('notes')} autosize minRows={3} />}
-          {conflicted && <Alert color='yellow'>Your draft has been preserved. <Button type='button' variant='subtle' loading={reloading} onClick={loadLatest}>Load latest update</Button></Alert>}
-          {error && <Alert color='red' role='alert'>{error}{draft.attempt && <Text size='sm'>Retry sends the same attempted update. Review garden history if you no longer want to retry.</Text>}</Alert>}
-          <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : editing ? 'Save changes' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button><Button variant='subtle' color='red' disabled={saving} onClick={discard}>Discard local draft</Button></Group>
+          {editing && conflicted && <Alert color='yellow'>Your draft has been preserved. <Button type='button' variant='subtle' loading={reloading} onClick={loadLatest}>Load latest update</Button></Alert>}
+          {error && <Alert color='red' role='alert'>{error}{draft.attempt && !conflicted && <Text size='sm'>Retry sends the same attempted update. Review garden history if you no longer want to retry.</Text>}</Alert>}
+          <Group><Button type='submit' loading={saving} disabled={!canSubmit}>{draft.attempt ? 'Try again' : editing ? 'Save changes' : 'Add this update'}</Button><Button variant='subtle' disabled={saving} onClick={cancel}>Cancel</Button><Button variant='subtle' color='red' disabled={saving || !hasDraftContent} onClick={discard}>Discard local draft</Button></Group>
         </Stack>
       </form>
     </Container>

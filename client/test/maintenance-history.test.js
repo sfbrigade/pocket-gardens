@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
+import { interact, setupPlotTests, testAccount, waitFor } from './helpers/plot-harness.js';
+import { draftKey, newMaintenanceDraft } from '../src/Maintenance/maintenance-draft.js';
 
 test('garden history loads on the Updates tab and preserves the selected garden', async (t) => {
-  const { Api, mount } = await setupPlotTests(t);
+  const { Api, dom, mount } = await setupPlotTests(t);
   await t.test('tabs', async (t) => {
     const plot = { id: 'recPlotAlpha', 'Pocket Garden Name': 'Alpha Garden', stage: 'active', plants: [] };
     const load = t.mock.method(Api.maintenance, 'index', async () => ({ data: [], headers: {} }));
@@ -54,6 +55,53 @@ test('garden history loads on the Updates tab and preserves the selected garden'
 
     await view.click('Try again');
     await waitFor(() => assert.match(view.container.textContent, /Newer visit.*Older visit/s));
+  });
+
+  await t.test('an archived garden links back to its original save attempt', async (t) => {
+    const plot = { id: 'recPlotArchived', stage: 'archived', plants: [] };
+    const draft = { ...newMaintenanceDraft('2026-11-15'), notes: 'A visit before the garden closed' };
+    const attempt = { submissionId: draft.submissionId, plotId: plot.id, date: draft.date, notes: draft.notes };
+    t.mock.method(Api.maintenance, 'index', async () => ({ data: [], headers: {} }));
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'saved', activity: [], observations: [], ...payload } }));
+    dom.window.sessionStorage.setItem(draftKey(testAccount, plot.id), JSON.stringify({ ...draft, attempt }));
+    const view = await mount(t, {
+      initialEntry: `/plots/${plot.id}?tab=updates`, showHome: true, queryData: [[['plot', plot.id], plot]],
+    });
+    await waitFor(() => assert.ok(view.button('Resume update draft')));
+    await view.click('Resume update draft');
+    await view.click('Try again');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.deepEqual(create.mock.calls[0].arguments[0], attempt);
+  });
+
+  await t.test('a deleted edit draft can be opened from history and discarded', async (t) => {
+    const plot = { id: 'recPlotDeletedDraft', stage: 'active', plants: [] };
+    const record = { id: 'deleted-record', version: 1, gardenId: plot.id, date: null, notes: 'Original note', activity: [], observations: [], photos: [], plants: [], credit: 'Contributor', createdAt: '2026-11-15T00:00:00Z' };
+    let deleted = false;
+    t.mock.method(Api.maintenance, 'index', async () => ({ data: deleted ? [] : [record], headers: {} }));
+    t.mock.method(Api.maintenance, 'get', async () => {
+      if (deleted) throw Object.assign(new Error('Deleted'), { response: { status: 404 } });
+      return { data: record };
+    });
+    t.mock.method(Api.maintenance, 'remove', async () => { deleted = true; });
+    const view = await mount(t, {
+      initialEntry: `/plots/${plot.id}?tab=updates`, showHome: true, queryData: [[['plot', plot.id], plot]],
+    });
+    await waitFor(() => assert.ok(view.button('Edit update')));
+    await view.click('Edit update');
+    await waitFor(() => assert.ok(view.field('Anything to add?')));
+    await view.change('Anything to add?', 'Note to recover');
+    await view.click('Cancel');
+    await view.click('Return to updates');
+    await view.click('Delete update');
+    await view.click('Delete this update');
+    await waitFor(() => assert.ok(view.button('Resume edit draft · Date not recorded')));
+    await view.click('Resume edit draft · Date not recorded');
+    await waitFor(() => assert.match(view.container.textContent, /Note to recover/));
+    await view.click('Discard local draft');
+    await view.click('Discard draft');
+    await view.click('Back to updates');
+    assert.doesNotMatch(view.container.textContent, /Resume edit draft/);
   });
 
   await t.test('soft deletion needs confirmation and refreshes the active history', async (t) => {

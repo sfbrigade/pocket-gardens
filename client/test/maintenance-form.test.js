@@ -29,6 +29,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { ...payload, id: 'saved-observations' } }));
     const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
     await waitFor(() => assert.equal(view.field('When did this happen?').value, '2026-11-15'));
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
     const quiet = view.field('Nothing stood out');
     const dry = view.field('Plants look dry');
     const canUnload = () => dom.window.dispatchEvent(new dom.window.Event('beforeunload', { cancelable: true }));
@@ -203,7 +204,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
 
     await view.navigate(`/plots/${plot.id}?tab=updates`);
     await waitFor(() => assert.match(view.container.textContent, /No updates recorded yet/));
-    assert.equal(view.button('Add an update').getAttribute('href'), `/plots/${plot.id}/updates/new`);
+    assert.equal(view.button('Resume update draft').getAttribute('href'), `/plots/${plot.id}/updates/new`);
     assert.ok(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).attempt);
     assert.equal(view.button('Photo update').getAttribute('href'), `/plots/${plot.id}/updates/new?quick=photo`);
     await interact(() => {
@@ -214,6 +215,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     });
     await waitFor(() => assert.match(view.container.textContent, /Watered before leaving/));
     assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
+    assert.equal(view.button('Add an update').getAttribute('href'), `/plots/${plot.id}/updates/new`);
     assert.doesNotMatch(view.container.textContent, /Edit update|Delete update/);
   });
 
@@ -538,17 +540,40 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.match(view.container.textContent, /Update saved/));
     assert.equal(create.mock.calls.length, 1);
     await view.click('Add another update');
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
+    await view.change('Anything to add?', 'Unsaved note');
     const before = JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId;
     await view.click('Discard local draft');
     await view.click('Keep draft');
     assert.equal(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId, before);
     await view.click('Discard local draft');
     await view.click('Discard draft');
-    await waitFor(() => assert.notEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId, before));
+    await waitFor(() => assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null));
+    await view.change('Anything to add?', 'Replacement note');
+    assert.notEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).submissionId, before);
     await view.click('Discard local draft');
     assert.ok(view.button('Discard draft'));
     await view.navigate('/');
     await waitFor(() => assert.equal(dom.window.document.querySelector('[role="dialog"]'), null));
+  });
+
+  await t.test('a conflicting create stays recoverable without resending the same submission ID', async (t) => {
+    const plot = { id: 'recPlotCreateConflict', stage: 'active' };
+    const create = t.mock.method(Api.maintenance, 'create', async () => {
+      throw Object.assign(new Error('Conflict'), { response: { status: 409, data: { message: 'This draft was saved with different values.' } } });
+    });
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.ok(view.field('Anything to add?')));
+    await view.change('Anything to add?', 'Local copy');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /saved with different values/));
+    assert.equal(view.button('Try again').disabled, true);
+    await view.submit();
+    assert.equal(create.mock.calls.length, 1);
+    assert.ok(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).attempt);
+    await view.click('Discard local draft');
+    await view.click('Discard draft');
+    assert.equal(view.field('Anything to add?').value, '');
   });
 
   await t.test('discarding a conflicted edit picks up the current version', async (t) => {
