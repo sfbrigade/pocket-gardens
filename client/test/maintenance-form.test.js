@@ -120,6 +120,26 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(create.mock.calls.length, 1);
   });
 
+  await t.test('a reopened form watches the save already in flight for its draft', async (t) => {
+    const plot = { id: 'recPlotReopenPending', stage: 'active' };
+    const path = `/plots/${plot.id}/updates/new`;
+    const pending = Promise.withResolvers();
+    const create = t.mock.method(Api.maintenance, 'create', () => pending.promise);
+    const view = await mount(t, { initialEntry: path, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.ok(view.field('Anything to add?')));
+    await view.change('Anything to add?', 'Saving while away');
+    await view.click('Add this update');
+    await waitFor(() => assert.equal(create.mock.calls.length, 1));
+    await view.navigate('/');
+    await view.navigate(path);
+    await waitFor(() => assert.equal(view.field('Anything to add?').disabled, true));
+    await view.submit();
+    assert.equal(create.mock.calls.length, 1);
+    await interact(() => pending.resolve({ data: { ...create.mock.calls[0].arguments[0], id: 'saved-while-away' } }));
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
+  });
+
   await t.test('a restored draft can remove activities after its garden is paused', async (t) => {
     const plot = { id: 'recPlotPaused', stage: 'active' };
     const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { ...payload, id: 'saved-paused' } }));
@@ -227,7 +247,17 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await first.unmount();
     const quick = await mount(t, { ...options, initialEntry: `${options.initialEntry}?quick=photo` });
     await waitFor(() => assert.equal(quick.field('Anything to add?').value, 'Keep this note visible'));
+    await quick.change('Anything to add?', '');
     assert.doesNotMatch(quick.container.textContent, /Add more details/);
+    assert.equal(quick.field('Anything to add?').value, '');
+    await quick.change('Anything to add?', 'Rewritten note');
+    await quick.click('Cancel');
+    await quick.click('Keep editing');
+    assert.equal(quick.field('Anything to add?').value, 'Rewritten note');
+    await quick.click('Cancel');
+    await quick.click('Return to updates');
+    assert.equal(quick.location.search, '?tab=updates');
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).notes, 'Rewritten note');
   });
 
   await t.test('a failed photo must be retried or removed before saving', async (t) => {
