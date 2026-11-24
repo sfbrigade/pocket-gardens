@@ -47,3 +47,31 @@ _Avoid_: Platform user as a synonym for an unlinked volunteer record.
 **Platform user**:
 A person with an account used to sign in to Pocket Gardens. A user can be linked to their existing volunteer record.
 _Avoid_: An imported contact detail as a synonym for a platform account.
+
+**Maintenance record**:
+An account of what happened or was observed at one garden, containing one or more activities, observations, photos, or a note. “Update” is the user-facing name for the same record; a photo update is not a separate kind of record.
+_Avoid_: Separate records for each activity or photo from the same update.
+
+**Activity**:
+Something someone did at a garden, such as watering, weeding, or planting.
+_Avoid_: Observation as a synonym for work performed.
+
+**Observation**:
+Something someone noticed at a garden. “Nothing stood out” is an explicit observation, distinct from not recording any observations.
+_Avoid_: Activity or confirmed diagnosis as a synonym for observation.
+
+**Occurrence date**:
+The calendar date when the events described in a maintenance record happened, which can be earlier than the day they were written down.
+_Avoid_: Recorded time as a synonym for occurrence date.
+
+**Recorded time**:
+When a maintenance record was first entered into Pocket Gardens, independently of when its events happened.
+_Avoid_: Occurrence date or most recent correction time as a synonym for recorded time.
+
+**Deleted maintenance record**:
+A maintenance record withdrawn from the visible garden history, with its data and attached photos retained internally. Deletion does not mean permanent erasure.
+_Avoid_: Erased record as a synonym for deleted maintenance record.
+
+**Removed maintenance photo**:
+A photo explicitly withdrawn through a saved correction to a maintenance record, with permanent erasure rather than internal retention. This differs from a still-attached photo retained when the whole record is deleted.
+_Avoid_: Retained photo as a synonym for removed maintenance photo.

@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import path from 'path';
 import { StatusCodes } from 'http-status-codes';
 
-import { assetExists, build, upload } from '#test/helper.js';
+import { assetExists, authenticate, build, upload } from '#test/helper.js';
 
 const PLOT_ALPHA_ID = '11111111-1111-4111-8111-111111111111';
 const PLOT_BETA_ID = '22222222-2222-4222-8222-222222222222';
@@ -22,6 +22,18 @@ const validRecord = {
 test('/api/maintenance-records', async (t) => {
   const app = await build(t);
   const { prisma } = app;
+
+  await t.test('writes require an active administrator outside anonymous development mode', async () => {
+    const anonymous = await app.inject({ method: 'POST', url: '/api/maintenance-records', payload: validRecord });
+    assert.strictEqual(anonymous.statusCode, 401);
+    const regular = await authenticate(app, 'regular.user@test.com', 'test');
+    const denied = await app.inject({ method: 'PATCH', url: `/api/maintenance-records/${RECORD_ALPHA_ID}`, headers: regular, payload: { notes: 'Change' } });
+    assert.strictEqual(denied.statusCode, 403);
+    const admin = await authenticate(app, 'admin.user@test.com', 'test');
+    await prisma.user.update({ where: { id: '555740af-17e9-48a3-93b8-d5236dfd2c29' }, data: { banned: true } });
+    const inactive = await app.inject({ method: 'POST', url: '/api/maintenance-records', headers: admin, payload: validRecord });
+    assert.strictEqual(inactive.statusCode, StatusCodes.FORBIDDEN);
+  });
 
   await t.test('GET / returns stable camelCase records newest first', async () => {
     const response = await app.inject({ url: '/api/maintenance-records' });
@@ -146,11 +158,13 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('POST / creates scalar and related data', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
     const filename = '11111111-aaaa-4111-8111-111111111111.jpg';
     await upload([['640x480.jpg', filename]]);
     const response = await app.inject({
       method: 'POST',
       url: '/api/maintenance-records',
+      headers,
       payload: {
         ...validRecord,
         activity: ['Watered', 'Planted'],
@@ -186,6 +200,7 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('POST / rejects malformed bodies', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
     const invalidPayloads = [
       {},
       { ...validRecord, date: '2026-02-30' },
@@ -204,6 +219,7 @@ test('/api/maintenance-records', async (t) => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/maintenance-records',
+        headers,
         payload,
       });
       assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
@@ -212,6 +228,7 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('POST / validates relationships before creating anything', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
     const before = await prisma.maintenanceRecord.count();
     for (const payload of [
       { ...validRecord, plotId: '00000000-0000-4000-8000-000000000000' },
@@ -224,6 +241,7 @@ test('/api/maintenance-records', async (t) => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/maintenance-records',
+        headers,
         payload,
       });
       assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
@@ -232,9 +250,11 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('PATCH /:id updates scalars and replaces or clears plants', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
     const response = await app.inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_ALPHA_ID}`,
+      headers,
       payload: {
         date: '2026-08-21',
         notes: null,
@@ -259,6 +279,7 @@ test('/api/maintenance-records', async (t) => {
     const cleared = await app.inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_ALPHA_ID}`,
+      headers,
       payload: { plants: [] },
     });
     assert.strictEqual(cleared.statusCode, StatusCodes.OK);
@@ -268,6 +289,7 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('PATCH /:id rejects invalid changes and preserves the record', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
     for (const payload of [
       {},
       { date: null },
@@ -279,6 +301,7 @@ test('/api/maintenance-records', async (t) => {
       const response = await app.inject({
         method: 'PATCH',
         url: `/api/maintenance-records/${RECORD_BETA_ID}`,
+        headers,
         payload,
       });
       assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
@@ -289,6 +312,7 @@ test('/api/maintenance-records', async (t) => {
   });
 
   await t.test('PATCH /:id retains, adds, reorders, and removes photos', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
     const first = '22222222-aaaa-4222-8222-222222222222.jpg';
     const second = '33333333-aaaa-4333-8333-333333333333.jpg';
     const third = '44444444-aaaa-4444-8444-444444444444.jpg';
@@ -300,12 +324,14 @@ test('/api/maintenance-records', async (t) => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/maintenance-records',
+      headers,
       payload: { ...validRecord, photos: [{ upload: first }, { upload: second }] },
     });
     const original = JSON.parse(created.payload);
     const response = await app.inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${original.id}`,
+      headers,
       payload: { photos: [{ id: original.photos[1].id }, { upload: third }] },
     });
     assert.strictEqual(response.statusCode, StatusCodes.OK);
@@ -319,18 +345,21 @@ test('/api/maintenance-records', async (t) => {
     const cleared = await app.inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${original.id}`,
+      headers,
       payload: { photos: [] },
     });
     assert.deepStrictEqual(JSON.parse(cleared.payload).photos, []);
   });
 
   await t.test('PATCH /:id rejects photos owned by another record', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
     const photo = await prisma.maintenanceRecordPhoto.create({
       data: { maintenanceRecordId: RECORD_ALPHA_ID, file: 'owned.jpg', position: 0 },
     });
     const response = await app.inject({
       method: 'PATCH',
       url: `/api/maintenance-records/${RECORD_BETA_ID}`,
+      headers,
       payload: { photos: [{ id: photo.id }] },
     });
     assert.strictEqual(response.statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
