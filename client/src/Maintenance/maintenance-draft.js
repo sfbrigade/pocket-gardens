@@ -1,5 +1,20 @@
 export const draftKey = (plotId, recordId = 'new') => `pocket-gardens:maintenance:${plotId}:${recordId}`;
 
+export function readMaintenanceDraft (key) {
+  if (!key) return null;
+  try {
+    const value = JSON.parse(window.sessionStorage.getItem(key));
+    return value?.submissionId ? value : null;
+  } catch { return null; }
+}
+
+export function clearMaintenanceDraft (key, submissionId) {
+  if (!key) return;
+  try {
+    if (readMaintenanceDraft(key)?.submissionId === submissionId) window.sessionStorage.removeItem(key);
+  } catch {}
+}
+
 export function newMaintenanceDraft (date) {
   return { submissionId: crypto.randomUUID(), date, activity: [], observations: [], notes: '', photos: [], plants: [], attempt: null };
 }

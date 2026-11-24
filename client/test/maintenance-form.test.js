@@ -99,6 +99,22 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(create.mock.calls[0].arguments[0].notes, 'A note for the paused garden');
   });
 
+  await t.test('an internal garden link resumes a legacy draft through the public history link', async (t) => {
+    const internalId = '11111111-1111-4111-8111-111111111111';
+    const plot = { id: 'recPlotAlias', stage: 'active' };
+    const legacyKey = draftKey(internalId);
+    const attempt = { submissionId: 'existing-draft', plotId: internalId, notes: 'Keep this note' };
+    const draft = { ...attempt, date: '2026-11-15', activity: [], observations: [], plants: [], photos: [], attempt };
+    dom.window.sessionStorage.setItem(legacyKey, JSON.stringify(draft));
+    const queryData = [[['plot', internalId], plot], [['plot', plot.id], plot]];
+    const view = await mount(t, { initialEntry: `/plots/${internalId}/updates/new`, queryData });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Keep this note'));
+    await view.navigate(`/plots/${plot.id}/updates/new`);
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Keep this note'));
+    assert.equal(dom.window.sessionStorage.getItem(legacyKey), null);
+    assert.deepEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).attempt, attempt);
+  });
+
   await t.test('a save that finishes after leaving refreshes history and clears the submitted draft', async (t) => {
     const plot = { id: 'recPlotLateSave', stage: 'active', plants: [] };
     const internalId = '11111111-1111-4111-8111-111111111111';
@@ -121,7 +137,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await view.navigate(`/plots/${plot.id}?tab=updates`);
     await waitFor(() => assert.match(view.container.textContent, /No updates recorded yet/));
     assert.equal(view.button('Add an update').getAttribute('href'), `/plots/${plot.id}/updates/new`);
-    assert.ok(JSON.parse(dom.window.sessionStorage.getItem(draftKey(internalId))).attempt);
+    assert.ok(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id))).attempt);
     await interact(() => {
       const [payload] = create.mock.calls[0].arguments;
       const saved = { ...payload, id: 'saved-late', credit: 'Community contributor', createdAt: '2026-11-15T12:00:00Z' };
@@ -129,6 +145,6 @@ test('maintenance composer recovers interrupted saves', async (t) => {
       pending.resolve({ data: saved });
     });
     await waitFor(() => assert.match(view.container.textContent, /Watered before leaving/));
-    assert.equal(dom.window.sessionStorage.getItem(draftKey(internalId)), null);
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
   });
 });

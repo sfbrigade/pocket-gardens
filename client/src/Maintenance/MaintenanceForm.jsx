@@ -4,35 +4,38 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import Api from '../Api';
 import DraftRefreshGuard from '../Components/DraftRefreshGuard';
-import { draftKey, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations } from './maintenance-draft';
+import { clearMaintenanceDraft, draftKey, readMaintenanceDraft, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations } from './maintenance-draft';
 
 export default function MaintenanceForm () {
   const { plotId } = useParams();
-  return <MaintenanceComposer key={plotId} plotId={plotId} />;
+  const garden = useQuery({ queryKey: ['plot', plotId], queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data) });
+  if (garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
+  if (!garden.data) return <Container><Alert color='red'>Unable to load this garden. <Button onClick={() => garden.refetch()}>Try again</Button></Alert></Container>;
+  return <MaintenanceComposer key={garden.data.id} plotId={garden.data.id} routePlotId={plotId} garden={garden} />;
 }
 
-function MaintenanceComposer ({ plotId }) {
+function MaintenanceComposer ({ plotId, routePlotId, garden }) {
   const storageKey = draftKey(plotId);
+  const previousKey = routePlotId !== plotId ? draftKey(routePlotId) : null;
   const navigate = useNavigate();
   const client = useQueryClient();
   const capabilities = useQuery({ queryKey: ['maintenance-capabilities'], queryFn: ({ signal }) => Api.maintenance.capabilities(signal).then(({ data }) => data) });
-  const garden = useQuery({ queryKey: ['plot', plotId], queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data) });
   const [draft, setDraft] = useState(() => {
-    try { const value = JSON.parse(window.sessionStorage.getItem(storageKey)); if (value?.submissionId) return value; } catch {}
-    return newMaintenanceDraft('');
+    return readMaintenanceDraft(storageKey) || readMaintenanceDraft(previousKey) || newMaintenanceDraft('');
   });
   const [storageError, setStorageError] = useState(false);
   const submitting = useRef(false);
   const persistDraft = useCallback((value) => {
-    try { window.sessionStorage.setItem(storageKey, JSON.stringify(value)); } catch { setStorageError(true); }
-  }, [storageKey]);
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(value));
+      clearMaintenanceDraft(previousKey, value.submissionId);
+    } catch { setStorageError(true); }
+  }, [previousKey, storageKey]);
   const mutation = useMutation({
     mutationFn: ({ payload }) => Api.maintenance.create(payload),
     onSuccess: (_response, { payload, gardenId }) => {
-      try {
-        const stored = JSON.parse(window.sessionStorage.getItem(storageKey));
-        if (stored?.submissionId === payload.submissionId) window.sessionStorage.removeItem(storageKey);
-      } catch {}
+      clearMaintenanceDraft(storageKey, payload.submissionId);
+      clearMaintenanceDraft(previousKey, payload.submissionId);
       client.resetQueries({ queryKey: ['maintenance', gardenId], exact: true });
     },
   });
