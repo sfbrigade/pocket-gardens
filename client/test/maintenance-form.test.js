@@ -209,6 +209,46 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.doesNotMatch(quick.container.textContent, /Add more details/);
   });
 
+  await t.test('a failed photo must be retried or removed before saving', async (t) => {
+    const plot = { id: 'recPlotFailedPhoto', stage: 'active' };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'visit.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => { throw new Error('Unavailable'); });
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'saved', ...payload } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, ''));
+    await view.change('Anything to add?', 'A note to save');
+    await view.upload();
+    await waitFor(() => assert.match(view.container.textContent, /Upload failed/));
+    assert.equal(view.button('Add this update').disabled, true);
+    await view.submit();
+    assert.equal(create.mock.calls.length, 0);
+    await view.click('Remove selected photo');
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+  });
+
+  await t.test('editing a note as a photo finishes keeps both changes', async (t) => {
+    const plot = { id: 'recPlotUploadRace', stage: 'active' };
+    const filename = 'visit.jpg';
+    const pending = Promise.withResolvers();
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename, url: '/upload', headers: {} } }));
+    const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'saved', ...payload } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, ''));
+    await view.upload();
+    await waitFor(() => assert.equal(upload.mock.calls.length, 1));
+    await interact(async () => {
+      pending.resolve({});
+      await new Promise((resolve) => setImmediate(resolve));
+      await view.change('Anything to add?', 'Typed during the upload');
+    });
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.deepEqual(create.mock.calls[0].arguments[0].photos, [{ upload: filename }]);
+    assert.equal(create.mock.calls[0].arguments[0].notes, 'Typed during the upload');
+  });
+
   await t.test('failed photo uploads still ask for reattachment after repeated refreshes', async (t) => {
     const plot = { id: 'recPlotInterruptedPhoto', stage: 'active' };
     const options = {
