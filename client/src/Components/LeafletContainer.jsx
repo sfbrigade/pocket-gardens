@@ -133,8 +133,8 @@ function NearbyGardens ({ position }) {
   );
 }
 
-function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot, mode, disabled, viewportSize, initialView, viewportPlotId }) {
-  const restoredView = useRef(initialView);
+function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot, mode, disabled, viewportSize, viewportPlotId }) {
+  const focusedPlotId = useRef(null);
   const [message, setMessage] = useState('');
   const [locating, setLocating] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
@@ -148,7 +148,6 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
     saveExploreView({ center: [point.lat, point.lng], zoom: map.getZoom(), plotId: viewportPlotId });
   }, [map, selectedPlot?.id, viewportPlotId]);
   useMapEvents({
-    dragstart: () => { restoredView.current = null; },
     moveend: persistView,
     dblclick: ({ latlng, originalEvent }) => {
       // Markers stop bubbling in Leaflet; also exclude controls and popup content.
@@ -191,9 +190,12 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
   useEffect(() => {
     const point = position ? [position.latitude, position.longitude] : selectedPlot ? [selectedPlot.Latitude, selectedPlot.Longitude] : null;
     if (point && point.every(Number.isFinite) && latLngBounds(SAN_FRANCISCO_BOUNDS).contains(point)) {
-      if (!restoredView.current || restoredView.current.plotId !== viewportPlotId) map.setView(point, 17);
-      restoredView.current = null;
-    }
+      if (!position && selectedPlot.id === focusedPlotId.current) return;
+      const view = !focusedPlotId.current && !position && readExploreView(viewportPlotId);
+      focusedPlotId.current = selectedPlot?.id ?? null;
+      if (view) map.setView(view.center, view.zoom, { animate: false });
+      else map.setView(point, 17);
+    } else focusedPlotId.current = null;
   }, [map, position?.latitude, position?.longitude, selectedPlot?.id]);
   useEffect(persistView, [persistView]);
   useEffect(() => {
@@ -244,11 +246,10 @@ function MapSelection ({ position, onPositionChange, onCreatePlot, selectedPlot,
 }
 
 function LeafletContainer ({ mode = 'explore', disabled = false, position, onPositionChange, onCreatePlot, selectedPlot, onSelectPlot, viewportSize, viewportPlotId }) {
-  const [restored] = useState(() => readExploreView(viewportPlotId));
   return (
     <MapContainer
-      center={restored?.center || [37.7749, -122.4194]}
-      zoom={restored?.zoom || 13}
+      center={[37.7749, -122.4194]}
+      zoom={13}
       // Picker views can unmount mid-zoom; Leaflet's zoom callback outlives the removed map.
       zoomAnimation={mode !== 'pick'}
       minZoom={13}
@@ -262,7 +263,7 @@ function LeafletContainer ({ mode = 'explore', disabled = false, position, onPos
         url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
       />
       <PlotMarkers selectedPlot={selectedPlot} onSelectPlot={onSelectPlot} />
-      <MapSelection mode={mode} disabled={disabled} position={position} onPositionChange={onPositionChange} onCreatePlot={onCreatePlot} selectedPlot={selectedPlot} viewportSize={viewportSize} initialView={restored} viewportPlotId={viewportPlotId} />
+      <MapSelection mode={mode} disabled={disabled} position={position} onPositionChange={onPositionChange} onCreatePlot={onCreatePlot} selectedPlot={selectedPlot} viewportSize={viewportSize} viewportPlotId={viewportPlotId} />
     </MapContainer>
   );
 }
