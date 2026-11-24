@@ -1,0 +1,8 @@
+{
+  "cron": [
+    {
+      "command": "npm run maintenance:cleanup-photos --workspace server",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

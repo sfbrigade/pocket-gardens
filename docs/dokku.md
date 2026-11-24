@@ -21,3 +21,7 @@ before applying the Better Auth migrations. Existing users are treated as verifi
 and sign in again using an email link, keeping their account IDs and roles. Deploy
 the server/client pair together; retained legacy columns do not synchronize
 post-cutover passwords or make an application-only rollback safe.
+
+### Maintenance photo cleanup
+
+The image includes `app.json`, which schedules maintenance photo cleanup every five minutes in a one-off container. After deploying the edit feature, use `dokku cron:list <app>` to confirm the task was registered. On staging, verify that pending erasures survive an app restart and that `dokku cron:run <app> <cron-id>` drains them once storage is available. The command exits nonzero when any erasures remain pending.

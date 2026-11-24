@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { assetExists, authenticate, build, upload } from '#test/helper.js';
 import s3 from '#lib/s3.js';
 import { cleanupMaintenancePhotos } from '#lib/maintenance-photos.js';
@@ -194,8 +197,9 @@ test('maintenance update workflows', async (t) => {
     assert.equal((await app.inject({ url: photo.url })).statusCode, 404);
     remove.mock.restore();
     await app.prisma.maintenanceRecord.update({ where: { id: saved.id }, data: { deletedAt: new Date() } });
-    const result = await cleanupMaintenancePhotos(app.prisma, app.log);
-    assert.equal(result.pending, 0);
+    const command = fileURLToPath(new URL('../../../bin/cleanup-maintenance-photos.js', import.meta.url));
+    const { stdout } = await promisify(execFile)(process.execPath, [command]);
+    assert.match(stdout, /Removed 1 photos; 0 pending/);
     assert.equal(await assetExists(key), false);
     assert.equal(await app.prisma.maintenanceRecordPhoto.count({ where: { id: photo.id } }), 0);
   });
