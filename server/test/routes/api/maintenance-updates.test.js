@@ -252,8 +252,8 @@ test('maintenance update workflows', async (t) => {
     t.mock.method(s3, 'deleteObject', async (key) => {
       if (key.includes(firstId)) throw new Error('Simulated storage outage for first photo');
     });
-    const result = await cleanupMaintenancePhotos(app.prisma, { warn () {} }, { limit: 1 });
-    assert.deepEqual(result, { removed: 1, pending: 1 });
+    const removed = await cleanupMaintenancePhotos(app.prisma, { warn () {} }, { limit: 1 });
+    assert.equal(removed, 1);
     assert.ok(await app.prisma.maintenanceRecordPhoto.findUnique({ where: { id: firstId } }));
     assert.equal(await app.prisma.maintenanceRecordPhoto.findUnique({ where: { id: secondId } }), null);
   });

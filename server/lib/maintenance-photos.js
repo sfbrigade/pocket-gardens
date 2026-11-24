@@ -55,5 +55,5 @@ export async function cleanupMaintenancePhotos (prisma, log, { recordId, limit =
     if (recordId || rows.length < limit) break;
     after = rows.at(-1).id;
   }
-  return { removed, pending: await prisma.maintenanceRecordPhoto.count({ where }) };
+  return removed;
 }
