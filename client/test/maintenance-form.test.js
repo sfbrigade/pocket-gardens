@@ -349,6 +349,23 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(payload.plants, undefined);
   });
 
+  await t.test('focusing an imported zero quantity does not correct it unintentionally', async (t) => {
+    const plot = { id: 'recPlotLegacyQuantity', stage: 'active' };
+    const record = { id: 'legacy-quantity', gardenId: plot.id, version: 1, date: null, activity: ['Planted'], observations: [], notes: 'Imported note', photos: [], plants: [{ id: 'legacy-row', plantId: 'poppy', name: 'Poppy', quantity: 0 }] };
+    const update = t.mock.method(Api.maintenance, 'update', async (_id, payload) => ({ data: { ...record, ...payload } }));
+    const view = await mount(t, {
+      initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`,
+      queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]],
+    });
+    await waitFor(() => assert.equal(view.field('Quantity for Poppy').value, '0'));
+    await interact(() => { view.field('Quantity for Poppy').focus(); view.field('Quantity for Poppy').blur(); });
+    assert.equal(view.field('Quantity for Poppy').value, '0');
+    await view.change('Anything to add?', 'Corrected note');
+    await view.click('Save changes');
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    assert.equal(update.mock.calls[0].arguments[1].plants, undefined);
+  });
+
   await t.test('community contributors cannot open the edit form for their updates', async (t) => {
     const plot = { id: 'recPlotAlpha', stage: 'active' };
     const record = { id: 'community-update', gardenId: plot.id, version: 1, date: null, activity: [], observations: [], photos: [], plants: [] };

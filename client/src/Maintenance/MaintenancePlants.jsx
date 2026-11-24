@@ -15,7 +15,16 @@ export default function MaintenancePlants ({ plants, onChange, disabled }) {
       {plants.map((plant, index) => (
         <Group key={plant.id || `${plant.plantId || 'new'}-${index}`} align='end'>
           <Text>{plant.label || plant.name || 'Plant name not recorded'}</Text>
-          <NumberInput label={`Quantity for ${plant.label || plant.name || `plant ${index + 1}`}`} min={1} max={2147483647} allowDecimal={false} disabled={disabled} value={plant.quantity ?? ''} onChange={(quantity) => onChange(plants.map((entry, i) => i === index ? { ...entry, quantity: quantity === '' ? undefined : quantity } : entry))} />
+          <NumberInput
+            label={`Quantity for ${plant.label || plant.name || `plant ${index + 1}`}`}
+            min={1}
+            max={2147483647}
+            clampBehavior='strict'
+            allowDecimal={false}
+            disabled={disabled}
+            value={plant.quantity ?? ''}
+            onChange={(quantity) => onChange(plants.map((entry, i) => i === index ? { ...entry, quantity } : entry))}
+          />
           <Button variant='subtle' color='red' disabled={disabled} onClick={() => onChange(plants.filter((_, i) => i !== index))}>Remove plant {index + 1}</Button>
         </Group>
       ))}
