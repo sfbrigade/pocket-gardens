@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import { createServer } from 'vite';
 
 export const draftStorageKey = 'pocket-gardens:plot-draft:v1';
+export const testAccount = 'maintenance-test-account';
 
 export async function interact (action) {
   await act(async () => { await action(); });
@@ -69,13 +70,14 @@ export async function setupPlotTests (t) {
   const { default: PhotoInput } = await vite.ssrLoadModule('/src/Components/PhotoInput.jsx');
   const { default: MaintenanceForm } = await vite.ssrLoadModule('/src/Maintenance/MaintenanceForm.jsx');
   const { default: Api } = await vite.ssrLoadModule('/src/Api.js');
+  const { authContext } = await vite.ssrLoadModule('/src/AuthContext.js');
   t.mock.method(Api.maintenance, 'capabilities', async () => ({ data: { canCreate: true, canManage: true, today: '2026-11-15', activities: ['Watered', 'Planted'], observations: ['Nothing stood out', 'Plants look dry'] } }));
   t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true, canAssignCarers: true } }));
   // Keep real modal portals so the plant form is outside the garden form in
   // the DOM. Disable animations, which are outside these interaction checks.
   const theme = { components: { Modal: { defaultProps: { transitionProps: { duration: 0 } } } } };
 
-  async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true, canAssignCarers = canCreatePlot } = {}) {
+  async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true, canAssignCarers = canCreatePlot, account = testAccount } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { gcTime: Infinity } } });
     client.setQueryData(['plots', 'capabilities'], { canCreatePlot, canAssignCarers });
     for (const [key, data] of queryData) client.setQueryData(key, data);
@@ -102,16 +104,17 @@ export async function setupPlotTests (t) {
     }
     await interact(() => root.render(h(QueryClientProvider, { client },
       h(MantineProvider, { theme },
-        h(ModalsProvider, null, h(UnheadProvider, { value: createHead() },
-          h(MemoryRouter, { initialEntries: [initialEntry] },
-            h(Location),
-            h(Routes, null,
-              h(Route, { path: '/plots/new', element: h(PlotForm) }),
-              h(Route, { path: '/plots/:plotId/updates/new', element: h(MaintenanceForm) }),
-              h(Route, { path: '/plots/:plotId/updates/:recordId/edit', element: h(MaintenanceForm) }),
-              h(Route, { path: '/photo-input', element: h(PhotoInput, { label: 'Profile photo' }) }),
-              showHome && h(Route, { path: '/plots/:plotId', element: h(Home) }),
-              h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') })))))))));
+        h(authContext.Provider, { value: { user: account ? { id: account } : null, isPending: false } },
+          h(ModalsProvider, null, h(UnheadProvider, { value: createHead() },
+            h(MemoryRouter, { initialEntries: [initialEntry] },
+              h(Location),
+              h(Routes, null,
+                h(Route, { path: '/plots/new', element: h(PlotForm) }),
+                h(Route, { path: '/plots/:plotId/updates/new', element: h(MaintenanceForm) }),
+                h(Route, { path: '/plots/:plotId/updates/:recordId/edit', element: h(MaintenanceForm) }),
+                h(Route, { path: '/photo-input', element: h(PhotoInput, { label: 'Profile photo' }) }),
+                showHome && h(Route, { path: '/plots/:plotId', element: h(Home) }),
+                h(Route, { path: '*', element: showHome ? h(Home) : h('div', null, 'Map or saved garden') }))))))))));
     const field = (label) => {
       const element = [...dom.window.document.querySelectorAll('label')].find((element) => element.textContent.replace(/\s*\*$/, '').trim() === label);
       const input = element && dom.window.document.getElementById(element.htmlFor);

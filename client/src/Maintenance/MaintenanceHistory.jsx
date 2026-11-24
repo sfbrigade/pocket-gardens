@@ -1,15 +1,17 @@
 import { Alert, Badge, Button, Card, Group, Image, Loader, Stack, Text, Title } from '@mantine/core';
 import { Link } from 'react-router';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import Api from '../Api';
 import DeleteMaintenanceUpdate from './DeleteMaintenanceUpdate';
+import { useMaintenanceCapabilities } from './maintenance-queries';
 
-export function recordDate (date) {
+function recordDate (date) {
   return date ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`)) : 'Date not recorded';
 }
 
 export default function MaintenanceHistory ({ plot }) {
-  const { data: capabilities } = useQuery({ queryKey: ['maintenance-capabilities'], queryFn: ({ signal }) => Api.maintenance.capabilities(signal).then(({ data }) => data) });
+  const { capabilities: access, authPending } = useMaintenanceCapabilities();
+  const capabilities = authPending ? undefined : access.data;
   const query = useInfiniteQuery({
     queryKey: ['maintenance', plot.id],
     queryFn: ({ signal, pageParam }) => Api.maintenance.index({ plotId: plot.id, offset: pageParam, pageSize: 20 }, signal),

@@ -8,6 +8,7 @@ import DraftRefreshGuard from '../Components/DraftRefreshGuard';
 import MaintenancePhotos from './MaintenancePhotos';
 import MaintenancePlants from './MaintenancePlants';
 import { clearMaintenanceDraft, draftKey, readMaintenanceDraft, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations, draftFromRecord, editMaintenancePayload, hasMaintenanceChanges } from './maintenance-draft';
+import { useMaintenanceCapabilities } from './maintenance-queries';
 
 function maintenanceRecordQuery (recordId) {
   return {
@@ -19,22 +20,29 @@ function maintenanceRecordQuery (recordId) {
 
 export default function MaintenanceForm () {
   const { plotId, recordId } = useParams();
+  const { account, authPending, capabilities } = useMaintenanceCapabilities();
   const garden = useQuery({ queryKey: ['plot', plotId], queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data) });
-  const record = useQuery({ ...maintenanceRecordQuery(recordId), enabled: !!recordId });
-  if (recordId && record.isPending) return <Container><Loader aria-label='Loading saved update' /></Container>;
-  if (garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
+  const record = useQuery({
+    ...maintenanceRecordQuery(recordId),
+    enabled: !!recordId && !authPending && !!capabilities.data?.canManage,
+  });
+  if (authPending || capabilities.isPending || garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
   if (!garden.data) return <Container><Alert color='red'>Unable to load this garden. <Button onClick={() => garden.refetch()}>Try again</Button></Alert></Container>;
+  if (!capabilities.data) return <Container><Alert color='red'>Unable to check update access. <Button onClick={() => capabilities.refetch()}>Try again</Button></Alert></Container>;
 
   const gardenId = garden.data.id;
-  const storageKey = draftKey(gardenId, recordId);
-  const previousKey = plotId !== gardenId ? draftKey(plotId, recordId) : null;
-  const composerKey = `${gardenId}:${recordId || 'new'}`;
+  const allowed = recordId ? capabilities.data.canManage : capabilities.data.canCreate;
+  if (!allowed) return <Container><Alert>{recordId ? 'Only administrators can edit updates.' : 'Sign in with a verified account to add an update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(gardenId)}?tab=updates`}>Back to garden</Button></Container>;
+  if (recordId && record.isPending) return <Container><Loader aria-label='Loading saved update' /></Container>;
+
+  const storageKey = draftKey(account, gardenId, recordId);
+  const previousKey = plotId !== gardenId ? draftKey(account, plotId, recordId) : null;
   const recordUnavailable = !!(recordId && record.isError && record.error.response?.status === 404);
   if (recordId && !record.data) {
-    if (recordUnavailable) return <UnavailableMaintenanceUpdate key={composerKey} plotId={gardenId} storageKey={storageKey} previousKey={previousKey} />;
+    if (recordUnavailable) return <UnavailableMaintenanceUpdate key={storageKey} plotId={gardenId} storageKey={storageKey} previousKey={previousKey} />;
     return <Container><Alert color='red'>Unable to load the saved update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(gardenId)}?tab=updates`}>Back to updates</Button></Container>;
   }
-  return <MaintenanceComposer key={composerKey} plotId={gardenId} garden={garden} recordId={recordId} initialRecord={recordId ? record.data : null} recordUnavailable={recordUnavailable} storageKey={storageKey} previousKey={previousKey} />;
+  return <MaintenanceComposer key={storageKey} plotId={gardenId} garden={garden} capabilities={capabilities} recordId={recordId} initialRecord={recordId ? record.data : null} recordUnavailable={recordUnavailable} storageKey={storageKey} previousKey={previousKey} />;
 }
 
 function UnavailableMaintenanceUpdate ({ plotId, storageKey, previousKey, currentDraft }) {
@@ -81,14 +89,13 @@ function UnavailableMaintenanceUpdate ({ plotId, storageKey, previousKey, curren
   );
 }
 
-function MaintenanceComposer ({ plotId, garden, recordId, initialRecord, recordUnavailable, storageKey, previousKey }) {
+function MaintenanceComposer ({ plotId, garden, capabilities, recordId, initialRecord, recordUnavailable, storageKey, previousKey }) {
   const editing = !!recordId;
   const draftModalId = useId();
   const navigate = useNavigate();
   const location = useLocation();
   const quickRequested = new URLSearchParams(location.search).get('quick') === 'photo';
   const client = useQueryClient();
-  const capabilities = useQuery({ queryKey: ['maintenance-capabilities'], queryFn: ({ signal }) => Api.maintenance.capabilities(signal).then(({ data }) => data) });
   const [draft, setDraft] = useState(() => {
     const restored = readMaintenanceDraft(storageKey) || readMaintenanceDraft(previousKey);
     if (restored) return restored;
@@ -232,10 +239,6 @@ function MaintenanceComposer ({ plotId, garden, recordId, initialRecord, recordU
       },
     });
   }
-  if (capabilities.isPending || garden.isPending) return <Container>{refreshGuard}<Loader aria-label='Loading update form' /></Container>;
-  if (capabilities.isError || garden.isError) return <Container>{refreshGuard}<Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
-  const canUseForm = editing ? capabilities.data.canManage : capabilities.data.canCreate;
-  if (!canUseForm) return <Container>{refreshGuard}<Alert>{editing ? 'Only administrators can edit updates.' : 'Sign in with a verified account to add an update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
   if (editing && initialRecord.gardenId !== plotId) return <Container><Alert>This update is no longer available in this garden.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
   if (editing && (deleted || recordUnavailable)) return <UnavailableMaintenanceUpdate plotId={plotId} storageKey={storageKey} previousKey={previousKey} currentDraft={draft} />;
   if (deleted) return <Container>{refreshGuard}<Alert>This update is no longer available in this garden.</Alert><Button variant='light' onClick={discard}>Discard local draft</Button><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
@@ -264,6 +267,7 @@ function MaintenanceComposer ({ plotId, garden, recordId, initialRecord, recordU
             </Alert>
           )}
           {storageError && <Alert color='yellow'>This browser could not store your draft. Make browser storage available and try saving again.</Alert>}
+          {(garden.isRefetchError || capabilities.isRefetchError) && <Alert color='yellow'>Unable to refresh the garden or update access. <Button variant='subtle' onClick={() => { if (garden.isRefetchError) garden.refetch(); if (capabilities.isRefetchError) capabilities.refetch(); }}>Retry refresh</Button></Alert>}
           <TextInput type='date' label='When did this happen?' required={!editing || !!draft.baseline.date} max={dateUnchanged ? undefined : capabilities.data.today} value={draft.date} disabled={locked} onChange={(event) => { const date = event.currentTarget.value; setDraft((draft) => ({ ...draft, date })); }} />
           {!quick && !paused && <Checkbox.Group label='What did you do?' value={draft.activity} onChange={(activity) => setDraft((draft) => ({ ...draft, activity }))}><Stack gap='xs'>{[...new Set([...capabilities.data.activities, ...draft.activity])].map((activity) => <Checkbox key={activity} label={activity} value={activity} disabled={locked} />)}</Stack></Checkbox.Group>}
           {!quick && !paused && (draft.activity.includes('Planted') || draft.plants.length > 0) && <MaintenancePlants plants={draft.plants} disabled={locked} onChange={(plants) => setDraft((draft) => ({ ...draft, plants }))} />}

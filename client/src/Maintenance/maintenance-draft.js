@@ -1,4 +1,4 @@
-export const draftKey = (plotId, recordId = 'new') => `pocket-gardens:maintenance:${plotId}:${recordId}`;
+export const draftKey = (account, plotId, recordId = 'new') => `pocket-gardens:maintenance:v2:${account}:${plotId}:${recordId}`;
 
 export function readMaintenanceDraft (key) {
   if (!key) return null;

@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
-import { draftFromRecord, draftKey, editMaintenancePayload } from '../src/Maintenance/maintenance-draft.js';
+import { interact, setupPlotTests, testAccount, waitFor } from './helpers/plot-harness.js';
+import { draftFromRecord, draftKey as accountDraftKey, editMaintenancePayload } from '../src/Maintenance/maintenance-draft.js';
+
+const draftKey = (plotId, recordId) => accountDraftKey(testAccount, plotId, recordId);
+const capabilityKey = ['maintenance-capabilities', testAccount];
 
 test('plant patches identify retained rows and omit their unchanged quantities', () => {
   const record = {
@@ -171,7 +174,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     const view = await mount(t, {
       initialEntry: `/plots/${internalId}/updates/new`,
       showHome: true,
-      queryData: [[['plot', internalId], plot], [['plot', plot.id], plot], [['maintenance-capabilities'], { ...capabilities, canManage: false }]],
+      queryData: [[['plot', internalId], plot], [['plot', plot.id], plot], [capabilityKey, { ...capabilities, canManage: false }]],
     });
     await waitFor(() => assert.equal(view.field('When did this happen?').value, '2026-11-15'));
     await view.change('Anything to add?', 'Watered before leaving');
@@ -374,7 +377,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     const capabilities = (await Api.maintenance.capabilities()).data;
     const view = await mount(t, {
       initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`,
-      queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record], [['maintenance-capabilities'], { ...capabilities, canManage: false }]],
+      queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record], [capabilityKey, { ...capabilities, canManage: false }]],
     });
     assert.match(view.container.textContent, /Only administrators can edit updates/);
     assert.equal(view.container.querySelector('form'), null);
@@ -572,6 +575,50 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.doesNotMatch(reopened.container.textContent, /My unsaved correction/));
     assert.equal(dom.window.sessionStorage.getItem(key), null);
     assert.equal(reopened.button('Back to updates').getAttribute('href'), `/plots/${plot.id}?tab=updates`);
+  });
+
+  await t.test('deleted edits are private to their original administrator', async (t) => {
+    const plot = { id: 'recPlotPrivateDraft', stage: 'active' };
+    const record = { id: 'private-edit', gardenId: plot.id, version: 1, activity: [], observations: [], photos: [], plants: [] };
+    const key = draftKey(plot.id, record.id);
+    const draft = { ...draftFromRecord(record), notes: 'Unpublished correction' };
+    dom.window.sessionStorage.setItem(key, JSON.stringify(draft));
+    const lookup = t.mock.method(Api.maintenance, 'get', async () => {
+      throw Object.assign(new Error('Deleted'), { response: { status: 404 } });
+    });
+    const options = {
+      initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`,
+      queryData: [[['plot', plot.id], plot]],
+    };
+    const signedOut = await mount(t, { ...options, account: null });
+    await waitFor(() => assert.match(signedOut.container.textContent, /Only administrators/));
+    assert.equal(lookup.mock.calls.length, 0);
+    assert.doesNotMatch(signedOut.container.textContent, /Unpublished correction|Discard local draft/);
+    await signedOut.unmount();
+    const otherAdmin = await mount(t, { ...options, account: 'another-admin' });
+    await waitFor(() => assert.match(otherAdmin.container.textContent, /no longer available/));
+    assert.doesNotMatch(otherAdmin.container.textContent, /Unpublished correction|Discard local draft/);
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(key)).notes, draft.notes);
+    await otherAdmin.unmount();
+    const owner = await mount(t, options);
+    await waitFor(() => assert.match(owner.container.textContent, /Unpublished correction/));
+  });
+
+  await t.test('a failed background refresh keeps the active photo upload mounted', async (t) => {
+    const plot = { id: 'recPlotBackgroundRefresh', stage: 'active' };
+    const pending = Promise.withResolvers();
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'photo.jpg', url: '/upload', headers: {} } }));
+    const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
+    t.mock.method(Api.plots, 'get', async () => { throw new Error('Temporary garden refresh failure'); });
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.ok(view.field('Anything to add?')));
+    await view.upload();
+    await waitFor(() => assert.equal(upload.mock.calls.length, 1));
+    await interact(() => view.client.invalidateQueries({ queryKey: ['plot', plot.id] }));
+    await waitFor(() => assert.ok(view.button('Retry refresh')));
+    assert.equal(upload.mock.calls[0].arguments[3].aborted, false);
+    await interact(() => pending.resolve({}));
+    await waitFor(() => assert.match(view.container.textContent, /Ready to save/));
   });
 
   await t.test('a deleted create attempt can be discarded and replaced with a new update', async (t) => {
