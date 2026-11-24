@@ -544,6 +544,36 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(update.mock.calls[1].arguments[1].version, 2);
   });
 
+  await t.test('a deleted edit remains recoverable and can be discarded after returning', async (t) => {
+    const plot = { id: 'recPlotDeletedEdit', stage: 'active' };
+    const record = { id: 'deleted-edit', gardenId: plot.id, version: 1, date: null, notes: 'Saved note', activity: [], observations: [], photos: [], plants: [] };
+    const deleted = Object.assign(new Error('Deleted'), { response: { status: 404 } });
+    t.mock.method(Api.maintenance, 'update', async () => { throw deleted; });
+    t.mock.method(Api.maintenance, 'get', async () => { throw deleted; });
+    const initialEntry = `/plots/${plot.id}/updates/${record.id}/edit`;
+    const key = draftKey(plot.id, record.id);
+    const plotQuery = [['plot', plot.id], plot];
+    const first = await mount(t, { initialEntry, queryData: [plotQuery, [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(first.field('Anything to add?').value, 'Saved note'));
+    await first.change('Anything to add?', 'My unsaved correction');
+    await first.click('Save changes');
+    await waitFor(() => assert.match(first.container.textContent, /Unsaved draft/));
+    assert.match(first.container.textContent, /My unsaved correction/);
+    assert.ok(first.button('Discard local draft'));
+    await first.unmount();
+
+    const reopened = await mount(t, { initialEntry, queryData: [plotQuery] });
+    await waitFor(() => assert.match(reopened.container.textContent, /My unsaved correction/));
+    await reopened.click('Discard local draft');
+    await reopened.click('Keep draft');
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(key)).notes, 'My unsaved correction');
+    await reopened.click('Discard local draft');
+    await reopened.click('Discard draft');
+    await waitFor(() => assert.doesNotMatch(reopened.container.textContent, /My unsaved correction/));
+    assert.equal(dom.window.sessionStorage.getItem(key), null);
+    assert.equal(reopened.button('Back to updates').getAttribute('href'), `/plots/${plot.id}?tab=updates`);
+  });
+
   await t.test('a deleted create attempt can be discarded and replaced with a new update', async (t) => {
     const plot = { id: 'recPlotDeletedAttempt', stage: 'active' };
     const create = t.mock.method(Api.maintenance, 'create', async (payload) => {

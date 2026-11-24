@@ -22,16 +22,67 @@ export default function MaintenanceForm () {
   const garden = useQuery({ queryKey: ['plot', plotId], queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data) });
   const record = useQuery({ ...maintenanceRecordQuery(recordId), enabled: !!recordId });
   if (recordId && record.isPending) return <Container><Loader aria-label='Loading saved update' /></Container>;
-  if (recordId && record.isError && (!record.data || record.error.response?.status === 404)) return <Container><Alert color='red'>{record.error.response?.status === 404 ? 'This update no longer exists.' : 'Unable to load the saved update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
   if (garden.isPending) return <Container><Loader aria-label='Loading update form' /></Container>;
   if (!garden.data) return <Container><Alert color='red'>Unable to load this garden. <Button onClick={() => garden.refetch()}>Try again</Button></Alert></Container>;
-  return <MaintenanceComposer key={`${garden.data.id}:${recordId || 'new'}`} plotId={garden.data.id} routePlotId={plotId} garden={garden} recordId={recordId} initialRecord={recordId ? record.data : null} />;
+
+  const gardenId = garden.data.id;
+  const storageKey = draftKey(gardenId, recordId);
+  const previousKey = plotId !== gardenId ? draftKey(plotId, recordId) : null;
+  const composerKey = `${gardenId}:${recordId || 'new'}`;
+  const recordUnavailable = !!(recordId && record.isError && record.error.response?.status === 404);
+  if (recordId && !record.data) {
+    if (recordUnavailable) return <UnavailableMaintenanceUpdate key={composerKey} plotId={gardenId} storageKey={storageKey} previousKey={previousKey} />;
+    return <Container><Alert color='red'>Unable to load the saved update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(gardenId)}?tab=updates`}>Back to updates</Button></Container>;
+  }
+  return <MaintenanceComposer key={composerKey} plotId={gardenId} garden={garden} recordId={recordId} initialRecord={recordId ? record.data : null} recordUnavailable={recordUnavailable} storageKey={storageKey} previousKey={previousKey} />;
 }
 
-function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRecord }) {
+function UnavailableMaintenanceUpdate ({ plotId, storageKey, previousKey, currentDraft }) {
+  const [draft, setDraft] = useState(() => currentDraft ?? readMaintenanceDraft(storageKey) ?? readMaintenanceDraft(previousKey));
+  const modalId = useId();
+  useEffect(() => () => modals.close(modalId), [modalId]);
+
+  function discard () {
+    modals.openConfirmModal({
+      modalId,
+      title: 'Discard this local draft?',
+      labels: { confirm: 'Discard draft', cancel: 'Keep draft' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => {
+        clearMaintenanceDraft(storageKey, draft.submissionId);
+        clearMaintenanceDraft(previousKey, draft.submissionId);
+        setDraft(null);
+      },
+    });
+  }
+
+  return (
+    <Container size='sm'>
+      <Stack>
+        <Alert>This update is no longer available in this garden.</Alert>
+        {draft && hasMaintenanceChanges(draft) && (
+          <Stack gap='xs'>
+            <DraftRefreshGuard />
+            <Title order={2}>Unsaved draft</Title>
+            <Text>Copy any details you want to keep.</Text>
+            {draft.date && <Text>Visit date {draft.date}</Text>}
+            {!!draft.activity.length && <Text>{draft.activity.join(', ')}</Text>}
+            {!!draft.observations.length && <Text>{draft.observations.join(', ')}</Text>}
+            {draft.notes && <Text style={{ whiteSpace: 'pre-wrap' }}>{draft.notes}</Text>}
+            {draft.plants.map((plant, index) => (
+              <Text key={index}>{plant.label || plant.name || plant.newPlant?.plantName}{plant.quantity ? ` × ${plant.quantity}` : ''}</Text>
+            ))}
+            <Button variant='light' color='red' onClick={discard}>Discard local draft</Button>
+          </Stack>
+        )}
+        <Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button>
+      </Stack>
+    </Container>
+  );
+}
+
+function MaintenanceComposer ({ plotId, garden, recordId, initialRecord, recordUnavailable, storageKey, previousKey }) {
   const editing = !!recordId;
-  const storageKey = draftKey(plotId, recordId);
-  const previousKey = routePlotId !== plotId ? draftKey(routePlotId, recordId) : null;
   const draftModalId = useId();
   const navigate = useNavigate();
   const location = useLocation();
@@ -82,7 +133,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   useEffect(() => () => modals.close(draftModalId), [draftModalId]);
   useEffect(() => { if (!editing && !draft.date && capabilities.data) setDraft((value) => ({ ...value, date: capabilities.data.today })); }, [capabilities.data, draft.date, editing]);
   useEffect(() => {
-    if (saved) return;
+    if (saved || (editing && (deleted || recordUnavailable))) return;
     if (editing && !hasDraftContent) {
       clearMaintenanceDraft(storageKey, draft.submissionId);
       clearMaintenanceDraft(previousKey, draft.submissionId);
@@ -92,7 +143,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
       return;
     }
     persistDraft({ ...draft, uploadsPending });
-  }, [draft, editing, hasDraftContent, initialRecord, persistDraft, previousKey, saved, storageKey, uploadsPending]);
+  }, [deleted, draft, editing, hasDraftContent, initialRecord, persistDraft, previousKey, recordUnavailable, saved, storageKey, uploadsPending]);
 
   function submit (event) {
     event.preventDefault();
@@ -185,7 +236,9 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   if (capabilities.isError || garden.isError) return <Container>{refreshGuard}<Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
   const canUseForm = editing ? capabilities.data.canManage : capabilities.data.canCreate;
   if (!canUseForm) return <Container>{refreshGuard}<Alert>{editing ? 'Only administrators can edit updates.' : 'Sign in with a verified account to add an update.'}</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
-  if (deleted || (editing && initialRecord.gardenId !== garden.data.id)) return <Container>{refreshGuard}<Alert>This update is no longer available in this garden.</Alert>{deleted && !editing && <Button variant='light' onClick={discard}>Discard local draft</Button>}<Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
+  if (editing && initialRecord.gardenId !== plotId) return <Container><Alert>This update is no longer available in this garden.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
+  if (editing && (deleted || recordUnavailable)) return <UnavailableMaintenanceUpdate plotId={plotId} storageKey={storageKey} previousKey={previousKey} currentDraft={draft} />;
+  if (deleted) return <Container>{refreshGuard}<Alert>This update is no longer available in this garden.</Alert><Button variant='light' onClick={discard}>Discard local draft</Button><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button></Container>;
   if (saved) return <Container size='sm'><Stack><Title order={2}>{editing ? 'Update corrected' : 'Update saved'}</Title><Text>Saved to this garden’s history.</Text>{saved.cleanupPending && <Alert color='yellow'>The edit is saved. Permanent photo erasure is pending and will be retried.</Alert>}<Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Text>{saved.photos?.length || 0} photos attached to this update.</Text>{saved.plants?.map((plant) => <Text key={plant.plantId}>{plant.name}{plant.quantity == null ? '' : ` × ${plant.quantity}`}</Text>)}<Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { if (editing) navigate(`/plots/${encodeURIComponent(plotId)}/updates/new`); else { mutation.reset(); setDraft(newMaintenanceDraft(capabilities.data.today)); } }}>Add another update</Button></Stack></Container>;
   const locked = saving || reloading || !!draft.attempt;
   const paused = !editing && garden.data.stage === 'paused';
