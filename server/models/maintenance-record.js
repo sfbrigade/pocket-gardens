@@ -3,16 +3,10 @@ import { errorCodes } from 'fastify';
 import { z } from 'zod';
 
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
+import { ExistingPhotoSchema, NewPhotoSchema, uniquePhotos } from '#lib/upload-policy.js';
 import MaintenanceRecordPhoto from '#models/maintenance-record-photo.js';
 
 const DateSchema = z.iso.date({ error: 'Invalid date' });
-
-const UploadSchema = z.string().regex(
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i,
-  'Invalid upload filename'
-);
-const NewPhotoSchema = z.strictObject({ upload: UploadSchema });
-const ExistingPhotoSchema = z.strictObject({ id: z.string().uuid() });
 
 const ActivitySchema = z.array(z.string().trim().min(1)).min(1).superRefine((activities, ctx) => {
   const seen = new Set();
@@ -38,19 +32,6 @@ const PlantsInputSchema = z.array(PlantInputSchema).superRefine((plants, ctx) =>
     seen.add(plantId);
   });
 });
-
-function uniquePhotos (schema) {
-  return z.array(schema).superRefine((photos, ctx) => {
-    const seen = new Set();
-    photos.forEach((photo, index) => {
-      const key = photo.id ?? photo.upload;
-      if (seen.has(key)) {
-        ctx.addIssue({ code: 'custom', message: 'Duplicate photo', path: [index] });
-      }
-      seen.add(key);
-    });
-  });
-}
 
 export const MaintenanceRecordPhotoSchema = z.strictObject({
   id: z.string().uuid(),
@@ -280,13 +261,14 @@ export async function syncMaintenanceRecordPlants (tx, recordId, plants) {
   }
 }
 
-export async function syncMaintenanceRecordPhotos (tx, recordId, photos) {
+export async function syncMaintenanceRecordPhotos (tx, recordId, photos, assetOptions) {
   const handlers = await syncPhotos({
     delegate: tx.maintenanceRecordPhoto,
     PhotoClass: MaintenanceRecordPhoto,
     parentFk: 'maintenanceRecordId',
     parentId: recordId,
     photos,
+    assetOptions,
   });
   await runPhotoHandlers(handlers);
 }

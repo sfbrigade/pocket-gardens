@@ -1,28 +1,10 @@
 import { z } from 'zod';
 
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
+import { ExistingPhotoSchema, NewPhotoSchema, uniquePhotos } from '#lib/upload-policy.js';
 import PlantPhoto from '#models/plant-photo.js';
 
 const NameSchema = z.string().trim().min(1);
-const UploadSchema = z.string().regex(
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i,
-  'Invalid upload filename'
-);
-const NewPhotoSchema = z.strictObject({ upload: UploadSchema });
-const ExistingPhotoSchema = z.strictObject({ id: z.string().uuid() });
-
-function uniquePhotos (schema) {
-  return z.array(schema).superRefine((photos, ctx) => {
-    const seen = new Set();
-    photos.forEach((photo, index) => {
-      const key = photo.id ?? photo.upload;
-      if (seen.has(key)) {
-        ctx.addIssue({ code: 'custom', message: 'Duplicate photo', path: [index] });
-      }
-      seen.add(key);
-    });
-  });
-}
 
 export const PlantPhotoSchema = z.strictObject({
   id: z.string().uuid(),

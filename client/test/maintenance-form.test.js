@@ -175,4 +175,98 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await waitFor(() => assert.match(view.container.textContent, /Watered before leaving/));
     assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
   });
+
+  await t.test('quick photo saves one photo and can expand into the same detailed draft', async (t) => {
+    const plot = { id: 'recPlotPhoto', stage: 'active', 'Pocket Garden Name': 'Photo garden' };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: '55555555-aaaa-4555-8555-555555555555.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => ({}));
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'photo-save', ...payload } }));
+    const view = await mount(t, { initialEntry: '/plots/recPlotPhoto/updates/new?quick=photo', queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.match(view.container.textContent, /Take or choose photos/));
+    await view.upload();
+    await waitFor(() => assert.match(view.container.textContent, /Ready to save/));
+    await view.click('Add more details');
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, ''));
+    await view.change('Anything to add?', 'New growth');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.deepEqual(create.mock.calls[0].arguments[0].photos, [{ upload: '55555555-aaaa-4555-8555-555555555555.jpg' }]);
+    assert.equal(create.mock.calls[0].arguments[0].notes, 'New growth');
+  });
+
+  await t.test('the photo shortcut shows recovered details before submitting', async (t) => {
+    const plot = { id: 'recPlotQuickDraft', stage: 'active' };
+    const options = {
+      initialEntry: `/plots/${plot.id}/updates/new`,
+      queryData: [[['plot', plot.id], plot]],
+    };
+    const first = await mount(t, options);
+    await waitFor(() => first.field('Anything to add?'));
+    await first.change('Anything to add?', 'Keep this note visible');
+    await first.unmount();
+    const quick = await mount(t, { ...options, initialEntry: `${options.initialEntry}?quick=photo` });
+    await waitFor(() => assert.equal(quick.field('Anything to add?').value, 'Keep this note visible'));
+    assert.doesNotMatch(quick.container.textContent, /Add more details/);
+  });
+
+  await t.test('a failed photo must be retried or removed before saving', async (t) => {
+    const plot = { id: 'recPlotFailedPhoto', stage: 'active' };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'visit.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => { throw new Error('Unavailable'); });
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'saved', ...payload } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, ''));
+    await view.change('Anything to add?', 'A note to save');
+    await view.upload();
+    await waitFor(() => assert.match(view.container.textContent, /Upload failed/));
+    assert.equal(view.button('Add this update').disabled, true);
+    await view.submit();
+    assert.equal(create.mock.calls.length, 0);
+    await view.click('Remove selected photo');
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+  });
+
+  await t.test('editing a note as a photo finishes keeps both changes', async (t) => {
+    const plot = { id: 'recPlotUploadRace', stage: 'active' };
+    const filename = 'visit.jpg';
+    const pending = Promise.withResolvers();
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename, url: '/upload', headers: {} } }));
+    const upload = t.mock.method(Api.assets, 'upload', () => pending.promise);
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { id: 'saved', ...payload } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, ''));
+    await view.upload();
+    await waitFor(() => assert.equal(upload.mock.calls.length, 1));
+    await interact(async () => {
+      pending.resolve({});
+      await new Promise((resolve) => setImmediate(resolve));
+      await view.change('Anything to add?', 'Typed during the upload');
+    });
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.deepEqual(create.mock.calls[0].arguments[0].photos, [{ upload: filename }]);
+    assert.equal(create.mock.calls[0].arguments[0].notes, 'Typed during the upload');
+  });
+
+  await t.test('failed photo uploads still ask for reattachment after repeated refreshes', async (t) => {
+    const plot = { id: 'recPlotInterruptedPhoto', stage: 'active' };
+    const options = {
+      initialEntry: `/plots/${plot.id}/updates/new?quick=photo`,
+      queryData: [[['plot', plot.id], plot]],
+    };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'photo.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => { throw new Error('Unavailable'); });
+    const first = await mount(t, options);
+    await waitFor(() => assert.match(first.container.textContent, /Take or choose photos/));
+    await first.upload();
+    await waitFor(() => assert.match(first.container.textContent, /Upload failed/));
+    await first.unmount();
+
+    for (let refresh = 0; refresh < 2; refresh += 1) {
+      const restored = await mount(t, options);
+      await waitFor(() => assert.match(restored.container.textContent, /Reattach unfinished photos/));
+      await restored.unmount();
+    }
+  });
 });
