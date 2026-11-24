@@ -7,7 +7,7 @@ import Api from '../Api';
 import DraftRefreshGuard from '../Components/DraftRefreshGuard';
 import MaintenancePhotos from './MaintenancePhotos';
 import MaintenancePlants from './MaintenancePlants';
-import { clearMaintenanceDraft, draftKey, readMaintenanceDraft, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations, draftFromRecord, editMaintenancePayload } from './maintenance-draft';
+import { clearMaintenanceDraft, draftKey, readMaintenanceDraft, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations, draftFromRecord, editMaintenancePayload, hasMaintenanceChanges } from './maintenance-draft';
 
 function maintenanceRecordQuery (recordId) {
   return {
@@ -46,7 +46,9 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   const [{ busy: photoBusy, failed: photoFailed }, setUploadState] = useState({ busy: false, failed: false });
   const quick = quickRequested && !(draft.notes || draft.activity.length || draft.observations.length || draft.plants.length);
   const uploadsPending = !!draft.uploadsPending || photoBusy || photoFailed;
-  const hasDraftContent = !!(draft.attempt || draft.notes || draft.activity.length || draft.observations.length || draft.photos.length || draft.plants.length || uploadsPending);
+  const hasDraftContent = editing
+    ? uploadsPending || hasMaintenanceChanges(draft)
+    : !!(draft.attempt || draft.notes || draft.activity.length || draft.observations.length || draft.photos.length || draft.plants.length || uploadsPending);
   const [formError, setFormError] = useState('');
   const [conflicted, setConflicted] = useState(false);
   const [reloading, setReloading] = useState(false);
@@ -81,8 +83,16 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
   useEffect(() => { if (!editing && !draft.date && capabilities.data) setDraft((value) => ({ ...value, date: capabilities.data.today })); }, [capabilities.data, draft.date, editing]);
   useEffect(() => {
     if (saved) return;
+    if (editing && !hasDraftContent) {
+      clearMaintenanceDraft(storageKey, draft.submissionId);
+      clearMaintenanceDraft(previousKey, draft.submissionId);
+      if (draft.version !== initialRecord.version) {
+        setDraft((current) => current === draft ? draftFromRecord(initialRecord) : current);
+      }
+      return;
+    }
     persistDraft({ ...draft, uploadsPending });
-  }, [draft, persistDraft, saved, uploadsPending]);
+  }, [draft, editing, hasDraftContent, initialRecord, persistDraft, previousKey, saved, storageKey, uploadsPending]);
 
   function submit (event) {
     event.preventDefault();
@@ -131,6 +141,8 @@ function MaintenanceComposer ({ plotId, routePlotId, garden, recordId, initialRe
     setReloading(true);
     try {
       const record = await client.fetchQuery({ ...maintenanceRecordQuery(recordId), staleTime: 0 });
+      clearMaintenanceDraft(storageKey, draft.submissionId);
+      clearMaintenanceDraft(previousKey, draft.submissionId);
       setDraft(draftFromRecord(record));
       setConflicted(false);
       mutation.reset();

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
-import { draftKey } from '../src/Maintenance/maintenance-draft.js';
+import { draftFromRecord, draftKey } from '../src/Maintenance/maintenance-draft.js';
 
 test('maintenance composer recovers interrupted saves', async (t) => {
   const { Api, dom, mount } = await setupPlotTests(t);
@@ -287,6 +287,34 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.deepEqual(create.mock.calls[0].arguments[0].plants, [{ plantId, quantity: 2 }]);
   });
 
+  await t.test('untouched edits follow the latest version and only changed drafts are restored', async (t) => {
+    const plot = { id: 'recPlotFreshEdit', stage: 'active' };
+    const record = { id: 'fresh-edit', gardenId: plot.id, version: 1, date: null, notes: 'First version', activity: [], observations: [], photos: [], plants: [] };
+    const key = draftKey(plot.id, record.id);
+    const queryKey = ['maintenance-record', record.id];
+    const initialEntry = `/plots/${plot.id}/updates/${record.id}/edit`;
+    dom.window.sessionStorage.setItem(key, JSON.stringify(draftFromRecord(record)));
+
+    const later = { ...record, version: 2, notes: 'Second version' };
+    const view = await mount(t, { initialEntry, queryData: [[['plot', plot.id], plot], [queryKey, later]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, later.notes));
+    assert.equal(dom.window.sessionStorage.getItem(key), null);
+    const third = { ...later, version: 3, notes: 'Third version' };
+    await interact(() => view.client.setQueryData(queryKey, third));
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, third.notes));
+    assert.equal(dom.window.sessionStorage.getItem(key), null);
+
+    await view.change('When did this happen?', '2026-11-09');
+    assert.equal(dom.window.dispatchEvent(new dom.window.Event('beforeunload', { cancelable: true })), false);
+    const fourth = { ...third, version: 4, notes: 'Fourth version' };
+    await interact(() => view.client.setQueryData(queryKey, fourth));
+    assert.equal(view.field('Anything to add?').value, third.notes);
+    await view.unmount();
+    const restored = await mount(t, { initialEntry, queryData: [[['plot', plot.id], plot], [queryKey, fourth]] });
+    await waitFor(() => assert.equal(restored.field('When did this happen?').value, '2026-11-09'));
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(key)).version, third.version);
+  });
+
   await t.test('legacy edits submit only changed fields and preserve the undated record', async (t) => {
     const plot = { id: 'recPlotLegacy', stage: 'archived' };
     const record = { id: 'legacy', gardenId: plot.id, version: 1, date: null, notes: null, activity: [], observations: [], photos: [], plants: [] };
@@ -366,6 +394,7 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await view.click('Load latest update');
     await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Latest saved note'));
     assert.doesNotMatch(view.container.textContent, /Changed by another editor/);
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id, record.id)), null);
   });
 
   await t.test('an unlinked imported update cannot be edited under another garden', async (t) => {

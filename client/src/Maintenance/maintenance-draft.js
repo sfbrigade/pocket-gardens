@@ -45,9 +45,16 @@ export function draftFromRecord (record) {
   return { ...draft, baseline: editableMaintenanceFields(draft) };
 }
 
+function maintenanceChanges (draft) {
+  return Object.entries(editableMaintenanceFields(draft)).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(draft.baseline[key]));
+}
+
+export function hasMaintenanceChanges (draft) {
+  return Boolean(draft.attempt || draft.uploadsPending) || maintenanceChanges(draft).length > 0;
+}
+
 export function editMaintenancePayload (draft) {
-  const changes = Object.fromEntries(Object.entries(editableMaintenanceFields(draft)).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(draft.baseline[key])));
-  return { version: draft.version, mutationId: crypto.randomUUID(), ...changes };
+  return { version: draft.version, mutationId: crypto.randomUUID(), ...Object.fromEntries(maintenanceChanges(draft)) };
 }
 
 export function maintenanceError (error) {
