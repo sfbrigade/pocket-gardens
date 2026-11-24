@@ -161,6 +161,32 @@ test('maintenance update workflows', async (t) => {
     assert.deepEqual(response.json().activity, []);
   });
 
+  await t.test('plant edits preserve repeated imported rows and quantities that were not changed', async () => {
+    const recordId = 'c1111111-1111-4111-8111-111111111111';
+    const plantId = 'a1111111-1111-4111-8111-111111111111';
+    const zero = await app.prisma.maintenanceRecordPlant.create({
+      data: { maintenanceRecordId: recordId, plantId, slot: 3, quantity: 0 },
+    });
+    const before = (await app.inject({ url: `/api/maintenance-records/${recordId}` })).json();
+    const retained = before.plants.map(({ id }) => ({ id }));
+    const payload = { version: before.version, mutationId: crypto.randomUUID() };
+    assert.equal((await edit(recordId, { ...payload, plants: [{ id: crypto.randomUUID() }] })).statusCode, 422);
+    assert.equal((await edit(recordId, { ...payload, plants: [...retained, { plantId }] })).statusCode, 422);
+
+    const response = await edit(recordId, { ...payload, plants: [...retained, { newPlant: { plantName: 'New legacy companion' } }] });
+    assert.equal(response.statusCode, 200, response.payload);
+    const saved = response.json();
+    assert.deepEqual(saved.plants.slice(0, retained.length), before.plants);
+    assert.equal(saved.plants.at(-1).name, 'New legacy companion');
+    const changed = await edit(recordId, {
+      version: saved.version,
+      mutationId: crypto.randomUUID(),
+      plants: saved.plants.map(({ id }) => id === zero.id ? { id, quantity: null } : { id }),
+    });
+    assert.equal(changed.statusCode, 200, changed.payload);
+    assert.equal(changed.json().plants.find(({ id }) => id === zero.id).quantity, null);
+  });
+
   await t.test('edits replay their own result and detect stale or concurrently superseded changes', async () => {
     const payload = draft();
     const saved = (await create(payload)).json();

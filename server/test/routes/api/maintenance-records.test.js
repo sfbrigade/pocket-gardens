@@ -79,8 +79,8 @@ test('/api/maintenance-records', async (t) => {
       'c4444444-4444-4444-8444-444444444444',
     ]);
     assert.deepStrictEqual(data[0].plants, [
-      { plantId: PLANT_ALPHA_ID, quantity: 4, name: 'California Poppy' },
-      { plantId: PLANT_BETA_ID, quantity: 2, name: 'Lavender' },
+      { id: 'd2222222-2222-4222-8222-222222222222', plantId: PLANT_ALPHA_ID, quantity: 4, name: 'California Poppy' },
+      { id: 'd1111111-1111-4111-8111-111111111111', plantId: PLANT_BETA_ID, quantity: 2, name: 'Lavender' },
     ]);
     assert.deepStrictEqual(data[0].photos, []);
     assert.strictEqual(data[0].cleanupPending, undefined);
@@ -243,7 +243,7 @@ test('/api/maintenance-records', async (t) => {
     const data = JSON.parse(response.payload);
     assert.strictEqual(data.date, '2026-09-02');
     assert.strictEqual(data.notes, 'New growth');
-    assert.deepStrictEqual(data.plants, [
+    assert.deepStrictEqual(data.plants.map(({ id, ...plant }) => plant), [
       { plantId: PLANT_BETA_ID, quantity: 2, name: 'Lavender' },
       { plantId: PLANT_ALPHA_ID, quantity: null, name: 'California Poppy' },
     ]);
@@ -255,6 +255,7 @@ test('/api/maintenance-records', async (t) => {
     });
     assert.match(row.airtableId, /^pg_[0-9a-f-]{36}$/);
     assert.deepStrictEqual(row.plants.map(({ slot }) => slot), [1, 2]);
+    assert.deepStrictEqual(data.plants.map(({ id }) => id), row.plants.map(({ id }) => id));
     assert.ok(await assetExists(path.join(
       'maintenance_record_photos', row.photos[0].id, 'file', filename
     )));
@@ -330,7 +331,7 @@ test('/api/maintenance-records', async (t) => {
     assert.strictEqual(data.notes, null);
     assert.strictEqual(data.estNextVisit, null);
     assert.strictEqual(data.volunteerId, PERSON_ALPHA_ID);
-    assert.deepStrictEqual(data.plants, [{ plantId: PLANT_BETA_ID, quantity: 5, name: 'Lavender' }]);
+    assert.deepStrictEqual(data.plants.map(({ id, ...plant }) => plant), [{ plantId: PLANT_BETA_ID, quantity: 5, name: 'Lavender' }]);
 
     const oldUpdatedAt = new Date('2000-01-01T00:00:00.000Z');
     await prisma.maintenanceRecord.update({

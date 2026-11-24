@@ -1,7 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
-import { draftFromRecord, draftKey } from '../src/Maintenance/maintenance-draft.js';
+import { draftFromRecord, draftKey, editMaintenancePayload } from '../src/Maintenance/maintenance-draft.js';
+
+test('plant patches identify retained rows and omit their unchanged quantities', () => {
+  const record = {
+    version: 1,
+    activity: ['Planted'],
+    observations: [],
+    photos: [],
+    plants: [{ id: 'first-row', plantId: 'poppy', quantity: 0 }, { id: 'second-row', plantId: 'poppy', quantity: 2 }],
+  };
+  const draft = draftFromRecord(record);
+  assert.equal(editMaintenancePayload(draft).plants, undefined);
+  draft.plants = [draft.plants[0], { ...draft.plants[1], quantity: '' }, { plantId: 'yarrow', quantity: 3 }];
+  assert.deepEqual(editMaintenancePayload(draft).plants, [
+    { id: 'first-row' }, { id: 'second-row', quantity: null }, { plantId: 'yarrow', quantity: 3 },
+  ]);
+});
 
 test('maintenance composer recovers interrupted saves', async (t) => {
   const { Api, dom, mount } = await setupPlotTests(t);

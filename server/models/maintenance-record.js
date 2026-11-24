@@ -8,23 +8,29 @@ import { ExistingPhotoSchema, NewPhotoSchema, uniquePhotos } from '#lib/upload-p
 import MaintenanceRecordPhoto from '#models/maintenance-record-photo.js';
 
 const DateSchema = z.iso.date({ error: 'Invalid date' });
+const PlantQuantitySchema = z.number().int().positive().max(2147483647);
 
 const PlantInputSchema = z.strictObject({
   plantId: z.string().uuid().optional(),
   newPlant: PlantCreateFieldsSchema.pick({ plantName: true, commonName: true, latinName: true }).optional(),
-  quantity: z.number().int().positive().max(2147483647).optional(),
+  quantity: PlantQuantitySchema.optional(),
 }).refine(({ plantId, newPlant }) => !!plantId !== !!newPlant, 'Select an existing plant or explicitly add a new plant');
 
-const PlantsInputSchema = z.array(PlantInputSchema).superRefine((plants, ctx) => {
-  const seen = new Set();
-  plants.forEach((entry, index) => {
-    const key = entry.plantId || JSON.stringify(entry.newPlant);
-    if (seen.has(key)) {
-      ctx.addIssue({ code: 'custom', message: 'Duplicate plant', path: [index] });
-    }
-    seen.add(key);
-  });
+const ExistingPlantRowSchema = z.strictObject({
+  id: z.string().uuid(),
+  quantity: PlantQuantitySchema.nullable().optional(),
 });
+
+function distinctPlantEntries (schema) {
+  return z.array(schema).superRefine((plants, ctx) => {
+    const seen = new Set();
+    plants.forEach((entry, index) => {
+      const key = entry.id ? `row:${entry.id}` : entry.plantId || JSON.stringify(entry.newPlant);
+      if (seen.has(key)) ctx.addIssue({ code: 'custom', message: 'Duplicate plant', path: [index] });
+      seen.add(key);
+    });
+  });
+}
 
 export const MaintenanceRecordPhotoSchema = z.strictObject({
   id: z.string().uuid(),
@@ -32,6 +38,7 @@ export const MaintenanceRecordPhotoSchema = z.strictObject({
 });
 
 export const MaintenanceRecordPlantSchema = z.strictObject({
+  id: z.string().uuid(),
   plantId: z.string().uuid(),
   name: z.string().nullable(),
   quantity: z.number().int().nullable(),
@@ -68,7 +75,7 @@ export const MaintenanceRecordCreateSchema = z.strictObject({
   notes: z.string().nullable().optional(),
   planting: z.string().nullable().optional(),
   estNextVisit: DateSchema.nullable().optional(),
-  plants: PlantsInputSchema.optional(),
+  plants: distinctPlantEntries(PlantInputSchema).optional(),
   photos: uniquePhotos(NewPhotoSchema).max(4).optional(),
 }).superRefine((body, ctx) => {
   for (const field of ['activity', 'observations']) {
@@ -91,7 +98,7 @@ export const MaintenanceRecordUpdateSchema = z.strictObject({
   notes: z.string().nullable().optional(),
   planting: z.string().nullable().optional(),
   estNextVisit: DateSchema.nullable().optional(),
-  plants: PlantsInputSchema.optional(),
+  plants: distinctPlantEntries(z.union([ExistingPlantRowSchema, PlantInputSchema])).optional(),
   photos: uniquePhotos(z.union([ExistingPhotoSchema, NewPhotoSchema])).optional(),
 }).refine((body) => Object.keys(body).some((key) => !['version', 'mutationId'].includes(key)), {
   message: 'At least one changed field is required', path: ['body'],
@@ -139,7 +146,7 @@ export const MAINTENANCE_RECORD_SELECT = {
   },
   plants: {
     orderBy: { slot: 'asc' },
-    select: { plantId: true, quantity: true, plant: { select: { plantName: true, commonName: true, latinName: true } } },
+    select: { id: true, plantId: true, quantity: true, plant: { select: { plantName: true, commonName: true, latinName: true } } },
   },
 };
 
@@ -176,7 +183,7 @@ export function formatMaintenanceRecord (record) {
     plotName: record.plot?.name ?? null,
     plotStreetAddress: record.plot?.streetAddress ?? null,
     volunteerId: record.volunteerId,
-    plants: record.plants.map(({ plantId, quantity, plant }) => ({ plantId, quantity, name: plant?.plantName || plant?.commonName || plant?.latinName || null })),
+    plants: record.plants.map(({ id, plantId, quantity, plant }) => ({ id, plantId, quantity, name: plant?.plantName || plant?.commonName || plant?.latinName || null })),
     photos: record.photos.flatMap((row) => {
       const url = new MaintenanceRecordPhoto(row).fileUrl;
       return url ? [{ id: row.id, url }] : [];
@@ -228,13 +235,30 @@ export async function validateMaintenanceRecordLinks (tx, body, recordId) {
   }
 }
 
-export async function syncMaintenanceRecordPlants (tx, recordId, plants) {
-  await tx.maintenanceRecordPlant.deleteMany({ where: { maintenanceRecordId: recordId } });
+export async function syncMaintenanceRecordPlants (tx, recordId, plants, existing = []) {
+  const existingById = new Map(existing.map((row) => [row.id, row]));
+  const retainedPlantIds = new Set();
+  for (const { id } of plants) {
+    if (!id) continue;
+    const row = existingById.get(id);
+    if (!row) throw invalidLink('plants', 'Plant row does not belong to this maintenance record');
+    retainedPlantIds.add(row.plantId);
+  }
+
   const rows = [];
   for (const [index, entry] of plants.entries()) {
+    const slot = index + 1;
+    if (entry.id) {
+      const row = existingById.get(entry.id);
+      const quantity = entry.quantity === undefined ? row.quantity : entry.quantity;
+      rows.push({ id: row.id, maintenanceRecordId: recordId, plantId: row.plantId, quantity, slot });
+      continue;
+    }
+    if (retainedPlantIds.has(entry.plantId)) throw invalidLink('plants', 'Duplicate plant');
     const plantId = entry.plantId || (await createPlant(tx, entry.newPlant)).id;
-    rows.push({ maintenanceRecordId: recordId, plantId, quantity: entry.quantity, slot: index + 1 });
+    rows.push({ maintenanceRecordId: recordId, plantId, quantity: entry.quantity, slot });
   }
+  await tx.maintenanceRecordPlant.deleteMany({ where: { maintenanceRecordId: recordId } });
   if (rows.length) await tx.maintenanceRecordPlant.createMany({ data: rows });
 }
 

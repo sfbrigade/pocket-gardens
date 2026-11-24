@@ -29,14 +29,17 @@ export function maintenancePayload (draft, plotId) {
   return { submissionId: draft.submissionId, plotId, ...editableMaintenanceFields(draft) };
 }
 
-export function editableMaintenanceFields (draft) {
+function editableMaintenanceFields (draft) {
   return {
     date: draft.date,
     activity: draft.activity,
     observations: draft.observations,
     notes: draft.notes.trim(),
     photos: draft.photos.map(({ id, upload }) => id ? { id } : { upload }),
-    plants: draft.plants.map(({ plantId, newPlant, quantity }) => ({ ...(plantId ? { plantId } : { newPlant }), ...(quantity == null || quantity === '' ? {} : { quantity }) })),
+    plants: draft.plants.map(({ id, plantId, newPlant, quantity }) => {
+      if (id) return { id, quantity: quantity === '' ? null : quantity ?? null };
+      return { ...(plantId ? { plantId } : { newPlant }), ...(quantity == null || quantity === '' ? {} : { quantity }) };
+    }),
   };
 }
 
@@ -54,7 +57,14 @@ export function hasMaintenanceChanges (draft) {
 }
 
 export function editMaintenancePayload (draft) {
-  return { version: draft.version, mutationId: crypto.randomUUID(), ...Object.fromEntries(maintenanceChanges(draft)) };
+  const changes = Object.fromEntries(maintenanceChanges(draft));
+  if (changes.plants) {
+    const baseline = new Map(draft.baseline.plants.map(({ id, quantity }) => [id, quantity]));
+    changes.plants = changes.plants.map((plant) => (
+      plant.id && plant.quantity === baseline.get(plant.id) ? { id: plant.id } : plant
+    ));
+  }
+  return { version: draft.version, mutationId: crypto.randomUUID(), ...changes };
 }
 
 export function maintenanceError (error) {

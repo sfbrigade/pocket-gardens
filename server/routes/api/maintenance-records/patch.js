@@ -63,7 +63,7 @@ export default async function (fastify) {
             },
           });
           if (!updated.count) throw conflict();
-          if (body.plants !== undefined) await syncMaintenanceRecordPlants(tx, existing.id, body.plants);
+          if (body.plants !== undefined) await syncMaintenanceRecordPlants(tx, existing.id, body.plants, existing.plants);
           if (body.photos !== undefined) await changeMaintenancePhotos(tx, existing.id, body.photos, { retainUpload: true, onCopyTarget: (key) => copied.push(key) });
           callbackCompleted = true;
           return true;
