@@ -73,6 +73,34 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id)), null);
   });
 
+  await t.test('a blocked attempt write prevents the save and leaves the draft editable', async (t) => {
+    const plot = { id: 'recPlotStorageFailure', stage: 'active' };
+    const key = draftKey(plot.id);
+    const storage = Object.getPrototypeOf(dom.window.sessionStorage);
+    const write = storage.setItem;
+    let blockAttempt = true;
+    t.mock.method(storage, 'setItem', function (name, value) {
+      if (blockAttempt && name === key && JSON.parse(value).attempt) throw new dom.window.DOMException('Full', 'QuotaExceededError');
+      write.call(this, name, value);
+    });
+    const create = t.mock.method(Api.maintenance, 'create', async (payload) => {
+      assert.deepEqual(JSON.parse(dom.window.sessionStorage.getItem(key)).attempt, payload);
+      return { data: { ...payload, id: 'saved-after-storage-recovery' } };
+    });
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/new`, queryData: [[['plot', plot.id], plot]] });
+    await waitFor(() => assert.ok(view.field('Anything to add?')));
+    await view.change('Anything to add?', 'A draft that must survive refresh');
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /could not store your draft/));
+    assert.equal(create.mock.calls.length, 0);
+    assert.equal(view.field('Anything to add?').disabled, false);
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(key)).attempt, null);
+    blockAttempt = false;
+    await view.click('Add this update');
+    await waitFor(() => assert.match(view.container.textContent, /Update saved/));
+    assert.equal(create.mock.calls.length, 1);
+  });
+
   await t.test('a restored draft can remove activities after its garden is paused', async (t) => {
     const plot = { id: 'recPlotPaused', stage: 'active' };
     const create = t.mock.method(Api.maintenance, 'create', async (payload) => ({ data: { ...payload, id: 'saved-paused' } }));

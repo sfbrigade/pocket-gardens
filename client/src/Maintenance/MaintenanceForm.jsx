@@ -29,14 +29,19 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
     try {
       window.sessionStorage.setItem(storageKey, JSON.stringify(value));
       clearMaintenanceDraft(previousKey, value.submissionId);
-    } catch { setStorageError(true); }
+      setStorageError(false);
+      return true;
+    } catch {
+      setStorageError(true);
+      return false;
+    }
   }, [previousKey, storageKey]);
   const mutation = useMutation({
     mutationFn: ({ payload }) => Api.maintenance.create(payload),
     onSuccess: (_response, { payload, gardenId }) => {
       clearMaintenanceDraft(storageKey, payload.submissionId);
       clearMaintenanceDraft(previousKey, payload.submissionId);
-      client.resetQueries({ queryKey: ['maintenance', gardenId], exact: true });
+      client.invalidateQueries({ queryKey: ['maintenance', gardenId], exact: true });
     },
   });
   const saved = mutation.isSuccess ? mutation.data.data : null;
@@ -55,8 +60,8 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
     if (submitting.current || saving || !canSubmit) return;
     const payload = draft.attempt || maintenancePayload(draft, plotId);
     const attempted = { ...draft, attempt: payload };
+    if (!persistDraft(attempted)) return;
     submitting.current = true;
-    persistDraft(attempted);
     setDraft(attempted);
     mutation.mutate({ payload, gardenId: garden.data.id }, {
       onError: (failure) => {
@@ -95,7 +100,7 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
               <Button type='button' variant='subtle' disabled={locked} onClick={() => setDraft((value) => ({ ...value, activity: [] }))}>Remove work selections</Button>
             </Alert>
           )}
-          {storageError && <Alert color='yellow'>This browser could not store your draft. Keep this page open until saving succeeds.</Alert>}
+          {storageError && <Alert color='yellow'>This browser could not store your draft. Make browser storage available and try saving again.</Alert>}
           <TextInput type='date' label='When did this happen?' required max={capabilities.data.today} value={draft.date} disabled={locked} onChange={(event) => setDraft({ ...draft, date: event.currentTarget.value })} />
           {!paused && <Checkbox.Group label='What did you do?' value={draft.activity} onChange={(activity) => setDraft({ ...draft, activity })}><Stack gap='xs'>{capabilities.data.activities.map((activity) => <Checkbox key={activity} label={activity} value={activity} disabled={locked} />)}</Stack></Checkbox.Group>}
           <Checkbox.Group label='What did you see?' value={draft.observations} disabled={locked} onChange={(observations) => setDraft((current) => ({ ...current, observations: selectObservations(current.observations, observations) }))}>
