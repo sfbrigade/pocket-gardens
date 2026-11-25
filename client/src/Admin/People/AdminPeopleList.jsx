@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Anchor, Button, Container, Group, Loader, Table, TextInput, Title } from '@mantine/core';
 import { useForm } from '@mantine/form';
@@ -20,16 +19,14 @@ function AdminPeopleList () {
     },
   });
 
-  const [lastPage, setLastPage] = useState(1);
-
-  const { data: people, isLoading } = useQuery({
+  const { data: results, isLoading } = useQuery({
     queryKey: ['people', page, search],
     queryFn: async () => {
       const response = await Api.people.index(page, search);
-      setLastPage(Api.calculateLastPage(response, page));
-      return response.data;
+      return { people: response.data, lastPage: Api.calculateLastPage(response, page) };
     },
   });
+  const people = results?.people;
 
   return (
     <>
@@ -97,7 +94,7 @@ function AdminPeopleList () {
               ))}
             </Table.Tbody>
           </Table>
-          <Pagination page={page} lastPage={lastPage} otherParams={{ search }} />
+          {results && <Pagination page={page} lastPage={results.lastPage} otherParams={{ search }} />}
         </Table.ScrollContainer>
       </Container>
     </>
