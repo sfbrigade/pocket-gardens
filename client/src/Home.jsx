@@ -34,6 +34,7 @@ export default function Home () {
     <Stack>
       <Group justify='space-between'><Button component={Link} to='/' variant='subtle'>Back to map</Button></Group>
       {location.state?.created && <Alert color='green' role='status'>Garden created. It is saved and on the map.</Alert>}
+      {location.state?.edited && <Alert color='green' role='status'>Garden details saved.</Alert>}
       {isPending && <Loader aria-label='Loading garden details' />}
       {isError && <Alert color='red' title={error.response?.status === 404 ? 'Garden not found' : 'Unable to load garden'}><Button variant='subtle' onClick={() => refetch()}>Try again</Button></Alert>}
       {plot && (

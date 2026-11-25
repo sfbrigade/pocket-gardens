@@ -185,6 +185,9 @@ const Api = {
     get (id, signal) {
       return instance.get(`/api/plots/${encodeURIComponent(id)}`, { signal });
     },
+    update (id, data) {
+      return instance.patch(`/api/plots/${encodeURIComponent(id)}`, data);
+    },
     create (data) {
       return instance.post('/api/plots', data).catch((error) => {
         if (error.response?.status === StatusCodes.CONFLICT) {

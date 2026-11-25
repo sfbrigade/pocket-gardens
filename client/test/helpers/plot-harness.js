@@ -66,6 +66,7 @@ export async function setupPlotTests (t) {
   });
   t.after(() => vite.close());
   const { default: PlotForm } = await vite.ssrLoadModule('/src/Plots/PlotForm.jsx');
+  const { default: PlotEditForm } = await vite.ssrLoadModule('/src/Plots/PlotEditForm.jsx');
   const { default: Home } = await vite.ssrLoadModule('/src/Home.jsx');
   const { default: PhotoInput } = await vite.ssrLoadModule('/src/Components/PhotoInput.jsx');
   const { default: MaintenanceForm } = await vite.ssrLoadModule('/src/Maintenance/MaintenanceForm.jsx');
@@ -77,7 +78,7 @@ export async function setupPlotTests (t) {
   // the DOM. Disable animations, which are outside these interaction checks.
   const theme = { components: { Modal: { defaultProps: { transitionProps: { duration: 0 } } } } };
 
-  async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true, canAssignCarers = canCreatePlot, account = testAccount } = {}) {
+  async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true, canAssignCarers = canCreatePlot, account = testAccount, user = account ? { id: account } : null } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { gcTime: Infinity } } });
     client.setQueryData(['plots', 'capabilities'], { canCreatePlot, canAssignCarers });
     for (const [key, data] of queryData) client.setQueryData(key, data);
@@ -104,12 +105,13 @@ export async function setupPlotTests (t) {
     }
     await interact(() => root.render(h(QueryClientProvider, { client },
       h(MantineProvider, { theme },
-        h(authContext.Provider, { value: { user: account ? { id: account } : null, isPending: false } },
+        h(authContext.Provider, { value: { user, isPending: false } },
           h(ModalsProvider, null, h(UnheadProvider, { value: createHead() },
             h(MemoryRouter, { initialEntries: [initialEntry] },
               h(Location),
               h(Routes, null,
                 h(Route, { path: '/plots/new', element: h(PlotForm) }),
+                h(Route, { path: '/plots/:plotId/edit', element: h(PlotEditForm) }),
                 h(Route, { path: '/plots/:plotId/updates/new', element: h(MaintenanceForm) }),
                 h(Route, { path: '/plots/:plotId/updates/:recordId/edit', element: h(MaintenanceForm) }),
                 h(Route, { path: '/photo-input', element: h(PhotoInput, { label: 'Profile photo' }) }),

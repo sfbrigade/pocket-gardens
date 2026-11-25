@@ -1,8 +1,11 @@
-import { Alert, Badge, Divider, Group, Image, List, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Button, Divider, Group, Image, List, Stack, Text, Title } from '@mantine/core';
+import { Link } from 'react-router';
 
-import { plotPermissionLabels, plotStageLabel } from '../plots.js';
+import { useAuthContext } from '../AuthContext';
+import { canEditPlot, plotPermissionLabels, plotStageLabel } from '../plots.js';
 
 export default function PlotDetails ({ plot }) {
+  const { user, isPending } = useAuthContext();
   const facts = [
     ['Address', plot['Street City Address (for Maps)'] || plot['Street Address']],
     ['Look for', plot['Location Description']],
@@ -15,6 +18,9 @@ export default function PlotDetails ({ plot }) {
   return (
     <Stack gap='md'>
       <Group><Badge color='green'>{plotStageLabel(plot.stage)}</Badge></Group>
+      {!isPending && canEditPlot(user) && (
+        <Group><Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/edit`} variant='light'>Edit garden details</Button></Group>
+      )}
       {plot.Photos?.map((url) => <Image key={url} src={url} alt='Garden reference photo' radius='md' mah={240} fit='cover' />)}
       <Stack gap='xs'>
         {facts.filter(([, value]) => value != null && value !== '').map(([label, value]) => (

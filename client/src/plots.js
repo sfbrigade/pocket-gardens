@@ -18,6 +18,17 @@ export const plotPermissionLabels = {
 import Api from './Api.js';
 import { keepPreviousData } from '@tanstack/react-query';
 
+export function canEditPlot (user) {
+  return Boolean(user?.isAdmin && user.emailVerified && !user.banned);
+}
+
+export async function cacheUpdatedPlot (client, plot, routeId = plot.id) {
+  const ids = new Set([plot.id, routeId]);
+  await client.cancelQueries({ predicate: ({ queryKey }) => queryKey[0] === 'plot' && ids.has(queryKey[1]) });
+  for (const id of ids) client.setQueryData(['plot', id], plot);
+  client.invalidateQueries({ queryKey: ['plots'], predicate: ({ queryKey }) => queryKey[1] !== 'capabilities' });
+}
+
 export function hasCoordinates ({ Latitude, Longitude }) {
   return Number.isFinite(Latitude) && Math.abs(Latitude) <= 90 &&
     Number.isFinite(Longitude) && Math.abs(Longitude) <= 180;
