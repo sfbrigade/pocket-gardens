@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams, useLocation } from 'react-router';
 import Api from '../Api';
 import DraftRefreshGuard from '../Components/DraftRefreshGuard';
 import MaintenancePhotos from './MaintenancePhotos';
+import MaintenancePlants from './MaintenancePlants';
 import { clearMaintenanceDraft, draftKey, readMaintenanceDraft, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations } from './maintenance-draft';
 
 export default function MaintenanceForm () {
@@ -90,11 +91,11 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
   if (capabilities.isPending || garden.isPending) return <Container>{refreshGuard}<Loader aria-label='Loading update form' /></Container>;
   if (capabilities.isError || garden.isError) return <Container>{refreshGuard}<Alert color='red'>Unable to load this garden. <Button onClick={() => { capabilities.refetch(); garden.refetch(); }}>Try again</Button></Alert></Container>;
   if (!capabilities.data.canCreate) return <Container>{refreshGuard}<Alert>Sign in with a verified account to add an update.</Alert><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to garden</Button></Container>;
-  if (saved) return <Container size='sm'><Stack><Title order={2}>Update saved</Title><Text>Saved to this garden’s history.</Text><Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Text>{saved.photos?.length || 0} photos attached to this update.</Text><Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { mutation.reset(); setDraft(newMaintenanceDraft(capabilities.data.today)); }}>Add another update</Button></Stack></Container>;
+  if (saved) return <Container size='sm'><Stack><Title order={2}>Update saved</Title><Text>Saved to this garden’s history.</Text><Text>{saved.activity.join(', ')}</Text><Text>{saved.observations.join(', ')}</Text><Text style={{ whiteSpace: 'pre-wrap' }}>{saved.notes}</Text><Text>{saved.photos?.length || 0} photos attached to this update.</Text>{saved.plants?.map((plant) => <Text key={plant.plantId}>{plant.name}{plant.quantity == null ? '' : ` × ${plant.quantity}`}</Text>)}<Button component={Link} to={`/plots/${encodeURIComponent(plotId)}?tab=updates`}>Back to updates</Button><Button variant='light' onClick={() => { mutation.reset(); setDraft(newMaintenanceDraft(capabilities.data.today)); }}>Add another update</Button></Stack></Container>;
   const locked = saving || !!draft.attempt;
   const paused = garden.data.stage === 'paused';
   const eligible = ['potential', 'preparing', 'active', 'paused'].includes(garden.data.stage);
-  const hasPausedWork = paused && draft.activity.length > 0;
+  const hasPausedWork = paused && (draft.activity.length > 0 || draft.plants.length > 0);
   const canSubmit = !photoBusy && !photoFailed && (!!draft.attempt || (eligible && !hasPausedWork));
   return (
     <Container size='sm' py='md'>
@@ -108,12 +109,13 @@ function MaintenanceComposer ({ plotId, routePlotId, garden }) {
           {hasPausedWork && (
             <Alert color='yellow'>
               This draft contains work selections from before the garden was paused.
-              <Button type='button' variant='subtle' disabled={locked} onClick={() => setDraft((value) => ({ ...value, activity: [] }))}>Remove work selections</Button>
+              <Button type='button' variant='subtle' disabled={locked} onClick={() => setDraft((value) => ({ ...value, activity: [], plants: [] }))}>Remove work selections</Button>
             </Alert>
           )}
           {storageError && <Alert color='yellow'>This browser could not store your draft. Make browser storage available and try saving again.</Alert>}
           <TextInput type='date' label='When did this happen?' required max={capabilities.data.today} value={draft.date} disabled={locked} onChange={(event) => { const date = event.currentTarget.value; setDraft((draft) => ({ ...draft, date })); }} />
           {!quick && !paused && <Checkbox.Group label='What did you do?' value={draft.activity} onChange={(activity) => setDraft((draft) => ({ ...draft, activity }))}><Stack gap='xs'>{capabilities.data.activities.map((activity) => <Checkbox key={activity} label={activity} value={activity} disabled={locked} />)}</Stack></Checkbox.Group>}
+          {!quick && !paused && (draft.activity.includes('Planted') || draft.plants.length > 0) && <MaintenancePlants plants={draft.plants} disabled={locked} onChange={(plants) => setDraft((draft) => ({ ...draft, plants }))} />}
           {!quick && (
             <Checkbox.Group label='What did you see?' value={draft.observations} disabled={locked} onChange={(observations) => setDraft((current) => ({ ...current, observations: selectObservations(current.observations, observations) }))}>
               <Stack gap='xs'>{capabilities.data.observations.map((observation) => <Checkbox key={observation} label={observation} value={observation} />)}</Stack>

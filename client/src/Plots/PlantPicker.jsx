@@ -5,9 +5,10 @@ import { isNotEmpty, useForm } from '@mantine/form';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import Api from '../Api';
 
-export default function PlantPicker ({ onSelect, disabled }) {
+export default function PlantPicker ({ onSelect, disabled, saveLabel = 'garden' }) {
   const [search, setSearch] = useState('');
   const [debounced] = useDebouncedValue(search.trim(), 300);
+  const currentSearch = !!debounced && debounced === search.trim();
   const [adding, setAdding] = useState(false);
   const combobox = useCombobox({ onDropdownClose: () => combobox.resetSelectedOption() });
   const query = useInfiniteQuery({
@@ -20,8 +21,9 @@ export default function PlantPicker ({ onSelect, disabled }) {
   const matches = query.data?.pages.flatMap(({ data }) => data) ?? [];
   const newPlant = useForm({ initialValues: { plantName: '', commonName: '', latinName: '' }, validate: { plantName: isNotEmpty('Plant name is required') } });
   function select (value) {
+    if (!currentSearch || disabled) return;
     if (value === '__more__') {
-      query.fetchNextPage();
+      if (!query.isFetching) query.fetchNextPage();
       return;
     } else if (value === '__new__') {
       newPlant.setValues({ plantName: search.trim(), commonName: '', latinName: '' });
@@ -41,11 +43,11 @@ export default function PlantPicker ({ onSelect, disabled }) {
         </Combobox.Target>
         <Combobox.Dropdown hidden={!search.trim()}>
           <Combobox.Options>
-            {query.isError && <Combobox.Empty>Unable to search. <Button variant='subtle' size='compact-xs' onMouseDown={(event) => event.preventDefault()} onClick={() => query.refetch()}>Retry search</Button></Combobox.Empty>}
-            {matches.map((plant) => <Combobox.Option key={plant.id} value={plant.id}><Text size='sm'>{plant.plantName || plant.commonName || plant.latinName}</Text>{plant.latinName && <Text size='xs' c='dimmed'>{plant.latinName}</Text>}</Combobox.Option>)}
-            {query.hasNextPage && <Combobox.Option value='__more__' disabled={query.isFetching}>Show more matches</Combobox.Option>}
-            {!query.isError && !query.isFetching && debounced === search.trim() && query.data && <Combobox.Option value='__new__'>+ Add a new plant: {search.trim()}</Combobox.Option>}
-            {query.isFetching && <Combobox.Empty>Searching directory…</Combobox.Empty>}
+            {currentSearch && query.isError && !query.isFetchNextPageError && <Combobox.Empty>Unable to search. <Button variant='subtle' size='compact-xs' onMouseDown={(event) => event.preventDefault()} onClick={() => query.refetch()}>Retry search</Button></Combobox.Empty>}
+            {currentSearch && matches.map((plant) => <Combobox.Option key={plant.id} value={plant.id}><Text size='sm'>{plant.plantName || plant.commonName || plant.latinName}</Text>{plant.latinName && <Text size='xs' c='dimmed'>{plant.latinName}</Text>}</Combobox.Option>)}
+            {currentSearch && query.hasNextPage && <Combobox.Option value='__more__' disabled={query.isFetching}>{query.isFetchNextPageError ? 'Retry loading more matches' : 'Show more matches'}</Combobox.Option>}
+            {currentSearch && !query.isError && !query.isFetching && query.data && <Combobox.Option value='__new__'>+ Add a new plant: {debounced}</Combobox.Option>}
+            {(!currentSearch || query.isFetching) && <Combobox.Empty>Searching directory…</Combobox.Empty>}
           </Combobox.Options>
         </Combobox.Dropdown>
       </Combobox>
@@ -58,7 +60,7 @@ export default function PlantPicker ({ onSelect, disabled }) {
         }}
         >
           <Stack>
-            <Alert color='gray'>Review the directory matches first. This plant will be added to the directory when you save the garden.</Alert>
+            <Alert color='gray'>Review the directory matches first. This plant will be added to the directory when you save the {saveLabel}.</Alert>
             <TextInput label='Plant name' required {...newPlant.getInputProps('plantName')} />
             <TextInput label='Common name' {...newPlant.getInputProps('commonName')} />
             <TextInput label='Scientific name' {...newPlant.getInputProps('latinName')} />

@@ -12,9 +12,12 @@ test('plant picker interactions in the garden form', async (t) => {
   await t.test('selects a later search page and prevents selecting the same plant twice', async (t) => {
     const sage = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', plantName: 'Sage' };
     const firstPage = Array.from({ length: 10 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, plantName: `Lavender ${index}` }));
-    const search = t.mock.method(Api.plants, 'index', async ({ offset }) => offset
-      ? { data: [sage], headers: {} }
-      : { data: firstPage, headers: { 'x-next-offset': '10' } });
+    let nextPageAttempts = 0;
+    const search = t.mock.method(Api.plants, 'index', async ({ offset }) => {
+      if (!offset) return { data: firstPage, headers: { 'x-next-offset': '10' } };
+      if (++nextPageAttempts === 1) throw new Error('Unavailable');
+      return { data: [sage], headers: {} };
+    });
     const create = t.mock.method(Api.plots, 'create', async () => ({ data: { id: 'pg_with-sage' } }));
     const view = await mount(t);
     await waitFor(() => assert.equal(view.field('What stage is this garden in?').value, 'Active'));
@@ -22,10 +25,12 @@ test('plant picker interactions in the garden form', async (t) => {
     await waitFor(() => assert.ok([...dom.window.document.querySelectorAll('[role=option]')].some((option) => option.textContent === 'Show more matches')));
     assert.equal([...dom.window.document.querySelectorAll('[role=option]')].some((option) => option.textContent === 'Sage'), false);
     await view.selectPlantOption('Show more matches');
+    await waitFor(() => assert.ok([...dom.window.document.querySelectorAll('[role=option]')].some((option) => option.textContent === 'Retry loading more matches')));
+    await view.selectPlantOption('Retry loading more matches');
     await waitFor(() => assert.ok([...dom.window.document.querySelectorAll('[role=option]')].some((option) => option.textContent === 'Sage')));
     await view.selectPlantOption('Sage');
     assert.equal(readDraft().plants[0].plantId, sage.id);
-    assert.deepEqual(search.mock.calls.map(({ arguments: [params] }) => params.offset), [0, '10']);
+    assert.deepEqual(search.mock.calls.map(({ arguments: [params] }) => params.offset), [0, '10', '10']);
 
     await view.change('Find a plant', 'a');
     await waitFor(() => assert.ok([...dom.window.document.querySelectorAll('[role=option]')].some((option) => option.textContent === 'Sage')));
