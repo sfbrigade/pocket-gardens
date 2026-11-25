@@ -126,11 +126,11 @@ function GardenDetailsFields ({ plot, routeId, storageKey }) {
   const mutation = useMutation({
     mutationKey,
     mutationFn: ({ changes }) => Api.plots.update(plot.id, changes),
-    onSuccess: async ({ data }, { snapshot }) => {
+    onSuccess: async ({ data }, { changes, snapshot }) => {
       try {
         if (snapshot !== null && readDraft(storageKey) === snapshot) window.sessionStorage.removeItem(storageKey);
       } catch { /* Saving is independent of browser storage. */ }
-      await cacheUpdatedPlot(client, data, routeId);
+      await cacheUpdatedPlot(client, data, Object.keys(changes), routeId);
     },
   });
   useEffect(() => () => modals.close(modalId), [modalId]);

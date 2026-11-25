@@ -48,10 +48,13 @@ test('garden editing uses the admin-only Info action and separate draft', async 
     await waitFor(() => assert.equal(view.field('Garden title').value, 'Revised name'));
     assert.equal(view.field('Environmental notes').value, '');
     let attempt = 0;
+    let saved = garden;
+    t.mock.method(Api.plots, 'get', async () => ({ data: saved }));
     const patch = t.mock.method(Api.plots, 'update', async (id, payload) => {
       assert.equal(id, garden.id);
       if (++attempt === 1) throw Object.assign(new Error('Validation'), { response: { status: 422, data: { errors: [{ path: 'Pocket Garden Name', message: 'Check this title' }] } } });
-      return { data: { ...garden, ...payload } };
+      saved = { ...garden, ...payload };
+      return { data: saved };
     });
 
     await view.change('Where exactly is it?', ' ');
@@ -66,6 +69,7 @@ test('garden editing uses the admin-only Info action and separate draft', async 
     assert.deepEqual(patch.mock.calls[1].arguments[1], { 'Pocket Garden Name': 'Revised name', environmentalNotes: '' });
     assert.equal(dom.window.sessionStorage.getItem(draftKey), null);
     assert.equal(view.client.getQueryData(['plot', garden.id])['Pocket Garden Name'], 'Revised name');
+    assert.equal(view.client.getQueryData(['plots', bounds])[0]['Pocket Garden Name'], 'Revised name');
     assert.equal(view.client.getQueryState(['plots', bounds]).isInvalidated, true);
     assert.match(view.container.textContent, /Garden details saved/);
   });

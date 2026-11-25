@@ -29,11 +29,30 @@ export function plotQueryOptions (id) {
   });
 }
 
-export async function cacheUpdatedPlot (client, plot, routeId = plot.id) {
+export function updatePlotViewport (client, plotId, changes) {
+  const filter = { queryKey: ['plots'], predicate: ({ queryKey }) => queryKey[1] !== 'capabilities' };
+  const summary = Object.fromEntries(['Pocket Garden Name', 'stage'].filter((field) => Object.hasOwn(changes, field)).map((field) => [field, changes[field]]));
+  if (Object.keys(summary).length) {
+    client.setQueriesData(filter, (rows) => rows?.map((row) => row.id === plotId ? { ...row, ...summary } : row));
+  }
+  client.invalidateQueries(filter);
+}
+
+export async function cacheUpdatedPlot (client, plot, fields, routeId = plot.id) {
   const ids = new Set([plot.id, routeId]);
-  await client.cancelQueries({ predicate: ({ queryKey }) => queryKey[0] === 'plot' && ids.has(queryKey[1]) });
-  for (const id of ids) client.setQueryData(['plot', id], plot);
-  client.invalidateQueries({ queryKey: ['plots'], predicate: ({ queryKey }) => queryKey[1] !== 'capabilities' });
+  const detail = {
+    queryKey: ['plot'],
+    predicate: ({ queryKey, state }) => queryKey.length === 2 && (ids.has(queryKey[1]) || state.data?.id === plot.id),
+  };
+  const changes = Object.fromEntries(fields.map((field) => [field, plot[field]]));
+  await client.cancelQueries(detail);
+  const current = client.getQueryData(['plot', plot.id]) ?? client.getQueryData(['plot', routeId]) ?? plot;
+  client.setQueriesData(detail, (cached) => cached && { ...cached, ...changes });
+  for (const id of ids) {
+    if (client.getQueryData(['plot', id]) === undefined) client.setQueryData(['plot', id], { ...current, ...changes });
+  }
+  client.invalidateQueries(detail);
+  updatePlotViewport(client, plot.id, changes);
 }
 
 export function hasCoordinates ({ Latitude, Longitude }) {
