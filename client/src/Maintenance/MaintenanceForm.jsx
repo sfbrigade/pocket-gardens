@@ -6,6 +6,7 @@ import { useMutation, useMutationState, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useParams, useLocation } from 'react-router';
 import Api from '../Api';
 import DraftRefreshGuard from '../Components/DraftRefreshGuard';
+import { plotQueryOptions } from '../plots';
 import MaintenancePhotos from './MaintenancePhotos';
 import MaintenancePlants from './MaintenancePlants';
 import { clearMaintenanceDraft, draftKey, readMaintenanceDraft, maintenanceError, maintenancePayload, newMaintenanceDraft, selectObservations, draftFromRecord, editMaintenancePayload, hasMaintenanceChanges } from './maintenance-draft';
@@ -22,7 +23,7 @@ function maintenanceRecordQuery (recordId) {
 export default function MaintenanceForm () {
   const { plotId, recordId } = useParams();
   const { account, authPending, capabilities } = useMaintenanceCapabilities();
-  const garden = useQuery({ queryKey: ['plot', plotId], queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data) });
+  const garden = useQuery(plotQueryOptions(plotId));
   const record = useQuery({
     ...maintenanceRecordQuery(recordId),
     enabled: !!recordId && !authPending && !!capabilities.data?.canManage,

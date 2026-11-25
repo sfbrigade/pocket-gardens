@@ -16,10 +16,17 @@ export const plotPermissionLabels = {
 };
 
 import Api from './Api.js';
-import { keepPreviousData } from '@tanstack/react-query';
+import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 
 export function canEditPlot (user) {
   return Boolean(user?.isAdmin && user.emailVerified && !user.banned);
+}
+
+export function plotQueryOptions (id) {
+  return queryOptions({
+    queryKey: ['plot', id],
+    queryFn: ({ signal }) => Api.plots.get(id, signal).then(({ data }) => data),
+  });
 }
 
 export async function cacheUpdatedPlot (client, plot, routeId = plot.id) {

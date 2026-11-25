@@ -10,7 +10,7 @@ import Api from '../Api';
 import { useAuthContext } from '../AuthContext';
 import DraftRefreshGuard from '../Components/DraftRefreshGuard';
 import { authPath } from '../LoginDestination';
-import { cacheUpdatedPlot, canEditPlot } from '../plots';
+import { cacheUpdatedPlot, canEditPlot, plotQueryOptions } from '../plots';
 import { permissions } from './plot-form';
 
 const fields = ['Pocket Garden Name', 'Location Description', 'permissionStatus', 'environmentalNotes'];
@@ -40,8 +40,7 @@ export default function PlotEditForm () {
   const backPath = `/plots/${encodeURIComponent(plotId)}`;
   const canEdit = !isPending && canEditPlot(user);
   const garden = useQuery({
-    queryKey: ['plot', plotId],
-    queryFn: ({ signal }) => Api.plots.get(plotId, signal).then(({ data }) => data),
+    ...plotQueryOptions(plotId),
     enabled: mounted && canEdit,
     retry: false,
   });
