@@ -1,7 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
-import { draftKey } from '../src/Maintenance/maintenance-draft.js';
+import { draftFromRecord, draftKey, editMaintenancePayload } from '../src/Maintenance/maintenance-draft.js';
+
+test('plant patches identify retained rows and omit their unchanged quantities', () => {
+  const record = {
+    version: 1,
+    activity: ['Planted'],
+    observations: [],
+    photos: [],
+    plants: [{ id: 'first-row', plantId: 'poppy', quantity: 0 }, { id: 'second-row', plantId: 'poppy', quantity: 2 }],
+  };
+  const draft = draftFromRecord(record);
+  assert.equal(editMaintenancePayload(draft).plants, undefined);
+  draft.plants = [draft.plants[0], { ...draft.plants[1], quantity: '' }, { plantId: 'yarrow', quantity: 3 }];
+  assert.deepEqual(editMaintenancePayload(draft).plants, [
+    { id: 'first-row' }, { id: 'second-row', quantity: null }, { plantId: 'yarrow', quantity: 3 },
+  ]);
+});
 
 test('maintenance composer recovers interrupted saves', async (t) => {
   const { Api, dom, mount } = await setupPlotTests(t);
@@ -285,5 +301,188 @@ test('maintenance composer recovers interrupted saves', async (t) => {
     await view.submit();
     await waitFor(() => assert.match(view.container.textContent, /Update saved/));
     assert.deepEqual(create.mock.calls[0].arguments[0].plants, [{ plantId, quantity: 2 }]);
+  });
+
+  await t.test('untouched edits follow the latest version and only changed drafts are restored', async (t) => {
+    const plot = { id: 'recPlotFreshEdit', stage: 'active' };
+    const record = { id: 'fresh-edit', gardenId: plot.id, version: 1, date: null, notes: 'First version', activity: [], observations: [], photos: [], plants: [] };
+    const key = draftKey(plot.id, record.id);
+    const queryKey = ['maintenance-record', record.id];
+    const initialEntry = `/plots/${plot.id}/updates/${record.id}/edit`;
+    dom.window.sessionStorage.setItem(key, JSON.stringify(draftFromRecord(record)));
+
+    const later = { ...record, version: 2, notes: 'Second version' };
+    const view = await mount(t, { initialEntry, queryData: [[['plot', plot.id], plot], [queryKey, later]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, later.notes));
+    assert.equal(dom.window.sessionStorage.getItem(key), null);
+    const third = { ...later, version: 3, notes: 'Third version' };
+    await interact(() => view.client.setQueryData(queryKey, third));
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, third.notes));
+    assert.equal(dom.window.sessionStorage.getItem(key), null);
+
+    await view.change('When did this happen?', '2026-11-09');
+    assert.equal(dom.window.dispatchEvent(new dom.window.Event('beforeunload', { cancelable: true })), false);
+    const fourth = { ...third, version: 4, notes: 'Fourth version' };
+    await interact(() => view.client.setQueryData(queryKey, fourth));
+    assert.equal(view.field('Anything to add?').value, third.notes);
+    await view.unmount();
+    const restored = await mount(t, { initialEntry, queryData: [[['plot', plot.id], plot], [queryKey, fourth]] });
+    await waitFor(() => assert.equal(restored.field('When did this happen?').value, '2026-11-09'));
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(key)).version, third.version);
+  });
+
+  await t.test('legacy edits submit only changed fields and preserve the undated record', async (t) => {
+    const plot = { id: 'recPlotLegacy', stage: 'archived' };
+    const record = { id: 'legacy', gardenId: plot.id, version: 1, date: null, notes: null, activity: [], observations: [], photos: [], plants: [] };
+    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, ...payload, id, version: 2 } }));
+    const view = await mount(t, { initialEntry: '/plots/recPlotLegacy/updates/legacy/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('When did this happen?').value, ''));
+    await view.change('Anything to add?', 'Clarified historical note');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    const payload = update.mock.calls[0].arguments[1];
+    assert.equal(payload.notes, 'Clarified historical note');
+    assert.equal(payload.version, 1);
+    assert.ok(payload.mutationId);
+    assert.equal(payload.date, undefined);
+    assert.equal(payload.activity, undefined);
+    assert.equal(payload.plants, undefined);
+  });
+
+  await t.test('focusing an imported zero quantity does not correct it unintentionally', async (t) => {
+    const plot = { id: 'recPlotLegacyQuantity', stage: 'active' };
+    const record = { id: 'legacy-quantity', gardenId: plot.id, version: 1, date: null, activity: ['Planted'], observations: [], notes: 'Imported note', photos: [], plants: [{ id: 'legacy-row', plantId: 'poppy', name: 'Poppy', quantity: 0 }] };
+    const update = t.mock.method(Api.maintenance, 'update', async (_id, payload) => ({ data: { ...record, ...payload } }));
+    const view = await mount(t, {
+      initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`,
+      queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]],
+    });
+    await waitFor(() => assert.equal(view.field('Quantity for Poppy').value, '0'));
+    await interact(() => { view.field('Quantity for Poppy').focus(); view.field('Quantity for Poppy').blur(); });
+    assert.equal(view.field('Quantity for Poppy').value, '0');
+    await view.change('Anything to add?', 'Corrected note');
+    await view.click('Save changes');
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    assert.equal(update.mock.calls[0].arguments[1].plants, undefined);
+  });
+
+  await t.test('community contributors cannot open the edit form for their updates', async (t) => {
+    const plot = { id: 'recPlotAlpha', stage: 'active' };
+    const record = { id: 'community-update', gardenId: plot.id, version: 1, date: null, activity: [], observations: [], photos: [], plants: [] };
+    const capabilities = (await Api.maintenance.capabilities()).data;
+    const view = await mount(t, {
+      initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`,
+      queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record], [['maintenance-capabilities'], { ...capabilities, canManage: false }]],
+    });
+    assert.match(view.container.textContent, /Only administrators can edit updates/);
+    assert.equal(view.container.querySelector('form'), null);
+  });
+
+  await t.test('an unchanged imported future date permits a note-only correction through native validation', async (t) => {
+    const plot = { id: 'recPlotFutureLegacy', stage: 'active' };
+    const record = { id: 'future-legacy', gardenId: plot.id, version: 1, date: '2998-01-01', notes: 'Imported note', activity: [], observations: [], photos: [], plants: [] };
+    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, ...payload, id, version: 2 } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('When did this happen?').value, record.date));
+    await view.change('Anything to add?', 'Clarified imported note');
+    const form = view.container.querySelector('form');
+    assert.equal(form.checkValidity(), true);
+    await interact(() => form.requestSubmit());
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    const payload = update.mock.calls[0].arguments[1];
+    assert.equal(payload.notes, 'Clarified imported note');
+    assert.equal(payload.date, undefined);
+  });
+
+  await t.test('changing an imported date still rejects future dates and permits a valid correction', async (t) => {
+    const plot = { id: 'recPlotCorrectDate', stage: 'active' };
+    const record = { id: 'correct-date', gardenId: plot.id, version: 1, date: '2998-01-01', notes: 'Imported note', activity: [], observations: [], photos: [], plants: [] };
+    const update = t.mock.method(Api.maintenance, 'update', async (id, payload) => ({ data: { ...record, ...payload, id, version: 2 } }));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('When did this happen?').value, record.date));
+    const form = view.container.querySelector('form');
+    await view.change('When did this happen?', '2999-01-01');
+    assert.equal(form.checkValidity(), false);
+    await interact(() => form.requestSubmit());
+    assert.equal(update.mock.calls.length, 0);
+    await view.change('When did this happen?', '2026-09-02');
+    assert.equal(form.checkValidity(), true);
+    await interact(() => form.requestSubmit());
+    await waitFor(() => assert.match(view.container.textContent, /Update corrected/));
+    assert.equal(update.mock.calls[0].arguments[1].date, '2026-09-02');
+  });
+
+  await t.test('a version conflict keeps the draft until the user chooses to reload', async (t) => {
+    const plot = { id: 'recPlotConflict', stage: 'active' };
+    const record = { id: 'conflict', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Original', activity: [], observations: [], photos: [], plants: [] };
+    t.mock.method(Api.maintenance, 'update', async () => { throw Object.assign(new Error('Conflict'), { response: { status: 409, data: { message: 'Changed by another editor' } } }); });
+    t.mock.method(Api.maintenance, 'get', async () => ({ data: { ...record, version: 2, notes: 'Latest saved note' } }));
+    t.mock.method(dom.window, 'confirm', () => true);
+    const view = await mount(t, { initialEntry: '/plots/recPlotConflict/updates/conflict/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Original'));
+    await view.change('Anything to add?', 'My unsaved correction');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Your draft has been preserved/));
+    assert.equal(view.field('Anything to add?').value, 'My unsaved correction');
+    await view.click('Load latest update');
+    await waitFor(() => assert.equal(view.field('Anything to add?').value, 'Latest saved note'));
+    assert.doesNotMatch(view.container.textContent, /Changed by another editor/);
+    assert.equal(dom.window.sessionStorage.getItem(draftKey(plot.id, record.id)), null);
+  });
+
+  await t.test('an unlinked imported update cannot be edited under another garden', async (t) => {
+    const plot = { id: 'recPlotUnlinked', stage: 'active' };
+    const record = { id: 'unlinked', gardenId: null, version: 1, date: null, notes: 'Imported', activity: [], observations: [], photos: [], plants: [] };
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.match(view.container.textContent, /This update is no longer available in this garden/));
+    assert.equal(view.container.querySelector('form'), null);
+  });
+
+  await t.test('moving an uploaded photo also moves its preview', async (t) => {
+    const plot = { id: 'recPlotOrder', stage: 'active' };
+    const record = { id: 'photo-order', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Evidence', activity: [], observations: [], photos: [{ id: 'existing', url: '/existing.jpg' }], plants: [] };
+    t.mock.method(Api.assets, 'create', async () => ({ data: { filename: 'new.jpg', url: '/upload', headers: {} } }));
+    t.mock.method(Api.assets, 'upload', async () => ({}));
+    const view = await mount(t, { initialEntry: `/plots/${plot.id}/updates/${record.id}/edit`, queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.match(view.container.textContent, /Take or choose photos/));
+    await view.upload();
+    await waitFor(() => assert.match(view.container.textContent, /Ready to save/));
+    const firstPreview = () => view.container.querySelector('img[alt="Visit photo 1"]').getAttribute('src');
+    assert.equal(firstPreview(), '/existing.jpg');
+    await view.click('Move photo 2 up');
+    assert.match(firstPreview(), /^blob:/);
+    assert.equal(view.container.querySelector('img[alt="Visit photo 2"]').getAttribute('src'), '/existing.jpg');
+  });
+
+  await t.test('removing existing photos requires saved-edit confirmation and reports pending erasure', async (t) => {
+    const plot = { id: 'recPlotRemove', stage: 'active' };
+    const record = { id: 'remove-photo', gardenId: plot.id, version: 1, date: '2026-09-02', notes: 'Evidence', activity: [], observations: [], photos: [{ id: 'photo-one', url: '/photo.jpg' }], plants: [] };
+    let fail = true;
+    const update = t.mock.method(Api.maintenance, 'update', async (_id, payload) => {
+      if (fail) {
+        fail = false;
+        throw new Error('Lost save response');
+      }
+      return { data: { ...record, photos: payload.photos, version: 2, cleanupPending: true } };
+    });
+    const view = await mount(t, { initialEntry: '/plots/recPlotRemove/updates/remove-photo/edit', queryData: [[['plot', plot.id], plot], [['maintenance-record', record.id], record]] });
+    await waitFor(() => assert.match(view.container.textContent, /Remove attached photo 1/));
+    await view.click('Remove attached photo 1');
+    await view.submit();
+    assert.equal(update.mock.calls.length, 0);
+    await view.click('Keep editing');
+    assert.equal(update.mock.calls.length, 0);
+    assert.equal(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id, record.id))).attempt, null);
+
+    await view.submit();
+    await view.click('Save and erase photos');
+    await waitFor(() => assert.match(view.container.textContent, /Unable to save/));
+    const attempted = update.mock.calls[0].arguments[1];
+    assert.deepEqual(attempted.photos, []);
+    assert.deepEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey(plot.id, record.id))).attempt, attempted);
+
+    await view.click('Try again');
+    await waitFor(() => assert.match(view.container.textContent, /Permanent photo erasure is pending/));
+    assert.deepEqual(update.mock.calls[1].arguments[1], attempted);
   });
 });

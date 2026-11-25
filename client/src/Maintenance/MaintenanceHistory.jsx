@@ -40,6 +40,7 @@ export default function MaintenanceHistory ({ plot }) {
             {record.planting && <Text size='sm'>{record.planting}</Text>}
             {record.plants.map((plant, index) => <Text key={`${plant.plantId}-${index}`} size='sm'>{plant.quantity == null ? '' : `${plant.quantity} × `}{plant.name || 'Plant name not recorded'}</Text>)}
             {record.photos.map((photo, index) => <Image key={photo.id} src={photo.url} alt={`Visit photo ${index + 1}`} radius='sm' loading='lazy' h={260} fit='contain' fallbackSrc='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="40"%3E%3Ctext x="10" y="25"%3EPhoto unavailable%3C/text%3E%3C/svg%3E' />)}
+            {capabilities?.canManage && <Button component={Link} variant='subtle' to={`/plots/${encodeURIComponent(plot.id)}/updates/${record.id}/edit`}>Edit update</Button>}
             <Text size='xs' c='dimmed'>Recorded {new Date(record.createdAt).toLocaleString()}</Text>
           </Stack>
         </Card>

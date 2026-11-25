@@ -1,14 +1,14 @@
-import { cleanupSubmissionObjects } from '#lib/plot-submission.js';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { requireMaintenanceCreator, validateNewVisit } from '#lib/maintenance-policy.js';
-import { maintenanceFingerprint, replayMaintenanceCreate } from '#lib/maintenance-save.js';
+import { maintenanceFingerprint, replayMaintenanceCreate, transactionRolledBack } from '#lib/maintenance-save.js';
 import { PhotoUploadError } from '#lib/photo-upload.js';
+import { cleanupPhotoObjects } from '#lib/photos.js';
 import { findPlotByPublicId } from '#models/plot.js';
 import {
   findMaintenanceRecordById, formatMaintenanceRecord, maintenanceRecordFieldsFromBody,
   MaintenanceRecordCreateSchema, MaintenanceRecordSchema, syncMaintenanceRecordPhotos,
-  syncMaintenanceRecordPlants, validateMaintenanceRecordLinks,
+  syncMaintenanceRecordPlants,
 } from '#models/maintenance-record.js';
 
 export default async function (fastify) {
@@ -30,7 +30,6 @@ export default async function (fastify) {
         const plot = await findPlotByPublicId(tx, plotId, { select: { id: true, stage: true } });
         if (!plot) throw new PhotoUploadError('Garden not found', 'plotId');
         validateNewVisit(plot, body);
-        await validateMaintenanceRecordLinks(tx, body);
         const created = await tx.maintenanceRecord.create({
           data: {
             airtableId: `pg_${crypto.randomUUID()}`,
@@ -52,10 +51,10 @@ export default async function (fastify) {
         callbackCompleted = true;
         return saved;
       }, { timeout: 60000 });
-      await cleanupSubmissionObjects((request.body.photos ?? []).map(({ upload }) => `_uploads/${upload}`), request.log);
+      await cleanupPhotoObjects((request.body.photos ?? []).map(({ upload }) => `_uploads/${upload}`), request.log);
       return reply.code(201).send(formatMaintenanceRecord(record));
     } catch (error) {
-      if (!callbackCompleted) await cleanupSubmissionObjects(copied, request.log);
+      if (!callbackCompleted || transactionRolledBack(error)) await cleanupPhotoObjects(copied, request.log);
       if (await replayMaintenanceCreate(fastify.prisma, request.body, reply)) return;
       throw error;
     }

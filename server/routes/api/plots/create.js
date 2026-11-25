@@ -4,7 +4,8 @@ import { StatusCodes } from 'http-status-codes';
 import { createPlotPlants } from '#models/plot-plant.js';
 import { createPlotCarers } from '#models/plot-carer.js';
 import { z } from 'zod';
-import { submissionFingerprint, findSubmission, cleanupSubmissionObjects } from '#lib/plot-submission.js';
+import { submissionFingerprint, findSubmission } from '#lib/plot-submission.js';
+import { cleanupPhotoObjects } from '#lib/photos.js';
 
 import {
   findPlotByPublicId,
@@ -73,7 +74,7 @@ export default async function (fastify, opts) {
     } catch (error) {
       if (!callbackCompleted) {
         // A failed callback never requests COMMIT, so its copies can be removed.
-        await cleanupSubmissionObjects(copied, request.log);
+        await cleanupPhotoObjects(copied, request.log);
         if (error.code === 'P2002' && submissionId) {
           const winner = await findSubmission(fastify.prisma, submissionId);
           if (winner) return replay(winner);
@@ -99,7 +100,7 @@ export default async function (fastify, opts) {
         throw error;
       }
     }
-    await cleanupSubmissionObjects((Photos ?? []).map((filename) => `_uploads/${filename}`), request.log);
+    await cleanupPhotoObjects((Photos ?? []).map((filename) => `_uploads/${filename}`), request.log);
     reply.code(StatusCodes.CREATED).send(formatPlot(record));
   });
 }

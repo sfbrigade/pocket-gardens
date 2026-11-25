@@ -145,6 +145,9 @@ const Api = {
     },
   },
   maintenance: {
+    update (id, data) {
+      return instance.patch(`/api/maintenance-records/${id}`, data);
+    },
     create (data) {
       return instance.post('/api/maintenance-records', data);
     },

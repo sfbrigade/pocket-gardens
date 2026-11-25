@@ -97,3 +97,17 @@ Re-running import or migrate skips parents that already have photo rows. Use `--
 ## Learn More
 
 To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs/latest/).
+
+### Maintenance updates
+
+Maintenance history is public. Verified, non-banned contributors can submit visits using the same account eligibility as plot submissions. The public history credits regular users as Community contributor and keeps their account IDs private. Active administrators can correct historical visits at any garden stage. Garden stages restrict new visits. Set `ALLOW_ANONYMOUS_MAINTENANCE_WRITES=true` with `NODE_ENV=development` for account-free local testing. The capabilities endpoint supplies today's date on the San Francisco calendar (`America/Los_Angeles`).
+
+Edits require the loaded `version` and a new `mutationId`. Keep that payload unchanged when retrying an uncertain save. Stale/superseded edits return 409 and require review; they never silently overwrite another edit. Imported missing/legacy fields can be preserved by omitting unchanged fields. The client offers no volunteer reassignment and never changes current garden planting inventory or care summaries.
+
+Removing a saved photo through an edit permanently erases it after the edit commits. If storage is unavailable, its row stays pending, hidden from galleries and new signed links. Retry pending rows with:
+
+```sh
+npm run maintenance:cleanup-photos --workspace server
+```
+
+The command processes pending photos in batches of 100 (including photos whose parent is later soft-deleted), exits nonzero while rows remain pending, and is safe to repeat. Run manually during local development. Dokku schedules the command every five minutes using the repository's `app.json`. For other production hosts, configure the same periodic command before enabling photo removal. No additional queue service is needed. Previously issued signed links can remain usable for up to 15 minutes; maintenance redirects use private/no-store caching. Keep Airtable imports disabled after app cutover so imports cannot overwrite corrections or restore erased evidence.

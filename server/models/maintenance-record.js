@@ -8,33 +8,37 @@ import { ExistingPhotoSchema, NewPhotoSchema, uniquePhotos } from '#lib/upload-p
 import MaintenanceRecordPhoto from '#models/maintenance-record-photo.js';
 
 const DateSchema = z.iso.date({ error: 'Invalid date' });
-
-const ActivitySchema = z.array(z.string().trim().min(1)).min(1).superRefine((activities, ctx) => {
-  const seen = new Set();
-  activities.forEach((activity, index) => {
-    if (seen.has(activity)) {
-      ctx.addIssue({ code: 'custom', message: 'Duplicate activity', path: [index] });
-    }
-    seen.add(activity);
-  });
-});
+const PlantQuantitySchema = z.number().int().positive().max(2147483647);
+const distinctOptions = (schema) => z.array(schema).refine(
+  (values) => new Set(values).size === values.length,
+  'Choose each option once'
+);
+const ObservationsSchema = distinctOptions(z.enum(observations)).refine(
+  (values) => !values.includes('Nothing stood out') || values.length === 1,
+  'Nothing stood out cannot be combined with other observations'
+);
 
 const PlantInputSchema = z.strictObject({
   plantId: z.string().uuid().optional(),
   newPlant: PlantCreateFieldsSchema.pick({ plantName: true, commonName: true, latinName: true }).optional(),
-  quantity: z.number().int().positive().max(2147483647).optional(),
+  quantity: PlantQuantitySchema.optional(),
 }).refine(({ plantId, newPlant }) => !!plantId !== !!newPlant, 'Select an existing plant or explicitly add a new plant');
 
-const PlantsInputSchema = z.array(PlantInputSchema).superRefine((plants, ctx) => {
-  const seen = new Set();
-  plants.forEach((entry, index) => {
-    const key = entry.plantId || JSON.stringify(entry.newPlant);
-    if (seen.has(key)) {
-      ctx.addIssue({ code: 'custom', message: 'Duplicate plant', path: [index] });
-    }
-    seen.add(key);
-  });
+const ExistingPlantRowSchema = z.strictObject({
+  id: z.string().uuid(),
+  quantity: PlantQuantitySchema.nullable().optional(),
 });
+
+function distinctPlantEntries (schema) {
+  return z.array(schema).superRefine((plants, ctx) => {
+    const seen = new Set();
+    plants.forEach((entry, index) => {
+      const key = entry.id ? `row:${entry.id}` : entry.plantId || JSON.stringify(entry.newPlant);
+      if (seen.has(key)) ctx.addIssue({ code: 'custom', message: 'Duplicate plant', path: [index] });
+      seen.add(key);
+    });
+  });
+}
 
 export const MaintenanceRecordPhotoSchema = z.strictObject({
   id: z.string().uuid(),
@@ -42,6 +46,7 @@ export const MaintenanceRecordPhotoSchema = z.strictObject({
 });
 
 export const MaintenanceRecordPlantSchema = z.strictObject({
+  id: z.string().uuid(),
   plantId: z.string().uuid(),
   name: z.string().nullable(),
   quantity: z.number().int().nullable(),
@@ -51,6 +56,7 @@ export const MaintenanceRecordSchema = z.strictObject({
   id: z.string().uuid(),
   observations: z.array(z.string()),
   credit: z.string(),
+  gardenId: z.string().nullable(),
   version: z.number().int(),
   editedAt: z.iso.datetime().nullable(),
   date: DateSchema.nullable(),
@@ -68,46 +74,38 @@ export const MaintenanceRecordSchema = z.strictObject({
   updatedAt: z.iso.datetime(),
 });
 
-const OptionalFields = {
-  volunteerId: z.string().uuid().nullable().optional(),
-  notes: z.string().nullable().optional(),
-  planting: z.string().nullable().optional(),
-  estNextVisit: DateSchema.nullable().optional(),
-};
-
 export const MaintenanceRecordCreateSchema = z.strictObject({
   submissionId: z.string().uuid(),
   date: DateSchema.refine((value) => value <= today(), 'Choose a date no later than today'),
-  activity: z.array(z.enum(activities)).default([]),
-  observations: z.array(z.enum(observations)).default([]),
+  activity: distinctOptions(z.enum(activities)).default([]),
+  observations: ObservationsSchema.default([]),
   plotId: z.string().min(1).max(100),
   notes: z.string().nullable().optional(),
   planting: z.string().nullable().optional(),
   estNextVisit: DateSchema.nullable().optional(),
-  plants: PlantsInputSchema.optional(),
+  plants: distinctPlantEntries(PlantInputSchema).optional(),
   photos: uniquePhotos(NewPhotoSchema).max(4).optional(),
-}).superRefine((body, ctx) => {
-  for (const field of ['activity', 'observations']) {
-    if (new Set(body[field]).size !== body[field].length) ctx.addIssue({ code: 'custom', path: [field], message: 'Choose each option once' });
-  }
-  if (body.observations.includes('Nothing stood out') && body.observations.length > 1) ctx.addIssue({ code: 'custom', path: ['observations'], message: 'Nothing stood out cannot be combined with other observations' });
-  if (!hasMaintenanceContent(body)) ctx.addIssue({ code: 'custom', path: ['notes'], message: 'Add an activity, observation, photo, or note' });
+}).refine(hasMaintenanceContent, {
+  path: ['notes'], message: 'Add an activity, observation, plant, photo, or note',
 });
 
 export function hasMaintenanceContent (body) {
-  return !!(body.activity?.length || body.observations?.length || body.photos?.length || body.notes?.trim());
+  return !!(body.activity?.length || body.observations?.length || body.plants?.length || body.photos?.length || body.notes?.trim());
 }
 
 export const MaintenanceRecordUpdateSchema = z.strictObject({
-  date: DateSchema.optional(),
-  activity: ActivitySchema.optional(),
-  plotId: z.string().uuid().optional(),
-  ...OptionalFields,
-  plants: PlantsInputSchema.optional(),
+  version: z.number().int().positive(),
+  mutationId: z.string().uuid(),
+  date: DateSchema.refine((value) => value <= today(), 'Choose a date no later than today').optional(),
+  activity: distinctOptions(z.string().trim().min(1)).optional(),
+  observations: ObservationsSchema.optional(),
+  notes: z.string().nullable().optional(),
+  planting: z.string().nullable().optional(),
+  estNextVisit: DateSchema.nullable().optional(),
+  plants: distinctPlantEntries(z.union([ExistingPlantRowSchema, PlantInputSchema])).optional(),
   photos: uniquePhotos(z.union([ExistingPhotoSchema, NewPhotoSchema])).optional(),
-}).refine((body) => Object.keys(body).length > 0, {
-  message: 'At least one field is required',
-  path: ['body'],
+}).refine((body) => Object.keys(body).some((key) => !['version', 'mutationId'].includes(key)), {
+  message: 'At least one changed field is required', path: ['body'],
 });
 
 export const MaintenanceRecordListQuerySchema = z.strictObject({
@@ -137,6 +135,7 @@ export const MAINTENANCE_RECORD_SELECT = {
   plotId: true,
   plot: {
     select: {
+      airtableId: true,
       name: true,
       streetAddress: true,
     },
@@ -151,7 +150,7 @@ export const MAINTENANCE_RECORD_SELECT = {
   },
   plants: {
     orderBy: { slot: 'asc' },
-    select: { plantId: true, quantity: true, plant: { select: { plantName: true, commonName: true, latinName: true } } },
+    select: { id: true, plantId: true, quantity: true, plant: { select: { plantName: true, commonName: true, latinName: true } } },
   },
 };
 
@@ -175,6 +174,7 @@ export function formatMaintenanceRecord (record) {
   return {
     id: record.id,
     observations: record.observations,
+    gardenId: record.plot?.airtableId || null,
     credit: maintenanceCredit(record),
     version: record.version,
     editedAt: record.editedAt ? formatTimestamp(record.editedAt) : null,
@@ -187,7 +187,7 @@ export function formatMaintenanceRecord (record) {
     plotName: record.plot?.name ?? null,
     plotStreetAddress: record.plot?.streetAddress ?? null,
     volunteerId: record.volunteerId,
-    plants: record.plants.map(({ plantId, quantity, plant }) => ({ plantId, quantity, name: plant?.plantName || plant?.commonName || plant?.latinName || null })),
+    plants: record.plants.map(({ id, plantId, quantity, plant }) => ({ id, plantId, quantity, name: plant?.plantName || plant?.commonName || plant?.latinName || null })),
     photos: record.photos.flatMap((row) => {
       const url = new MaintenanceRecordPhoto(row).fileUrl;
       return url ? [{ id: row.id, url }] : [];
@@ -206,7 +206,7 @@ export function findMaintenanceRecordById (prisma, id) {
 
 export function maintenanceRecordFieldsFromBody (body) {
   const data = {};
-  for (const field of ['activity', 'observations', 'notes', 'planting', 'plotId', 'volunteerId']) {
+  for (const field of ['activity', 'observations', 'notes', 'planting']) {
     if (body[field] !== undefined) data[field] = body[field];
   }
   if (body.date !== undefined) data.date = new Date(`${body.date}T00:00:00.000Z`);
@@ -224,40 +224,40 @@ function invalidLink (path, message) {
   return error;
 }
 
-export async function validateMaintenanceRecordLinks (tx, body, recordId) {
-  if (body.plotId !== undefined && !await tx.plot.findUnique({
-    where: { id: body.plotId },
-    select: { id: true },
-  })) {
-    throw invalidLink('plotId', 'Plot not found');
-  }
-  if (body.volunteerId && !await tx.person.findUnique({
-    where: { id: body.volunteerId },
-    select: { id: true },
-  })) {
-    throw invalidLink('volunteerId', 'Volunteer not found');
-  }
-  const plantIds = body.plants?.flatMap(({ plantId }) => plantId ? [plantId] : []) ?? [];
+async function validateMaintenancePlantIds (tx, plants) {
+  const plantIds = plants.flatMap(({ plantId }) => plantId ? [plantId] : []);
   if (plantIds.length && await tx.plant.count({
     where: { id: { in: plantIds } },
   }) !== plantIds.length) {
     throw invalidLink('plants', 'Plant not found');
   }
-  const photoIds = body.photos?.flatMap((photo) => photo.id ? [photo.id] : []) ?? [];
-  if (photoIds.length && await tx.maintenanceRecordPhoto.count({
-    where: { maintenanceRecordId: recordId, id: { in: photoIds } },
-  }) !== photoIds.length) {
-    throw invalidLink('photos', 'Photo does not belong to this maintenance record');
-  }
 }
 
-export async function syncMaintenanceRecordPlants (tx, recordId, plants) {
-  await tx.maintenanceRecordPlant.deleteMany({ where: { maintenanceRecordId: recordId } });
+export async function syncMaintenanceRecordPlants (tx, recordId, plants, existing = []) {
+  await validateMaintenancePlantIds(tx, plants);
+  const existingById = new Map(existing.map((row) => [row.id, row]));
+  const retainedPlantIds = new Set();
+  for (const { id } of plants) {
+    if (!id) continue;
+    const row = existingById.get(id);
+    if (!row) throw invalidLink('plants', 'Plant row does not belong to this maintenance record');
+    retainedPlantIds.add(row.plantId);
+  }
+
   const rows = [];
   for (const [index, entry] of plants.entries()) {
+    const slot = index + 1;
+    if (entry.id) {
+      const row = existingById.get(entry.id);
+      const quantity = entry.quantity === undefined ? row.quantity : entry.quantity;
+      rows.push({ id: row.id, maintenanceRecordId: recordId, plantId: row.plantId, quantity, slot });
+      continue;
+    }
+    if (retainedPlantIds.has(entry.plantId)) throw invalidLink('plants', 'Duplicate plant');
     const plantId = entry.plantId || (await createPlant(tx, entry.newPlant)).id;
-    rows.push({ maintenanceRecordId: recordId, plantId, quantity: entry.quantity, slot: index + 1 });
+    rows.push({ maintenanceRecordId: recordId, plantId, quantity: entry.quantity, slot });
   }
+  await tx.maintenanceRecordPlant.deleteMany({ where: { maintenanceRecordId: recordId } });
   if (rows.length) await tx.maintenanceRecordPlant.createMany({ data: rows });
 }
 
