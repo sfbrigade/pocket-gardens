@@ -34,18 +34,18 @@ test('garden editing uses the admin-only Info action and separate draft', async 
   await t.test('restores only this account and garden’s changes, retries a validation failure, and refreshes Info', async (t) => {
     const first = await mount(t, { initialEntry: gardenPath, user: admin, queryData, showHome: true });
     await first.click('Edit garden details');
-    assert.equal(first.field('Garden title').value, 'Original name');
+    await waitFor(() => assert.equal(first.field('Garden title').value, 'Original name'));
     await first.change('Garden title', 'Revised name');
     await first.change('Environmental notes', '');
     assert.deepEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey)), { 'Pocket Garden Name': 'Revised name', environmentalNotes: '' });
     await first.unmount();
 
     const other = await mount(t, { initialEntry: `${gardenPath}/edit`, user: otherAdmin, queryData });
-    assert.equal(other.field('Garden title').value, 'Original name');
+    await waitFor(() => assert.equal(other.field('Garden title').value, 'Original name'));
     await other.unmount();
 
     const view = await mount(t, { initialEntry: `${gardenPath}/edit`, user: admin, queryData, showHome: true });
-    assert.equal(view.field('Garden title').value, 'Revised name');
+    await waitFor(() => assert.equal(view.field('Garden title').value, 'Revised name'));
     assert.equal(view.field('Environmental notes').value, '');
     let attempt = 0;
     const patch = t.mock.method(Api.plots, 'update', async (id, payload) => {
@@ -70,11 +70,33 @@ test('garden editing uses the admin-only Info action and separate draft', async 
     assert.match(view.container.textContent, /Garden details saved/);
   });
 
+  await t.test('already applied fields are pruned against fresh data before restoring a draft', async (t) => {
+    const saved = { ...garden, 'Pocket Garden Name': 'Title from an uncertain save' };
+    t.mock.method(Api.plots, 'get', async () => ({ data: saved }));
+    dom.window.sessionStorage.setItem(draftKey, JSON.stringify({ 'Pocket Garden Name': saved['Pocket Garden Name'] }));
+    const completed = await mount(t, { initialEntry: `${gardenPath}/edit`, user: admin, queryData });
+    await waitFor(() => assert.equal(completed.field('Garden title').value, saved['Pocket Garden Name']));
+    assert.equal(completed.button('Save garden details').disabled, true);
+    assert.equal(dom.window.sessionStorage.getItem(draftKey), null);
+    await completed.unmount();
+
+    dom.window.sessionStorage.setItem(draftKey, JSON.stringify({ 'Pocket Garden Name': saved['Pocket Garden Name'], environmentalNotes: 'Unsaved note' }));
+    const view = await mount(t, { initialEntry: `${gardenPath}/edit`, user: admin, queryData });
+    await waitFor(() => assert.equal(view.field('Environmental notes').value, 'Unsaved note'));
+    assert.deepEqual(JSON.parse(dom.window.sessionStorage.getItem(draftKey)), { environmentalNotes: 'Unsaved note' });
+    const patch = t.mock.method(Api.plots, 'update', async (_id, changes) => ({ data: { ...saved, ...changes } }));
+    await view.submit();
+    await waitFor(() => assert.equal(view.path, gardenPath));
+    assert.deepEqual(patch.mock.calls[0].arguments[1], { environmentalNotes: 'Unsaved note' });
+    assert.equal(dom.window.sessionStorage.getItem(draftKey), null);
+  });
+
   await t.test('a forbidden save preserves the draft and disables retries', async (t) => {
     const view = await mount(t, { initialEntry: `${gardenPath}/edit`, user: admin, queryData });
     const patch = t.mock.method(Api.plots, 'update', async () => {
       throw Object.assign(new Error('Forbidden'), { response: { status: 403 } });
     });
+    await waitFor(() => view.field('Garden title'));
     await view.change('Garden title', 'Unsaved change');
     await view.submit();
     await waitFor(() => assert.match(view.container.textContent, /no longer have access/));

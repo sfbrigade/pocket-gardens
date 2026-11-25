@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { Alert, Button, Container, Fieldset, Group, Loader, Select, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useMounted } from '@mantine/hooks';
@@ -22,9 +22,17 @@ function changedFields (values, baseline) {
   }));
 }
 
-function storedValues (key) {
+function readDraft (key) {
   try {
-    const stored = JSON.parse(window.sessionStorage.getItem(key));
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storedValues (snapshot) {
+  try {
+    const stored = JSON.parse(snapshot);
     return Object.fromEntries(fields.filter((field) => typeof stored?.[field] === 'string').map((field) => [field, stored[field]]));
   } catch {
     return {};
@@ -42,10 +50,11 @@ export default function PlotEditForm () {
   const garden = useQuery({
     ...plotQueryOptions(plotId),
     enabled: mounted && canEdit,
+    staleTime: 0,
     retry: false,
   });
 
-  if (!mounted || isPending || (canEdit && garden.isPending)) return <Container py='md'><Loader aria-label='Loading garden editor' /></Container>;
+  if (!mounted || isPending || (canEdit && !garden.isFetchedAfterMount && !garden.isPaused)) return <Container py='md'><Loader aria-label='Loading garden editor' /></Container>;
   if (profileError && !user) {
     return <Container py='md'><Alert color='red'>Unable to check garden editing access. <Button onClick={() => refetchProfile()}>Try again</Button></Alert></Container>;
   }
@@ -62,7 +71,7 @@ export default function PlotEditForm () {
       </Container>
     );
   }
-  if (!garden.data || garden.error?.response?.status === 404) {
+  if (!garden.data || !garden.isFetchedAfterMount || garden.isError) {
     const missing = garden.error?.response?.status === 404;
     return (
       <Container py='md'>
@@ -86,31 +95,40 @@ function GardenDetailsFields ({ plot, routeId, storageKey }) {
   const modalId = useId();
   const backPath = `/plots/${encodeURIComponent(plot.id)}`;
   const [baseline] = useState(() => Object.fromEntries(fields.map((field) => [field, plot[field] ?? ''])));
-  const [initialValues] = useState(() => ({ ...baseline, ...storedValues(storageKey) }));
+  const [draft] = useState(() => {
+    const snapshot = readDraft(storageKey);
+    const changes = changedFields({ ...baseline, ...storedValues(snapshot) }, baseline);
+    return { snapshot, values: { ...baseline, ...changes } };
+  });
   const [storageFailed, setStorageFailed] = useState(false);
+  const persistDraft = useCallback((values) => {
+    const changes = changedFields(values, baseline);
+    try {
+      if (Object.keys(changes).length) window.sessionStorage.setItem(storageKey, JSON.stringify(changes));
+      else window.sessionStorage.removeItem(storageKey);
+      setStorageFailed(false);
+    } catch {
+      setStorageFailed(true);
+    }
+  }, [baseline, storageKey]);
+  useEffect(() => {
+    // A lost response or another save may have already applied some of the draft.
+    if (draft.snapshot !== null && readDraft(storageKey) === draft.snapshot) persistDraft(draft.values);
+  }, [draft, persistDraft, storageKey]);
   const form = useForm({
-    initialValues,
+    initialValues: draft.values,
     validate: {
       'Location Description': (value) => !value.trim() && baseline['Location Description'].trim() ? 'Describe exactly where the garden is.' : null,
     },
-    onValuesChange: (values) => {
-      const changes = changedFields(values, baseline);
-      try {
-        if (Object.keys(changes).length) window.sessionStorage.setItem(storageKey, JSON.stringify(changes));
-        else window.sessionStorage.removeItem(storageKey);
-        setStorageFailed(false);
-      } catch {
-        setStorageFailed(true);
-      }
-    },
+    onValuesChange: persistDraft,
   });
   const mutationKey = ['plot-edit', storageKey];
   const mutation = useMutation({
     mutationKey,
-    mutationFn: (changes) => Api.plots.update(plot.id, changes),
-    onSuccess: async ({ data }, changes) => {
+    mutationFn: ({ changes }) => Api.plots.update(plot.id, changes),
+    onSuccess: async ({ data }, { snapshot }) => {
       try {
-        if (window.sessionStorage.getItem(storageKey) === JSON.stringify(changes)) window.sessionStorage.removeItem(storageKey);
+        if (snapshot !== null && readDraft(storageKey) === snapshot) window.sessionStorage.removeItem(storageKey);
       } catch { /* Saving is independent of browser storage. */ }
       await cacheUpdatedPlot(client, data, routeId);
     },
@@ -124,7 +142,7 @@ function GardenDetailsFields ({ plot, routeId, storageKey }) {
     if (client.isMutating({ mutationKey, exact: true }) || unavailable) return;
     const changes = changedFields(values, baseline);
     if (!Object.keys(changes).length) return;
-    mutation.mutate(changes, {
+    mutation.mutate({ changes, snapshot: readDraft(storageKey) }, {
       onSuccess: () => navigate(backPath, { replace: true, state: { edited: true } }),
       onError: (error) => {
         if (error.response?.status === 422) {
