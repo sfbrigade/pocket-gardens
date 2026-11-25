@@ -19,9 +19,10 @@ export default function PlotDetails ({ plot }) {
   ];
   return (
     <Stack gap='md'>
-      {canEdit
-        ? <PlotStage key={`${user.id}:${plot.id}`} plot={plot} />
-        : <Group><Badge color='green'>{plotStageLabel(plot.stage)}</Badge></Group>}
+      <Group>
+        <Badge color='green'>{plotStageLabel(plot.stage)}</Badge>
+        {canEdit && <PlotStage key={`${user.id}:${plot.id}`} plot={plot} accountId={user.id} />}
+      </Group>
       {canEdit && (
         <Group><Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/edit`} variant='light'>Edit garden details</Button></Group>
       )}

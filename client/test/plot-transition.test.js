@@ -87,6 +87,7 @@ test('garden stage changes are distinct from visits and recover from stale or lo
 
   await t.test('after a lost response, verification can be retried without a second write', async (t) => {
     const patch = t.mock.method(Api.plots, 'update', async () => { throw new Error('Response lost'); });
+    t.mock.method(Api.maintenance, 'index', async () => ({ data: [], headers: {} }));
     let attempts = 0;
     t.mock.method(Api.plots, 'get', async () => {
       if (++attempts === 1) throw new Error('Network unavailable');
@@ -96,9 +97,63 @@ test('garden stage changes are distinct from visits and recover from stale or lo
     await confirmMove(view);
     await waitFor(() => view.button('Check garden stage'));
     assert.doesNotMatch(view.container.textContent, /Move to Preparing/);
+    await view.click('Updates');
+    await view.click('Info');
+    await waitFor(() => view.button('Check garden stage'));
+    assert.doesNotMatch(view.container.textContent, /Move to Preparing/);
+    assert.equal(attempts, 1);
+
+    const otherGarden = { ...garden, id: 'recAnotherGarden' };
+    view.client.setQueryData(['plot', otherGarden.id], otherGarden);
+    await view.navigate(`/plots/${otherGarden.id}`);
+    await waitFor(() => view.button('Move to Preparing'));
+    assert.doesNotMatch(view.container.textContent, /Check garden stage/);
+    await view.navigate(gardenPath);
+    await waitFor(() => view.button('Check garden stage'));
+
     await view.click('Check garden stage');
     await waitFor(() => assert.match(doc.body.textContent, /already Preparing/));
     assert.equal(view.client.getQueryData(['plot', garden.id]).stage, 'preparing');
     assert.equal(patch.mock.calls.length, 1);
+  });
+
+  await t.test('a late edit response preserves the stage already shown in Info and on the map', async (t) => {
+    const editResponse = Promise.withResolvers();
+    const finalRead = Promise.withResolvers();
+    let plot = garden;
+    let delayReads = false;
+    t.mock.method(Api.plots, 'get', async () => {
+      if (delayReads) await finalRead.promise;
+      return { data: plot };
+    });
+    const patch = t.mock.method(Api.plots, 'update', async (_id, { expectedStage, ...changes }) => {
+      plot = { ...plot, ...changes };
+      const saved = plot;
+      if (!expectedStage) await editResponse.promise;
+      return { data: saved };
+    });
+    const view = await mountGarden(t);
+    const viewportKey = ['plots', { north: 10, south: 0, east: 10, west: 0 }];
+    view.client.setQueryData(viewportKey, [garden]);
+
+    try {
+      await view.click('Edit garden details');
+      await waitFor(() => view.field('Garden title'));
+      await view.change('Garden title', 'Revised title');
+      await view.submit();
+      await waitFor(() => assert.equal(patch.mock.calls.length, 1));
+      await view.navigate(-1);
+      await confirmMove(view);
+      await waitFor(() => assert.match(view.container.textContent, /Garden moved to Preparing/));
+
+      delayReads = true;
+      await interact(() => editResponse.resolve());
+      await waitFor(() => assert.deepEqual(view.client.getQueryData(['plot', garden.id]), plot));
+      assert.equal(view.client.getQueryData(viewportKey)[0].stage, 'preparing');
+      assert.equal(view.client.getQueryData(viewportKey)[0]['Pocket Garden Name'], 'Revised title');
+      assert.match(view.container.textContent, /Garden moved to Preparing/);
+    } finally {
+      await interact(() => { editResponse.resolve(); finalRead.resolve(); });
+    }
   });
 });
