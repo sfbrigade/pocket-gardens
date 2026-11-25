@@ -198,6 +198,7 @@ test('map viewport interactions', async (t) => {
     await interact(() => map.setView([37.79, -122.42], 16, { animate: false }));
     const center = map.getCenter();
     const originalMap = map;
+    await waitFor(() => view.button('Add an update'));
     await view.click('Add an update');
     view.client.removeQueries({ queryKey: ['plot', alias], exact: true });
     await view.navigate(-1);
