@@ -4,8 +4,8 @@ import { useForm } from '@mantine/form';
 import { useQuery } from '@tanstack/react-query';
 import { Head } from '@unhead/react';
 
-import Api from '../../Api';
-import Pagination from '../../Components/Pagination';
+import Api from 'src/Api';
+import Pagination from 'components/Pagination';
 
 function AdminPeopleList () {
   const [searchParams, setSearchParams] = useSearchParams();
