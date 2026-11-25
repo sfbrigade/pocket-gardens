@@ -3,9 +3,11 @@ import { Link } from 'react-router';
 
 import { useAuthContext } from '../AuthContext';
 import { canEditPlot, plotPermissionLabels, plotStageLabel } from '../plots.js';
+import PlotStage from './PlotStage';
 
 export default function PlotDetails ({ plot }) {
   const { user, isPending } = useAuthContext();
+  const canEdit = !isPending && canEditPlot(user);
   const facts = [
     ['Address', plot['Street City Address (for Maps)'] || plot['Street Address']],
     ['Look for', plot['Location Description']],
@@ -17,8 +19,10 @@ export default function PlotDetails ({ plot }) {
   ];
   return (
     <Stack gap='md'>
-      <Group><Badge color='green'>{plotStageLabel(plot.stage)}</Badge></Group>
-      {!isPending && canEditPlot(user) && (
+      {canEdit
+        ? <PlotStage key={`${user.id}:${plot.id}`} plot={plot} />
+        : <Group><Badge color='green'>{plotStageLabel(plot.stage)}</Badge></Group>}
+      {canEdit && (
         <Group><Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/edit`} variant='light'>Edit garden details</Button></Group>
       )}
       {plot.Photos?.map((url) => <Image key={url} src={url} alt='Garden reference photo' radius='md' mah={240} fit='cover' />)}

@@ -76,7 +76,12 @@ export async function setupPlotTests (t) {
   t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true, canAssignCarers: true } }));
   // Keep real modal portals so the plant form is outside the garden form in
   // the DOM. Disable animations, which are outside these interaction checks.
-  const theme = { components: { Modal: { defaultProps: { transitionProps: { duration: 0 } } } } };
+  const theme = {
+    components: {
+      Modal: { defaultProps: { transitionProps: { duration: 0 } } },
+      Drawer: { defaultProps: { transitionProps: { duration: 0 } } },
+    },
+  };
 
   async function mount (test, { queryData = [], initialEntry = '/plots/new', showHome = false, canCreatePlot = true, canAssignCarers = canCreatePlot, account = testAccount, user = account ? { id: account } : null } = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { gcTime: Infinity } } });
