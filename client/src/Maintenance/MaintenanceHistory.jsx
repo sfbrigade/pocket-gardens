@@ -1,14 +1,21 @@
 import { Alert, Badge, Button, Card, Group, Image, Loader, Stack, Text, Title } from '@mantine/core';
+import { useMounted } from '@mantine/hooks';
 import { Link } from 'react-router';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import Api from '../Api';
+import DeleteMaintenanceUpdate from './DeleteMaintenanceUpdate';
+import { draftKey, readMaintenanceDraft, readMaintenanceEditDrafts } from './maintenance-draft';
+import { useMaintenanceCapabilities } from './maintenance-queries';
 
-export function recordDate (date) {
-  return date ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`)) : 'Date not recorded';
+function recordDate (date) {
+  const day = new Date(`${date}T12:00:00Z`);
+  return Number.isNaN(day.getTime()) ? 'Date not recorded' : day.toLocaleDateString(undefined, { dateStyle: 'medium', timeZone: 'UTC' });
 }
 
 export default function MaintenanceHistory ({ plot }) {
-  const { data: capabilities } = useQuery({ queryKey: ['maintenance-capabilities'], queryFn: ({ signal }) => Api.maintenance.capabilities(signal).then(({ data }) => data) });
+  const mounted = useMounted();
+  const { account, capabilities: access, authPending } = useMaintenanceCapabilities();
+  const capabilities = authPending ? undefined : access.data;
   const query = useInfiniteQuery({
     queryKey: ['maintenance', plot.id],
     queryFn: ({ signal, pageParam }) => Api.maintenance.index({ plotId: plot.id, offset: pageParam, pageSize: 20 }, signal),
@@ -16,10 +23,24 @@ export default function MaintenanceHistory ({ plot }) {
     getNextPageParam: (response) => response.headers['x-next-offset'] ?? undefined,
   });
   const records = query.data?.pages.flatMap(({ data }) => data) ?? [];
+  const updatePath = `/plots/${encodeURIComponent(plot.id)}/updates`;
+  const eligible = ['potential', 'preparing', 'active', 'paused'].includes(plot.stage);
+  const resumeCreate = mounted && capabilities?.canCreate && readMaintenanceDraft(draftKey(account, plot.id));
+  const editDrafts = mounted && capabilities?.canManage ? readMaintenanceEditDrafts(account, plot.id) : [];
   return (
     <Stack>
       <Title order={3}>Updates &amp; history</Title>
-      {capabilities?.canCreate && ['potential', 'preparing', 'active', 'paused'].includes(plot.stage) && <Group><Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/updates/new?quick=photo`} variant='light'>Photo update</Button><Button component={Link} to={`/plots/${encodeURIComponent(plot.id)}/updates/new`}>Add an update</Button></Group>}
+      {capabilities?.canCreate && (eligible || resumeCreate) && (
+        <Group>
+          {eligible && <Button component={Link} to={`${updatePath}/new?quick=photo`} variant='light'>Photo update</Button>}
+          <Button component={Link} to={`${updatePath}/new`}>{resumeCreate ? 'Resume update draft' : 'Add an update'}</Button>
+        </Group>
+      )}
+      {editDrafts.filter(({ recordId }) => !records.some(({ id }) => id === recordId)).map(({ recordId, date }) => (
+        <Button key={recordId} component={Link} to={`${updatePath}/${encodeURIComponent(recordId)}/edit`} variant='light'>
+          Resume edit draft · {recordDate(date)}
+        </Button>
+      ))}
       <Text size='sm' c='dimmed'>Visit records describe past events. Garden care summaries and the current plant list are managed separately.</Text>
       {query.isPending && <Loader aria-label='Loading updates' />}
       {(query.isLoadingError || query.isRefetchError) && (
@@ -38,9 +59,9 @@ export default function MaintenanceHistory ({ plot }) {
             {!!record.observations.length && <Text>Observed: {record.observations.join(', ')}</Text>}
             {record.notes && <Text style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{record.notes}</Text>}
             {record.planting && <Text size='sm'>{record.planting}</Text>}
-            {record.plants.map((plant, index) => <Text key={`${plant.plantId}-${index}`} size='sm'>{plant.quantity == null ? '' : `${plant.quantity} × `}{plant.name || 'Plant name not recorded'}</Text>)}
+            {record.plants.map((plant) => <Text key={plant.id} size='sm'>{plant.quantity == null ? '' : `${plant.quantity} × `}{plant.name || 'Plant name not recorded'}</Text>)}
             {record.photos.map((photo, index) => <Image key={photo.id} src={photo.url} alt={`Visit photo ${index + 1}`} radius='sm' loading='lazy' h={260} fit='contain' fallbackSrc='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="40"%3E%3Ctext x="10" y="25"%3EPhoto unavailable%3C/text%3E%3C/svg%3E' />)}
-            {capabilities?.canManage && <Button component={Link} variant='subtle' to={`/plots/${encodeURIComponent(plot.id)}/updates/${record.id}/edit`}>Edit update</Button>}
+            {capabilities?.canManage && <Group><Button component={Link} variant='subtle' to={`${updatePath}/${record.id}/edit`}>{editDrafts.some(({ recordId }) => recordId === record.id) ? 'Resume edit draft' : 'Edit update'}</Button><DeleteMaintenanceUpdate record={record} plotId={plot.id} /></Group>}
             <Text size='xs' c='dimmed'>Recorded {new Date(record.createdAt).toLocaleString()}</Text>
           </Stack>
         </Card>

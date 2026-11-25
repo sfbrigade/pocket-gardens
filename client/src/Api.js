@@ -145,6 +145,12 @@ const Api = {
     },
   },
   maintenance: {
+    remove (id, version) {
+      return instance.delete(`/api/maintenance-records/${id}`, {
+        data: { version },
+        validateStatus: (status) => (status >= 200 && status < 300) || status === StatusCodes.NOT_FOUND,
+      });
+    },
     update (id, data) {
       return instance.patch(`/api/maintenance-records/${id}`, data);
     },

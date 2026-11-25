@@ -17,6 +17,7 @@ test('maintenance update workflows', async (t) => {
   t.beforeEach(async () => { headers = await authenticate(app, 'admin.user@test.com', 'test'); });
   const create = (payload) => app.inject({ method: 'POST', url: '/api/maintenance-records', headers, payload });
   const edit = (id, payload) => app.inject({ method: 'PATCH', url: `/api/maintenance-records/${id}`, headers, payload });
+  const remove = (id, version) => app.inject({ method: 'DELETE', url: `/api/maintenance-records/${id}`, headers, payload: { version } });
 
   await t.test('each kind of contribution is valid independently and credits the administrator', async () => {
     for (const content of [{ notes: 'Visit note' }, { activity: ['Watered'] }, { observations: ['Nothing stood out'] }]) {
@@ -311,5 +312,96 @@ test('maintenance update workflows', async (t) => {
       release.resolve();
     }
     assert.equal((await earlier).statusCode, 409);
+  });
+
+  await t.test('a verified contributor can add a photo update and only an administrator can delete it', async () => {
+    const contributor = await authenticate(app, 'regular.user@test.com', 'test');
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/maintenance-records',
+      headers: contributor,
+      payload: draft({ notes: undefined, photos: [{ upload: filename }] }),
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const { id, version, photos } = response.json();
+    assert.equal(photos.length, 1);
+    const denied = await app.inject({ method: 'DELETE', url: `/api/maintenance-records/${id}`, headers: contributor, payload: { version } });
+    assert.equal(denied.statusCode, 403);
+    assert.equal((await app.inject({ url: `/api/maintenance-records/${id}` })).statusCode, 200);
+    assert.equal((await remove(id, version)).statusCode, 204);
+  });
+
+  await t.test('record deletion retains photos, hides staging copies, and never revives on create replay', async (t) => {
+    const filename = `${crypto.randomUUID()}.jpg`;
+    await upload([['640x480.jpg', filename]]);
+    const payload = draft({ photos: [{ upload: filename }] });
+    const deletion = t.mock.method(s3, 'deleteObject', async () => { throw new Error('Simulated cleanup outage'); });
+    const saved = (await create(payload)).json();
+    deletion.mock.restore();
+    assert.equal(await assetExists(`_uploads/${filename}`), true);
+    assert.equal((await remove(saved.id, 1)).statusCode, 204);
+    assert.equal((await remove(saved.id, 1)).statusCode, 204);
+    const row = await app.prisma.maintenanceRecord.findUnique({ where: { id: saved.id }, include: { photos: true } });
+    assert.ok(row.deletedAt);
+    assert.equal(row.version, 2);
+    assert.equal(row.photos.length, 1);
+    assert.equal(row.photos[0].pendingRemovalAt, null);
+    assert.equal(await assetExists(saved.photos[0].url.replace('/api/assets/', '')), true);
+    assert.equal((await app.inject({ url: `/api/maintenance-records/${saved.id}` })).statusCode, 404);
+    assert.equal((await app.inject({ url: saved.photos[0].url })).statusCode, 404);
+    const staging = await app.inject({ url: `/api/assets/_uploads/${filename}` });
+    assert.equal(staging.statusCode, 404);
+    assert.equal(staging.headers.location, undefined);
+    assert.equal((await create(payload)).statusCode, 410);
+    assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), notes: 'Revive' })).statusCode, 404);
+    assert.equal(await app.prisma.maintenanceRecord.count({ where: { submissionId: payload.submissionId } }), 1);
+  });
+
+  await t.test('delete recovers a committed write when its acknowledgment is lost', async (t) => {
+    const saved = (await create(draft())).json();
+    const original = app.prisma;
+    const records = original.maintenanceRecord;
+    const lostAcknowledgment = t.mock.fn(async (options) => {
+      await records.updateMany(options);
+      throw new Error('Simulated lost delete acknowledgment');
+    });
+    app.prisma = new Proxy(original, {
+      get (target, property) {
+        if (property === 'maintenanceRecord') {
+          return { updateMany: lostAcknowledgment, findUnique: records.findUnique.bind(records) };
+        }
+        return Reflect.get(target, property);
+      },
+    });
+
+    try {
+      assert.equal((await remove(saved.id, saved.version)).statusCode, 204);
+    } finally {
+      app.prisma = original;
+    }
+    assert.equal(lostAcknowledgment.mock.callCount(), 1);
+    assert.equal((await remove(saved.id, saved.version)).statusCode, 204);
+    assert.equal((await remove(crypto.randomUUID(), saved.version)).statusCode, 404);
+  });
+
+  await t.test('stale deletes conflict; edit/delete races never erase a newer correction silently', async () => {
+    const saved = (await create(draft())).json();
+    assert.equal((await edit(saved.id, { version: 1, mutationId: crypto.randomUUID(), notes: 'New correction' })).statusCode, 200);
+    assert.equal((await remove(saved.id, 1)).statusCode, 409);
+    const responses = await Promise.all([
+      remove(saved.id, 2),
+      edit(saved.id, { version: 2, mutationId: crypto.randomUUID(), notes: 'Concurrent edit' }),
+    ]);
+    const row = await app.prisma.maintenanceRecord.findUnique({ where: { id: saved.id } });
+    if (row.deletedAt) {
+      assert.equal(responses[0].statusCode, 204);
+      assert.ok([404, 409].includes(responses[1].statusCode));
+    } else {
+      assert.equal(responses[0].statusCode, 409);
+      assert.equal(responses[1].statusCode, 200);
+      assert.equal(row.notes, 'Concurrent edit');
+    }
   });
 });

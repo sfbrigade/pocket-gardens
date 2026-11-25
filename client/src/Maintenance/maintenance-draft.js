@@ -1,4 +1,5 @@
-export const draftKey = (plotId, recordId = 'new') => `pocket-gardens:maintenance:${plotId}:${recordId}`;
+const draftPrefix = (account, plotId) => `pocket-gardens:maintenance:v2:${account}:${plotId}:`;
+export const draftKey = (account, plotId, recordId = 'new') => draftPrefix(account, plotId) + recordId;
 
 export function readMaintenanceDraft (key) {
   if (!key) return null;
@@ -13,6 +14,18 @@ export function clearMaintenanceDraft (key, submissionId) {
   try {
     if (readMaintenanceDraft(key)?.submissionId === submissionId) window.sessionStorage.removeItem(key);
   } catch {}
+}
+
+export function readMaintenanceEditDrafts (account, plotId) {
+  const prefix = draftPrefix(account, plotId);
+  try {
+    return Object.keys(window.sessionStorage)
+      .filter((key) => key.startsWith(prefix) && key !== draftKey(account, plotId))
+      .flatMap((key) => {
+        const draft = readMaintenanceDraft(key);
+        return draft ? [{ recordId: key.slice(prefix.length), date: draft.date }] : [];
+      });
+  } catch { return []; }
 }
 
 export function newMaintenanceDraft (date) {

@@ -148,6 +148,66 @@ test('map viewport interactions', async (t) => {
     assert.deepEqual(markers(), [original]);
   });
 
+  for (const [name, routeId] of [['public', 'recGarden'], ['internal', '11111111-1111-4111-8111-111111111111']]) {
+    await t.test(`restores the garden viewport after entering the composer from the ${name} garden link`, async (t) => {
+      dom.window.sessionStorage.clear();
+      const plot = { id: 'recGarden', stage: 'active', Latitude: 37.78, Longitude: -122.428, plants: [] };
+      t.mock.method(Api.plots, 'index', async () => ({ data: [plot], headers: {} }));
+      t.mock.method(Api.maintenance, 'index', async () => ({ data: [], headers: {} }));
+      const view = await mount(t, {
+        initialEntry: `/plots/${routeId}`,
+        showHome: true,
+        queryData: [[['plot', routeId], plot], [['plot', plot.id], plot]],
+      });
+      await waitFor(() => assert.ok(view.container.querySelector('.leaflet-container')));
+
+      await interact(() => map.setView([37.79, -122.42], 16, { animate: false }));
+      const center = map.getCenter();
+      assert.equal(dom.window.sessionStorage.length, 0, 'ordinary map movements do not persist a maintenance viewport');
+
+      await view.click('Updates');
+      await waitFor(() => assert.ok(view.button('Add an update')));
+      const originalMap = map;
+      await view.click('Add an update');
+      await waitFor(() => assert.ok(view.button('Cancel')));
+      await view.click('Cancel');
+
+      await waitFor(() => assert.notStrictEqual(map, originalMap));
+      assert.equal(view.path, `/plots/${plot.id}`);
+      assert.equal(view.location.search, '?tab=updates');
+      assert.equal(map.getZoom(), 16);
+      const restoredCenter = map.getCenter();
+      assert.ok(restoredCenter.equals(center, 0.00002), `Expected ${center}, got ${restoredCenter}`);
+    });
+  }
+
+  await t.test('Browser Back restores the viewport after reloading an uncached garden alias', async (t) => {
+    dom.window.sessionStorage.clear();
+    const alias = '11111111-1111-4111-8111-111111111111';
+    const plot = { id: 'recGarden', stage: 'active', Latitude: 37.78, Longitude: -122.428, plants: [] };
+    const reload = Promise.withResolvers();
+    const get = t.mock.method(Api.plots, 'get', () => reload.promise);
+    t.mock.method(Api.plots, 'index', async () => ({ data: [plot], headers: {} }));
+    t.mock.method(Api.maintenance, 'index', async () => ({ data: [], headers: {} }));
+    const view = await mount(t, {
+      initialEntry: `/plots/${alias}?tab=updates`,
+      showHome: true,
+      queryData: [[['plot', alias], plot], [['plot', plot.id], plot]],
+    });
+    await waitFor(() => assert.ok(view.container.querySelector('.leaflet-container')));
+    await interact(() => map.setView([37.79, -122.42], 16, { animate: false }));
+    const center = map.getCenter();
+    const originalMap = map;
+    await view.click('Add an update');
+    view.client.removeQueries({ queryKey: ['plot', alias], exact: true });
+    await view.navigate(-1);
+    await waitFor(() => assert.notStrictEqual(map, originalMap));
+    await waitFor(() => assert.equal(get.mock.calls.length, 1));
+    await interact(() => reload.resolve({ data: plot }));
+    await waitFor(() => assert.equal(map.getZoom(), 16));
+    assert.ok(map.getCenter().equals(center, 0.00002));
+  });
+
   await t.test('batches viewport changes and reuses buffered coverage', async (t) => {
     t.mock.method(Map.prototype, 'getBounds', () => latLngBounds([[37.785, -122.435], [37.795, -122.425]]));
     const garden = { id: 'garden', Latitude: 37.79, Longitude: -122.43 };
