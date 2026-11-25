@@ -89,9 +89,12 @@ export const PlotCreateSchema = PlotFieldsSchema.extend({
   if (issue) ctx.addIssue(issue);
 });
 
-export const PlotUpdateSchema = PlotFieldsSchema.refine((body) => Object.keys(body).length > 0, {
+export const PlotUpdateSchema = PlotFieldsSchema.extend({ expectedStage: PlotStageSchema.optional() }).refine((body) => Object.keys(body).length > 0, {
   message: 'At least one field is required',
   path: ['body'],
+}).refine((body) => body.expectedStage === undefined || (body.stage !== undefined && Object.keys(body).length === 2), {
+  message: 'Expected stage can only be used with a stage-only update',
+  path: ['expectedStage'],
 });
 
 export function allowsAnonymousPlotCreation (env = process.env) {

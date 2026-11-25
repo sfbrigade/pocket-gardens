@@ -365,6 +365,30 @@ test('/api/plots', async (t) => {
     assert.equal(row.originalPlantDate, null);
   });
 
+  await t.test('a guarded stage change updates only a plot that is still at the expected stage', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
+    const url = '/api/plots/recPlotBeta';
+    const patch = (payload) => app.inject({ method: 'PATCH', url, headers, payload });
+    const initial = await patch({ stage: 'potential', permissionStatus: 'needed' });
+    assert.equal(initial.statusCode, StatusCodes.OK);
+    const transition = { stage: 'preparing', expectedStage: 'potential' };
+
+    const member = await authenticate(app, 'regular.user@test.com', 'test');
+    assert.equal((await app.inject({ method: 'PATCH', url, payload: transition })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.equal((await app.inject({ method: 'PATCH', url, headers: member, payload: transition })).statusCode, StatusCodes.FORBIDDEN);
+    for (const payload of [{ expectedStage: 'potential' }, { ...transition, permissionStatus: 'confirmed' }]) {
+      assert.equal((await patch(payload)).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    }
+
+    const results = await Promise.all([patch(transition), patch(transition)]);
+    assert.deepEqual(results.map(({ statusCode }) => statusCode).sort(), [StatusCodes.OK, StatusCodes.CONFLICT]);
+    assert.deepEqual(results.find(({ statusCode }) => statusCode === StatusCodes.OK).json(), { ...initial.json(), stage: 'preparing' });
+
+    assert.equal((await patch({ stage: 'active' })).statusCode, StatusCodes.OK);
+    assert.equal((await patch(transition)).statusCode, StatusCodes.CONFLICT);
+    assert.equal((await app.inject({ url })).json().stage, 'active');
+  });
+
   await t.test('anonymous requests cannot submit plots, while existing users can submit but cannot edit', async () => {
     assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: validPlot })).statusCode, StatusCodes.UNAUTHORIZED);
     assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', payload: { stage: 'active' } })).statusCode, StatusCodes.UNAUTHORIZED);

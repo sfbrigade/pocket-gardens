@@ -22,6 +22,7 @@ export default async function (fastify, opts) {
       response: {
         [StatusCodes.OK]: PlotDetailSchema,
         [StatusCodes.NOT_FOUND]: z.null(),
+        [StatusCodes.CONFLICT]: z.object({ message: z.string() }),
         [StatusCodes.UNPROCESSABLE_ENTITY]: fastify.ValidationErrorSchema,
       },
     },
@@ -34,9 +35,12 @@ export default async function (fastify, opts) {
       return reply.code(StatusCodes.NOT_FOUND).send(null);
     }
     const data = plotFieldsFromBody(request.body, existing);
-    const { Photos } = request.body;
+    const { expectedStage, Photos } = request.body;
     const record = await fastify.prisma.$transaction(async (tx) => {
-      if (Object.keys(data).length) {
+      if (expectedStage !== undefined) {
+        const { count } = await tx.plot.updateMany({ where: { id: existing.id, stage: expectedStage }, data });
+        if (count === 0) return null;
+      } else if (Object.keys(data).length) {
         await tx.plot.update({
           where: { id: existing.id },
           data,
@@ -47,6 +51,9 @@ export default async function (fastify, opts) {
       }
       return reloadPlotDetails(tx, existing.id);
     });
+    if (!record) {
+      return reply.code(StatusCodes.CONFLICT).send({ message: 'The garden stage has changed. Reload the garden to see its current stage.' });
+    }
     reply.send(formatPlot(record));
   });
 }
