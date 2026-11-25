@@ -32,8 +32,8 @@ export default function MaintenanceHistory ({ plot }) {
       <Title order={3}>Updates &amp; history</Title>
       {capabilities?.canCreate && (eligible || resumeCreate) && (
         <Group>
-          {eligible && <Button component={Link} to={`${updatePath}/new?quick=photo`} variant='light'>Photo update</Button>}
           <Button component={Link} to={`${updatePath}/new`}>{resumeCreate ? 'Resume update draft' : 'Add an update'}</Button>
+          {eligible && <Button component={Link} to={`${updatePath}/new?quick=photo`} variant='light'>Photo update</Button>}
         </Group>
       )}
       {editDrafts.filter(({ recordId }) => !records.some(({ id }) => id === recordId)).map(({ recordId, date }) => (
