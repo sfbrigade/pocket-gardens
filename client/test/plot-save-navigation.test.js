@@ -87,4 +87,39 @@ test('garden saves respect navigation and newer drafts', async (t) => {
     assert.equal(lookup.mock.calls.length, 0);
     assert.equal(dom.window.sessionStorage.getItem(draftStorageKey), null);
   });
+
+  await t.test('creation submits staff permission notes without persisting them in the draft or retry payload', async (t) => {
+    const original = { ...createPlotDraft(), locator: 'Second tree well', position: { latitude: 37.77, longitude: -122.43 }, addressEdited: true };
+    dom.window.sessionStorage.setItem(draftStorageKey, JSON.stringify(original));
+    const create = t.mock.method(Api.plots, 'create', async () => { throw Object.assign(new Error('Try again'), { _form: 'Try again' }); });
+    const view = await mount(t, { user: { id: 'admin', isAdmin: true, emailVerified: true } });
+    await waitFor(() => assert.equal(view.field('Where exactly is it?').value, original.locator));
+    await view.change('Garden care note', '  Water weekly  ');
+    await view.change('Additional permission note', 'Enter from the sidewalk');
+    await view.change('Staff-only permission notes', 'Private permission record');
+    await view.submit();
+    await waitFor(() => assert.match(view.container.textContent, /Try again/));
+    const [payload] = create.mock.calls[0].arguments;
+    assert.equal(payload.gardenCareNote, 'Water weekly');
+    assert.equal(payload.permissionAdditionalNote, 'Enter from the sidewalk');
+    assert.equal(payload.staffPermissionNotes, 'Private permission record');
+    assert.doesNotMatch(dom.window.sessionStorage.getItem(draftStorageKey), /staffPermissionNotes|Private permission record/);
+    assert.equal(readDraft().submissionAttempt.hadStaffNote, true);
+    await view.unmount();
+
+    const member = await mount(t, { user: { id: 'member', isAdmin: false, emailVerified: true }, canAssignCarers: false });
+    await waitFor(() => assert.equal(member.field('Garden care note').value, '  Water weekly  '));
+    assert.doesNotMatch(member.container.textContent, /Staff-only permission notes/);
+    await member.unmount();
+
+    const lookup = t.mock.method(Api.plots, 'getSubmission', async () => ({ data: { id: 'pg_recovered' } }));
+    const restored = await mount(t, { user: { id: 'admin', isAdmin: true, emailVerified: true } });
+    await waitFor(() => restored.button('Check for saved garden'));
+    assert.equal(restored.field('Staff-only permission notes').value, '');
+    await restored.submit();
+    await waitFor(() => assert.equal(restored.path, '/plots/pg_recovered'));
+    assert.deepEqual(lookup.mock.calls[0].arguments, [original.submissionId]);
+    assert.equal(create.mock.calls.length, 1);
+    assert.equal(dom.window.sessionStorage.getItem(draftStorageKey), null);
+  });
 });

@@ -46,7 +46,11 @@ API plot `id` is the Airtable record id when present; plots created via the API 
 
 ## Plot submission API
 
-`POST /api/plots` requires a verified, unbanned account with the `user` or `admin` role. To test account-free creation locally, explicitly set both `NODE_ENV=development` and `ALLOW_ANONYMOUS_PLOT_SUBMISSION=true` in the server environment. Anonymous creation stays disabled in production even if the flag is set. `PATCH /api/plots/:id` remains administrator-only.
+`POST /api/plots` requires a verified, unbanned account with the `user` or `admin` role. To test account-free creation locally, explicitly set both `NODE_ENV=development` and `ALLOW_ANONYMOUS_PLOT_SUBMISSION=true` in the server environment. Anonymous creation stays disabled in production even if the flag is set.
+
+Plot creators can edit titles, location descriptions, and permission status, and fill blank public note fields. Contributors can edit public notes they authored. Administrators can edit any plot, including imports without a recorded author, and change its stage. Corrections preserve note authorship.
+
+The editor sends the original value of each changed field in `expectedValues`. A mismatch returns `409`.
 
 `GET /api/plots/capabilities` reports `canCreatePlot` and `canAssignCarers` for the current session. Use these capabilities to display the form entry and enable registered-user selection. Only active administrators can assign carers, including when anonymous development creation is enabled.
 
@@ -56,7 +60,7 @@ If a draft contains carers and the current session cannot assign them, the form 
 
 Creation requires `Location Description` and valid coordinates. `stage` defaults to `potential`; `permissionStatus` defaults to `unknown`. Permission is independent of garden stage. `firstPlanted` uses `YYYY-MM-DD` and can be set for active gardens. See `/api/reference` for the full field contract.
 
-Environmental notes can be included in normal plot submissions. Supplying the legacy `Seth's Notes` field, including an empty value, requires an administrator even when anonymous development creation is enabled. Existing legacy notes are retained.
+Garden care, additional permission, and environmental notes are public. Only active administrators can write `staffPermissionNotes` or read them through `GET /api/plots/:id/edit`. The [migration](prisma/migrations/20261126000000_plot_notes_and_authorship/migration.sql) renames the legacy `Seth's Notes` column to `gardenCareNote`. Airtable imports use the same destination.
 
 Map responses contain marker information and photos; detail responses add site facts and assigned volunteer display names. Private notes and volunteer contact details are excluded. `stage` replaces the legacy `Status` field, which is rejected on POST/PATCH and omitted from responses. Imported plots may have a null stage.
 

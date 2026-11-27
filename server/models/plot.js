@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { parseMapCoordinates } from '#lib/airtable-schema.js';
 import { firstPlantedIssue, PLOT_STAGES } from '#lib/plot-lifecycle.js';
+import { plotEditorFields } from '#lib/plot-editing.js';
 import { runPhotoHandlers, syncPhotos } from '#lib/photos.js';
 import { UploadFilenameSchema } from '#lib/upload-policy.js';
 import PlotPhoto from '#models/plot-photo.js';
@@ -34,6 +35,8 @@ export const PlotDetailSchema = PlotSchema.extend({
   'Est. Area (Sq. Ft)': z.number().optional(),
   'Location Description': z.string().optional(),
   permissionStatus: PermissionStatusSchema.nullable(),
+  permissionAdditionalNote: z.string().nullable(),
+  gardenCareNote: z.string().nullable(),
   sunExposure: SunExposureSchema.nullable(),
   environmentalNotes: z.string().nullable(),
   firstPlanted: z.iso.date().nullable(),
@@ -43,11 +46,19 @@ export const PlotDetailSchema = PlotSchema.extend({
   plants: z.array(PlotPlantSchema),
 });
 
+export const PlotEditorSchema = PlotDetailSchema.extend({
+  editableFields: z.array(z.enum(plotEditorFields)),
+  staffPermissionNotes: z.string().nullable().optional(),
+});
+
 export const PlotFieldsSchema = z.strictObject({
   Latitude: z.number().min(-90).max(90).optional(),
   Longitude: z.number().min(-180).max(180).optional(),
   stage: PlotStageSchema.optional(),
   permissionStatus: PermissionStatusSchema.optional(),
+  permissionAdditionalNote: z.string().trim().optional(),
+  staffPermissionNotes: z.string().trim().optional(),
+  gardenCareNote: z.string().trim().optional(),
   sunExposure: SunExposureSchema.optional(),
   environmentalNotes: z.string().trim().optional(),
   firstPlanted: z.iso.date().nullable().optional(),
@@ -61,7 +72,6 @@ export const PlotFieldsSchema = z.strictObject({
   'Visit Interval (Days)': z.number().int().optional(),
   'Est. Area (Sq. Ft)': z.number().nonnegative().optional(),
   'Location Description': z.string().trim().optional(),
-  "Seth's Notes": z.string().optional(),
   Photos: z.array(UploadFilenameSchema).optional(),
 });
 
@@ -89,9 +99,21 @@ export const PlotCreateSchema = PlotFieldsSchema.extend({
   if (issue) ctx.addIssue(issue);
 });
 
-export const PlotUpdateSchema = PlotFieldsSchema.refine((body) => Object.keys(body).length > 0, {
+export const PlotUpdateSchema = PlotFieldsSchema.extend({
+  expectedStage: PlotStageSchema.optional(),
+  expectedValues: z.partialRecord(z.enum(plotEditorFields), z.string().nullable()).optional(),
+}).refine(({ expectedStage, expectedValues, ...changes }) => Object.keys(changes).length > 0, {
   message: 'At least one field is required',
   path: ['body'],
+}).refine((body) => body.expectedStage === undefined || (body.stage !== undefined && Object.keys(body).length === 2), {
+  message: 'Expected stage can only be used with a stage-only update',
+  path: ['expectedStage'],
+}).refine(({ expectedValues, ...changes }) => expectedValues === undefined || (
+  Object.keys(changes).length > 0 && Object.keys(changes).every((field) => Object.hasOwn(expectedValues, field)) &&
+  Object.keys(expectedValues).length === Object.keys(changes).length
+), {
+  message: 'Expected values must match the fields being updated',
+  path: ['expectedValues'],
 });
 
 export function allowsAnonymousPlotCreation (env = process.env) {
@@ -133,6 +155,8 @@ export function formatPlot (plot) {
     'Est. Area (Sq. Ft)': plot.estAreaSqFt ?? undefined,
     'Location Description': plot.locationDescription ?? undefined,
     permissionStatus: plot.permissionStatus ?? null,
+    permissionAdditionalNote: plot.permissionAdditionalNote ?? null,
+    gardenCareNote: plot.gardenCareNote ?? null,
     sunExposure: plot.sunExposure ?? null,
     environmentalNotes: plot.environmentalNotes ?? null,
     firstPlanted: plot.originalPlantDate ? new Date(plot.originalPlantDate).toISOString().slice(0, 10) : null,
@@ -225,6 +249,9 @@ export function plotFieldsFromBody (body = {}, existing) {
   const data = {};
   if (body.stage !== undefined) data.stage = body.stage;
   if (body.permissionStatus !== undefined) data.permissionStatus = body.permissionStatus;
+  if (body.permissionAdditionalNote !== undefined) data.permissionAdditionalNote = body.permissionAdditionalNote;
+  if (body.staffPermissionNotes !== undefined) data.staffPermissionNotes = body.staffPermissionNotes;
+  if (body.gardenCareNote !== undefined) data.gardenCareNote = body.gardenCareNote;
   if (body.sunExposure !== undefined) data.sunExposure = body.sunExposure;
   if (body.environmentalNotes !== undefined) data.environmentalNotes = body.environmentalNotes;
   if (body.firstPlanted !== undefined) {
@@ -244,7 +271,6 @@ export function plotFieldsFromBody (body = {}, existing) {
   if (body['Visit Interval (Days)'] !== undefined) data.visitIntervalDays = body['Visit Interval (Days)'];
   if (body['Est. Area (Sq. Ft)'] !== undefined) data.estAreaSqFt = body['Est. Area (Sq. Ft)'];
   if (body['Location Description'] !== undefined) data.locationDescription = body['Location Description'];
-  if (body["Seth's Notes"] !== undefined) data.sethsNotes = body["Seth's Notes"];
 
   let latitude = body.Latitude;
   let longitude = body.Longitude;

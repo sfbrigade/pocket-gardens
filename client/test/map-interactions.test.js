@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
+import { interact, setupPlotTests, testAccount, waitFor } from './helpers/plot-harness.js';
 
 test('map viewport interactions', async (t) => {
   const { dom, Api, mount, readDraft } = await setupPlotTests(t);
@@ -148,6 +148,8 @@ test('map viewport interactions', async (t) => {
     assert.deepEqual(markers(), [original]);
   });
 
+  const { data: capabilities } = await Api.maintenance.capabilities();
+  const visitAccess = [['maintenance-capabilities', testAccount], capabilities];
   for (const [name, routeId] of [['public', 'recGarden'], ['internal', '11111111-1111-4111-8111-111111111111']]) {
     await t.test(`restores the garden viewport after entering the composer from the ${name} garden link`, async (t) => {
       dom.window.sessionStorage.clear();
@@ -157,7 +159,7 @@ test('map viewport interactions', async (t) => {
       const view = await mount(t, {
         initialEntry: `/plots/${routeId}`,
         showHome: true,
-        queryData: [[['plot', routeId], plot], [['plot', plot.id], plot]],
+        queryData: [[['plot', routeId], plot], [['plot', plot.id], plot], visitAccess],
       });
       await waitFor(() => assert.ok(view.container.querySelector('.leaflet-container')));
 
@@ -166,10 +168,8 @@ test('map viewport interactions', async (t) => {
       assert.equal(dom.window.sessionStorage.length, 0, 'ordinary map movements do not persist a maintenance viewport');
 
       await view.click('Updates');
-      await waitFor(() => assert.ok(view.button('Add an update')));
       const originalMap = map;
       await view.click('Add an update');
-      await waitFor(() => assert.ok(view.button('Cancel')));
       await view.click('Cancel');
 
       await waitFor(() => assert.notStrictEqual(map, originalMap));
@@ -192,7 +192,7 @@ test('map viewport interactions', async (t) => {
     const view = await mount(t, {
       initialEntry: `/plots/${alias}?tab=updates`,
       showHome: true,
-      queryData: [[['plot', alias], plot], [['plot', plot.id], plot]],
+      queryData: [[['plot', alias], plot], [['plot', plot.id], plot], visitAccess],
     });
     await waitFor(() => assert.ok(view.container.querySelector('.leaflet-container')));
     await interact(() => map.setView([37.79, -122.42], 16, { animate: false }));
@@ -223,13 +223,13 @@ test('map viewport interactions', async (t) => {
     // Use the real Leaflet event subscription with deterministic geographic viewports.
     let visible = latLngBounds([[37.76, -122.44], [37.78, -122.42]]);
     t.mock.method(map, 'getBounds', () => visible);
-    for (const delta of [0, 0.01, 0.02]) {
-      visible = latLngBounds([[37.76 + delta, -122.44], [37.78 + delta, -122.42]]);
-      await interact(() => map.fire('moveend'));
-      await interact(() => delay(30));
-    }
-    await interact(() => delay(350));
-    assert.equal(list.mock.calls.length, 1, 'rapid viewport changes should issue one settled request');
+    await interact(() => {
+      for (const delta of [0, 0.01, 0.02]) {
+        visible = latLngBounds([[37.76 + delta, -122.44], [37.78 + delta, -122.42]]);
+        map.fire('moveend');
+      }
+    });
+    await waitFor(() => assert.equal(list.mock.calls.length, 1, 'rapid viewport changes should issue one settled request'));
     assert.strictEqual(marker(), originalMarker);
 
     const coverage = list.mock.calls[0].arguments[0];

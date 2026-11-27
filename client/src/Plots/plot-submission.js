@@ -32,6 +32,7 @@ export function changePlotPhoto (values, photo) {
     // attempt, even after refresh when the address lookup is unavailable.
     submissionAttempt: attempt
       ? {
+          ...attempt,
           draftKey: draftKey({ ...values, photo }),
           payload: { ...attempt.payload, Photos: photo ? [photo] : undefined },
         }

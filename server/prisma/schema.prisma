@@ -16,6 +16,10 @@ datasource db {
 model User {
   createdMaintenanceRecords MaintenanceRecord[] @relation("MaintenanceCreatedBy")
   changedMaintenanceRecords MaintenanceRecord[] @relation("MaintenanceChangedBy")
+  createdPlots Plot[] @relation("PlotCreator")
+  gardenCareNotes Plot[] @relation("GardenCareNoteAuthor")
+  additionalPermissionNotes Plot[] @relation("PermissionAdditionalNoteAuthor")
+  environmentalNotes Plot[] @relation("EnvironmentalNoteAuthor")
   id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   firstName               String
   lastName                String
@@ -221,8 +225,15 @@ model Plot {
   name                 String?
   stage                String?
   permissionStatus     String?
+  permissionAdditionalNote String?
+  staffPermissionNotes String?
+  gardenCareNote       String?
   sunExposure          String?
   environmentalNotes   String?
+  createdById          String? @db.Uuid
+  gardenCareNoteAuthorId String? @db.Uuid
+  permissionAdditionalNoteAuthorId String? @db.Uuid
+  environmentalNotesAuthorId String? @db.Uuid
   submissionId         String?   @unique @db.Uuid
   submissionFingerprint String?
   streetAddress        String?
@@ -237,7 +248,6 @@ model Plot {
   visitIntervalDays    Int?
   estAreaSqFt          Float?
   locationDescription  String?
-  sethsNotes           String?
   geocodeCache         String?
   originalPlantDate    DateTime?
   lastPlant            DateTime?
@@ -253,6 +263,10 @@ model Plot {
   updatedAt            DateTime  @updatedAt
 
   zipCode              ZipCode?                  @relation(fields: [zipCodeId], references: [id], onDelete: SetNull)
+  createdBy            User? @relation("PlotCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  gardenCareNoteAuthor User? @relation("GardenCareNoteAuthor", fields: [gardenCareNoteAuthorId], references: [id], onDelete: SetNull)
+  permissionAdditionalNoteAuthor User? @relation("PermissionAdditionalNoteAuthor", fields: [permissionAdditionalNoteAuthorId], references: [id], onDelete: SetNull)
+  environmentalNotesAuthor User? @relation("EnvironmentalNoteAuthor", fields: [environmentalNotesAuthorId], references: [id], onDelete: SetNull)
   lastVolunteer        Person?                   @relation("PlotLastVolunteer", fields: [lastVolunteerId], references: [id], onDelete: SetNull)
   photos               PlotPhoto[]
   neighborhoods        PlotNeighborhood[]

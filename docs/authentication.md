@@ -34,20 +34,18 @@ Pocket Gardens uses [Better Auth](https://better-auth.com/) `1.7.25` under
 The official React client owns session observation through `useSession`. Sessions
 use cookies; `/api/users/me` supplies the application profile. SSR hydrates public
 session/profile fields without exposing session tokens. Account changes and logout
-clear application caches and pending queries; same-account refreshes preserve them.
+clear account-specific queries. Same-account refreshes keep them.
 Late profile saves and stale snapshots of a successfully logged-out session cannot
 restore the previous account. Public authentication screens remain available if
 profile loading fails.
 
 Plot submission requires a verified, unbanned user or administrator account,
-including existing users without a role change.
-Plot editing and carer assignment remain administrator-only. New carer assignments
-require verified, unbanned users. Accounts and Person records remain separate;
-existing links are preserved, and matching names or emails do not claim imported
-Person records.
+including existing users without a role change. The [plot API guide](../server/README.md#plot-submission-api)
+covers editing permissions and note visibility.
 
-Supplying the legacy `Seth's Notes` field during plot creation also requires an
-administrator. Environmental notes remain available to users submitting plots.
+Carer assignment requires an administrator and a verified, unbanned assignee.
+Accounts and Person records remain separate. Existing links are preserved, and
+matching names or emails do not claim imported Person records.
 
 Create the first administrator with the [bootstrap script](../README.md#one-time-setup).
 For subsequent administrators, invite a user, wait for email verification, then use

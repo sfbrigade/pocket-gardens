@@ -326,17 +326,15 @@ test('/api/plots', async (t) => {
     assert.equal(await prisma.plot.count(), before);
   });
 
-  await t.test('legacy details preserve imported volunteers without exposing contacts or internal notes', async () => {
+  await t.test('legacy details preserve imported volunteers without exposing contacts', async () => {
     const person = await prisma.person.findUnique({ where: { airtableId: 'recPersonAlpha' } });
     const plot = await prisma.plot.findUnique({ where: { airtableId: 'recPlotAlpha' } });
     await prisma.plotAssignedVolunteer.create({ data: { plotId: plot.id, personId: person.id } });
-    await prisma.plot.update({ where: { id: plot.id }, data: { sethsNotes: 'Private note' } });
     const response = await app.inject({ url: '/api/plots/recPlotAlpha' });
     assert.equal(response.statusCode, StatusCodes.OK);
     assert.deepEqual(response.json().assignedVolunteers, [{ id: person.id, displayName: 'Alex Gardener' }]);
     assert.equal(response.json().stage, 'active');
     assert.equal(response.json().permissionStatus, null);
-    assert.equal(response.json()["Seth's Notes"], undefined);
     assert.ok(!response.body.includes('alex@example.com'));
     const unchanged = await prisma.plot.findUnique({ where: { id: plot.id } });
     assert.equal(unchanged.stage, 'active');
@@ -365,19 +363,38 @@ test('/api/plots', async (t) => {
     assert.equal(row.originalPlantDate, null);
   });
 
-  await t.test('anonymous requests cannot submit plots, while existing users can submit but cannot edit', async () => {
+  await t.test('a guarded stage change updates only a plot that is still at the expected stage', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
+    const url = '/api/plots/recPlotBeta';
+    const patch = (payload) => app.inject({ method: 'PATCH', url, headers, payload });
+    const initial = await patch({ stage: 'potential', permissionStatus: 'needed' });
+    assert.equal(initial.statusCode, StatusCodes.OK);
+    const transition = { stage: 'preparing', expectedStage: 'potential' };
+
+    for (const payload of [{ expectedStage: 'potential' }, { ...transition, permissionStatus: 'confirmed' }]) {
+      assert.equal((await patch(payload)).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    }
+
+    const results = await Promise.all([patch(transition), patch(transition)]);
+    assert.deepEqual(results.map(({ statusCode }) => statusCode).sort(), [StatusCodes.OK, StatusCodes.CONFLICT]);
+    assert.deepEqual(results.find(({ statusCode }) => statusCode === StatusCodes.OK).json(), { ...initial.json(), stage: 'preparing' });
+
+    assert.equal((await app.inject({ url })).json().stage, 'preparing');
+  });
+
+  await t.test('anonymous requests cannot submit plots and existing users cannot edit unowned plots', async () => {
     assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: validPlot })).statusCode, StatusCodes.UNAUTHORIZED);
-    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', payload: { stage: 'active' } })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotBeta', payload: { stage: 'preparing', expectedStage: 'potential' } })).statusCode, StatusCodes.UNAUTHORIZED);
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities' })).json(), { canCreatePlot: false, canAssignCarers: false });
     const member = await authenticate(app, 'regular.user@test.com', 'test');
     assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers: member, payload: validPlot })).statusCode, StatusCodes.CREATED);
-    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers: member, payload: { stage: 'active' } })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers: member, payload: { 'Pocket Garden Name': 'Not my garden' } })).statusCode, StatusCodes.FORBIDDEN);
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: member })).json(), { canCreatePlot: true, canAssignCarers: false });
     const admin = await authenticate(app, 'admin.user@test.com', 'test');
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: admin })).json(), { canCreatePlot: true, canAssignCarers: true });
   });
 
-  await t.test('new verified users can submit plots with plants and photos, but cannot edit plots or assign carers', async () => {
+  await t.test('new verified users can submit plots with plants and photos but cannot assign carers', async () => {
     const { user, headers } = await verifiedUser(app);
     assert.equal(user.role, 'user');
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: true, canAssignCarers: false });
@@ -391,6 +408,8 @@ test('/api/plots', async (t) => {
         ...validPlot,
         stage: 'active',
         environmentalNotes: 'Afternoon shade and sandy soil',
+        gardenCareNote: '  Water during dry spells  ',
+        permissionAdditionalNote: '  Use the sidewalk entrance  ',
         Photos: [filename],
         plants: [{ plantId: 'a1111111-1111-4111-8111-111111111111', quantity: 2 }],
       },
@@ -399,7 +418,9 @@ test('/api/plots', async (t) => {
     assert.equal(created.json().plants[0].quantity, 2);
     assert.equal(created.json().Photos.length, 1);
     assert.equal(created.json().environmentalNotes, 'Afternoon shade and sandy soil');
-    assert.equal((await prisma.plot.findUnique({ where: { airtableId: created.json().id } })).sethsNotes, null);
+    assert.equal(created.json().gardenCareNote, 'Water during dry spells');
+    assert.equal(created.json().permissionAdditionalNote, 'Use the sidewalk entrance');
+    assert.equal((await prisma.plot.findUnique({ where: { airtableId: created.json().id } })).staffPermissionNotes, null);
     assert.deepEqual(created.json().assignedVolunteers, []);
     const before = await prisma.plot.count();
     assert.equal((await app.inject({
@@ -411,48 +432,124 @@ test('/api/plots', async (t) => {
     assert.equal(await prisma.plot.count(), before);
     assert.equal((await app.inject({ url: '/api/plots/carers', headers })).statusCode, StatusCodes.FORBIDDEN);
     assert.equal((await app.inject({
-      method: 'PATCH', url: `/api/plots/${created.json().id}`, headers, payload: { stage: 'paused' },
-    })).statusCode, StatusCodes.FORBIDDEN);
-    assert.equal((await app.inject({
       method: 'POST', url: '/api/assets', headers, payload: { contentType: 'image/jpeg', byteSize: 100 },
     })).statusCode, StatusCodes.OK);
   });
 
-  await t.test('users cannot write legacy notes during plot creation, including an empty value', async () => {
-    const headers = await authenticate(app, 'regular.user@test.com', 'test');
+  await t.test('plot creators and note authors can edit their submissions, with staff access across plots', async () => {
+    const owner = await authenticate(app, 'regular.user@test.com', 'test');
+    const stranger = await authenticate(app, 'another.user@test.com', 'test');
+    const staff = await authenticate(app, 'admin.user@test.com', 'test');
+    const created = await app.inject({ method: 'POST', url: '/api/plots', headers: owner, payload: { ...validPlot, gardenCareNote: 'Owner care note' } });
+    assert.equal(created.statusCode, StatusCodes.CREATED, created.body);
+    assert.equal(created.json().createdById, undefined);
+    assert.equal(created.json().gardenCareNoteAuthorId, undefined);
+    const url = `/api/plots/${created.json().id}`;
+    const getEdit = (headers) => app.inject({ url: `${url}/edit`, headers });
+    const access = (headers) => app.inject({ url: `${url}/edit-access`, headers });
+    const patch = (headers, payload) => app.inject({ method: 'PATCH', url, headers, payload });
+    assert.deepEqual((await access(owner)).json(), { canEdit: true });
+    assert.deepEqual((await access(stranger)).json(), { canEdit: false });
+    assert.equal((await getEdit(stranger)).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(stranger, { gardenCareNote: 'Not mine' })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(owner, { staffPermissionNotes: 'Restricted' })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(owner, { stage: 'preparing', expectedStage: 'potential' })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(owner, { 'Pocket Garden Name': 'Owner correction', gardenCareNote: 'Updated care' })).statusCode, StatusCodes.OK);
+    assert.equal((await patch(staff, { gardenCareNote: 'Staff correction', permissionAdditionalNote: 'Staff-authored public note', staffPermissionNotes: 'Private' })).statusCode, StatusCodes.OK);
+
+    const ownerEditor = (await getEdit(owner)).json();
+    assert.equal(ownerEditor.staffPermissionNotes, undefined);
+    assert.ok(ownerEditor.editableFields.includes('gardenCareNote'));
+    assert.ok(!ownerEditor.editableFields.includes('permissionAdditionalNote'));
+    assert.equal((await patch(owner, { permissionAdditionalNote: 'Overwrite' })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(owner, { gardenCareNote: 'Still editable by original author' })).statusCode, StatusCodes.OK);
+    assert.equal((await getEdit(staff)).json().staffPermissionNotes, 'Private');
+
+    await prisma.user.update({ where: { email: 'admin.user@test.com' }, data: { role: 'user' } });
+    assert.deepEqual((await getEdit(staff)).json().editableFields, ['permissionAdditionalNote']);
+    assert.equal((await patch(staff, { 'Pocket Garden Name': 'Other account' })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(staff, { permissionAdditionalNote: '' })).statusCode, StatusCodes.OK);
+    assert.deepEqual((await access(staff)).json(), { canEdit: false });
+    assert.equal((await patch(owner, { permissionAdditionalNote: 'New note in an empty field' })).statusCode, StatusCodes.OK);
+  });
+
+  await t.test('editor saves compare only the fields being updated with their original values', async () => {
+    const headers = await authenticate(app, 'admin.user@test.com', 'test');
+    const url = '/api/plots/recPlotAlpha';
+    const patch = (payload) => app.inject({ method: 'PATCH', url, headers, payload });
+    const opened = (await app.inject({ url: `${url}/edit`, headers })).json();
+    assert.equal((await patch({ environmentalNotes: 'Saved by someone else' })).statusCode, StatusCodes.OK);
+    assert.equal((await patch({
+      'Pocket Garden Name': 'Independent title edit',
+      expectedValues: { 'Pocket Garden Name': opened['Pocket Garden Name'] ?? null },
+    })).statusCode, StatusCodes.OK);
+    assert.equal((await patch({
+      environmentalNotes: 'Stale note',
+      expectedValues: { environmentalNotes: opened.environmentalNotes },
+    })).statusCode, StatusCodes.CONFLICT);
+    assert.equal((await patch({ environmentalNotes: 'Missing baseline', expectedValues: {} })).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    assert.equal((await app.inject({ url })).json().environmentalNotes, 'Saved by someone else');
+  });
+
+  await t.test('staff permission notes require administrator access and appear only in the editor response', async () => {
+    const member = await authenticate(app, 'regular.user@test.com', 'test');
     const before = await prisma.plot.count();
-    for (const note of ['Legacy note supplied by a user', '']) {
+    for (const note of ['Staff note supplied by a user', '']) {
       const response = await app.inject({
         method: 'POST',
         url: '/api/plots',
-        headers,
-        payload: { ...validPlot, "Seth's Notes": note },
+        headers: member,
+        payload: { ...validPlot, staffPermissionNotes: note },
       });
       assert.equal(response.statusCode, StatusCodes.FORBIDDEN, response.body);
     }
     assert.equal(await prisma.plot.count(), before);
-  });
 
-  await t.test('administrators retain legacy note access and unrelated edits preserve the note', async () => {
     const headers = await authenticate(app, 'admin.user@test.com', 'test');
-    const note = 'Legacy note retained for staff';
+    const note = 'Permission evidence for staff';
+    const payload = { ...validPlot, submissionId: '87c0ed72-2e5f-45a8-9d33-5982a6ec3666', staffPermissionNotes: note };
     const created = await app.inject({
       method: 'POST',
       url: '/api/plots',
       headers,
-      payload: { ...validPlot, "Seth's Notes": note },
+      payload,
     });
     assert.equal(created.statusCode, StatusCodes.CREATED, created.body);
-    assert.equal(created.json()["Seth's Notes"], undefined);
+    assert.equal(created.json().staffPermissionNotes, undefined);
+    const replay = await app.inject({ method: 'POST', url: '/api/plots', headers, payload });
+    assert.equal(replay.statusCode, StatusCodes.OK, replay.body);
+    assert.equal(replay.json().staffPermissionNotes, undefined);
+    const recoveryUrl = `/api/plots/submissions/${payload.submissionId}`;
+    const recovered = await app.inject({ url: recoveryUrl, headers });
+    assert.equal(recovered.statusCode, StatusCodes.OK, recovered.body);
+    assert.equal(recovered.json().id, created.json().id);
+    assert.equal(recovered.json().staffPermissionNotes, undefined);
+    assert.equal((await app.inject({ url: recoveryUrl, headers: member })).statusCode, StatusCodes.NOT_FOUND);
+    const url = `/api/plots/${created.json().id}`;
     const edited = await app.inject({
       method: 'PATCH',
-      url: `/api/plots/${created.json().id}`,
+      url,
       headers,
-      payload: { environmentalNotes: 'Morning shade' },
+      payload: { gardenCareNote: 'Water weekly', permissionAdditionalNote: 'Enter from the sidewalk' },
     });
     assert.equal(edited.statusCode, StatusCodes.OK, edited.body);
-    assert.equal(edited.json()["Seth's Notes"], undefined);
-    assert.equal((await prisma.plot.findUnique({ where: { airtableId: created.json().id } })).sethsNotes, note);
+    assert.equal(edited.json().staffPermissionNotes, undefined);
+    const publicDetail = (await app.inject({ url })).json();
+    assert.equal(publicDetail.gardenCareNote, 'Water weekly');
+    assert.equal(publicDetail.permissionAdditionalNote, 'Enter from the sidewalk');
+    assert.equal(publicDetail.staffPermissionNotes, undefined);
+    assert.ok(!(await app.inject({ url: '/api/plots' })).body.includes(note));
+    assert.equal((await app.inject({ url: `${url}/edit` })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.equal((await app.inject({ url: `${url}/edit`, headers: member })).statusCode, StatusCodes.FORBIDDEN);
+    const editor = await app.inject({ url: `${url}/edit`, headers });
+    assert.equal(editor.statusCode, StatusCodes.OK, editor.body);
+    assert.match(editor.headers['cache-control'], /no-store/);
+    assert.equal(editor.json().staffPermissionNotes, note);
+    assert.equal((await app.inject({ method: 'PATCH', url, headers, payload: { "Seth's Notes": 'Retired field' } })).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
+    const cleared = await app.inject({ method: 'PATCH', url, headers, payload: { staffPermissionNotes: '' } });
+    assert.equal(cleared.statusCode, StatusCodes.OK, cleared.body);
+    assert.equal(cleared.json().staffPermissionNotes, undefined);
+    assert.equal((await app.inject({ url: `${url}/edit`, headers })).json().staffPermissionNotes, '');
   });
 
   for (const data of [{ emailVerified: false }, { banned: true }]) {
@@ -486,8 +583,8 @@ test('/api/plots', async (t) => {
       process.env.NODE_ENV = 'development';
       assert.equal((await app.inject({ url: '/api/plots/capabilities' })).json().canCreatePlot, true);
       const before = await prisma.plot.count();
-      for (const note of ['Legacy note supplied anonymously', '']) {
-        assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: { ...validPlot, "Seth's Notes": note } })).statusCode, StatusCodes.UNAUTHORIZED);
+      for (const note of ['Staff note supplied anonymously', '']) {
+        assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: { ...validPlot, staffPermissionNotes: note } })).statusCode, StatusCodes.UNAUTHORIZED);
       }
       assert.equal(await prisma.plot.count(), before);
       const created = await app.inject({ method: 'POST', url: '/api/plots', payload: { ...validPlot, environmentalNotes: 'Morning shade' } });

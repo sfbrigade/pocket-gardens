@@ -5,6 +5,7 @@ import { createPlotPlants } from '#models/plot-plant.js';
 import { createPlotCarers } from '#models/plot-carer.js';
 import { z } from 'zod';
 import { submissionFingerprint, findSubmission } from '#lib/plot-submission.js';
+import { plotNoteAuthorChanges } from '#lib/plot-editing.js';
 import { cleanupPhotoObjects } from '#lib/photos.js';
 
 import {
@@ -34,11 +35,12 @@ export default async function (fastify, opts) {
       if (!allowsAnonymousPlotCreation()) return fastify.requireContributor(request, reply);
     },
   }, async function (request, reply) {
-    if (request.body.carerUserIds?.length || request.body["Seth's Notes"] !== undefined) {
+    if (request.body.carerUserIds?.length || request.body.staffPermissionNotes !== undefined) {
       await fastify.requireAdmin(request, reply);
       if (reply.sent) return;
     }
     const fields = plotFieldsFromBody(request.body);
+    const createdById = request.user?.canContribute ? request.user.id : null;
     fields.mapCoordinates = `${fields.latitude}, ${fields.longitude}`;
     const { Photos, submissionId } = request.body;
     const fingerprint = submissionFingerprint(request.body, fields);
@@ -57,6 +59,8 @@ export default async function (fastify, opts) {
           data: {
             airtableId: publicId,
             ...fields,
+            createdById,
+            ...plotNoteAuthorChanges(fields, createdById),
             submissionId,
             submissionFingerprint: submissionId ? fingerprint : undefined,
             name: fields.name || [fields.streetAddress, publicId].filter(Boolean).join(' · '),

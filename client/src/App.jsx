@@ -17,6 +17,7 @@ import Header from './Header';
 import NavigationLinks from './NavigationLinks';
 import Home from './Home';
 import PlotForm from './Plots/PlotForm';
+import PlotEditForm from './Plots/PlotEditForm';
 import MaintenanceForm from './Maintenance/MaintenanceForm';
 import Login from './Login';
 import EmailLink from './EmailLink';
@@ -63,6 +64,7 @@ function App () {
                           <Route path='/' element={<Home />} />
                           <Route path='/plots/new' element={<PlotForm />} />
                           <Route path='/plots/:plotId' element={<Home />} />
+                          <Route path='/plots/:plotId/edit' element={<PlotEditForm />} />
                           <Route path='/plots/:plotId/updates/new' element={<MaintenanceForm />} />
                           <Route path='/plots/:plotId/updates/:recordId/edit' element={<MaintenanceForm />} />
                           <Route path='/login' element={<Login />} />

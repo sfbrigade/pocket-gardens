@@ -43,13 +43,17 @@ test('Airtable plot import validates dry-runs and writes before changing data', 
 
   await t.test('write and repeated import preserve canonical stages while mapping new plots', async () => {
     await app.prisma.plot.update({ where: { airtableId: 'recPlotBeta' }, data: { stage: 'preparing' } });
-    const records = [record('recPlotBeta', 'Not Yet Planted'), record('recNewKnown', 'Planted')];
+    const newPlot = record('recNewKnown', 'Planted');
+    newPlot.fields["Seth's Notes"] = 'Review the plants and replant where needed.';
+    const records = [record('recPlotBeta', 'Not Yet Planted'), newPlot];
     await run(records, ['--dry-run']);
     assert.equal(await app.prisma.plot.count({ where: { airtableId: 'recNewKnown' } }), 0);
     await run(records);
     await run(records);
     assert.equal((await app.prisma.plot.findUnique({ where: { airtableId: 'recPlotBeta' } })).stage, 'preparing');
-    assert.equal((await app.prisma.plot.findUnique({ where: { airtableId: 'recNewKnown' } })).stage, 'active');
+    const imported = (await app.inject('/api/plots/recNewKnown')).json();
+    assert.equal(imported.stage, 'active');
+    assert.equal(imported.gardenCareNote, newPlot.fields["Seth's Notes"]);
     assert.equal(await app.prisma.plot.count(), 4);
   });
 

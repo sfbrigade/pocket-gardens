@@ -185,6 +185,24 @@ const Api = {
     get (id, signal) {
       return instance.get(`/api/plots/${encodeURIComponent(id)}`, { signal });
     },
+    getForEdit (id, signal) {
+      return instance.get(`/api/plots/${encodeURIComponent(id)}/edit`, { signal });
+    },
+    editAccess (id, signal) {
+      return instance.get(`/api/plots/${encodeURIComponent(id)}/edit-access`, { signal });
+    },
+    getSubmission (id) {
+      return instance.get(`/api/plots/submissions/${encodeURIComponent(id)}`).catch((error) => {
+        if (error.response?.status === StatusCodes.NOT_FOUND) {
+          const message = 'No saved garden was found for this draft. Re-enter the staff note or continue without it.';
+          throw Object.assign(new Error(message), { _form: message });
+        }
+        return handleError(error);
+      });
+    },
+    update (id, data, expectedValues) {
+      return instance.patch(`/api/plots/${encodeURIComponent(id)}`, expectedValues ? { ...data, expectedValues } : data);
+    },
     create (data) {
       return instance.post('/api/plots', data).catch((error) => {
         if (error.response?.status === StatusCodes.CONFLICT) {
