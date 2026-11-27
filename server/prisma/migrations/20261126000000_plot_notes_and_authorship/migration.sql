@@ -1,6 +1,9 @@
 BEGIN;
 
+ALTER TABLE "Plot" RENAME COLUMN "sethsNotes" TO "staffPermissionNotes";
 ALTER TABLE "Plot"
+  ADD COLUMN "gardenCareNote" TEXT,
+  ADD COLUMN "permissionAdditionalNote" TEXT,
   ADD COLUMN "createdById" UUID REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE,
   ADD COLUMN "gardenCareNoteAuthorId" UUID REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE,
   ADD COLUMN "permissionAdditionalNoteAuthorId" UUID REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE,
