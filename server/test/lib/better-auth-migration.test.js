@@ -85,8 +85,8 @@ test('Better Auth upgrades existing accounts without replacing garden identities
   const { sethsNotes, ...oldPlot } = before.plot;
   assert.deepEqual(await prisma.plot.findUnique({ where: { id: plot.id } }), {
     ...oldPlot,
-    staffPermissionNotes: sethsNotes,
-    gardenCareNote: null,
+    staffPermissionNotes: null,
+    gardenCareNote: sethsNotes,
     permissionAdditionalNote: null,
     createdById: null,
     gardenCareNoteAuthorId: null,

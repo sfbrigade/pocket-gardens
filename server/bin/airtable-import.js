@@ -391,7 +391,7 @@ async function main () {
       visitIntervalDays: typeof f['Visit Interval (Days)'] === 'number' ? f['Visit Interval (Days)'] : null,
       estAreaSqFt: typeof f['Est. Area (Sq. Ft)'] === 'number' ? f['Est. Area (Sq. Ft)'] : null,
       locationDescription: stringifyMaybe(f['Location Description']),
-      staffPermissionNotes: stringifyMaybe(f["Seth's Notes"]),
+      gardenCareNote: stringifyMaybe(f["Seth's Notes"]),
       geocodeCache: stringifyMaybe(f['Geocode Cache (for Maps)']),
       originalPlantDate: parseAirtableDate(f['Original Plant Date']),
       lastPlant: parseAirtableDate(f['Last Plant']),
