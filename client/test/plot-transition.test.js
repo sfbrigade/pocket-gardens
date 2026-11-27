@@ -13,7 +13,7 @@ test('garden stage changes are distinct from visits and recover from stale or lo
   const doc = dom.window.document;
   const matchMedia = dom.window.matchMedia;
   const queryData = [[['plot', garden.id], garden]];
-  const mountGarden = (t, user = admin) => mount(t, { initialEntry: gardenPath, user, showHome: true, queryData });
+  const mountGarden = (t, user = admin, queries = queryData) => mount(t, { initialEntry: gardenPath, user, showHome: true, queryData: queries });
 
   async function confirmMove (view) {
     await view.click('Move to Preparing');
@@ -41,11 +41,12 @@ test('garden stage changes are distinct from visits and recover from stale or lo
       return { data: plot };
     });
 
-    const contributor = await mountGarden(t, { ...admin, id: 'contributor', isAdmin: false });
+    const { data: capabilities } = await Api.maintenance.capabilities();
+    const member = { ...admin, id: 'contributor', isAdmin: false };
+    const contributor = await mountGarden(t, member, [...queryData, [['maintenance-capabilities', member.id], { ...capabilities, canManage: false }]]);
     await waitFor(() => assert.match(doc.querySelector('[role="dialog"]')?.textContent || '', /Potential site/));
     assert.doesNotMatch(doc.body.textContent, /Edit garden details|Move to Preparing/);
     await contributor.click('Updates');
-    await waitFor(() => contributor.button('Add an update'));
     await contributor.click('Add an update');
     const watered = await waitFor(() => contributor.field('Watered'));
     await interact(() => watered.click());
@@ -60,7 +61,7 @@ test('garden stage changes are distinct from visits and recover from stale or lo
 
     const visitDraft = JSON.stringify({ ...newMaintenanceDraft('2026-11-15'), notes: 'Follow-up visit draft' });
     dom.window.sessionStorage.setItem(draftKey(admin.id, garden.id), visitDraft);
-    const staff = await mountGarden(t);
+    const staff = await mountGarden(t, admin, [...queryData, [['maintenance-capabilities', admin.id], capabilities]]);
     await waitFor(() => staff.button('Edit garden details'));
     await confirmMove(staff);
     await waitFor(() => assert.match(doc.body.textContent, /Garden moved to Preparing/));
@@ -69,7 +70,7 @@ test('garden stage changes are distinct from visits and recover from stale or lo
     assert.equal(visits.length, 1);
     assert.equal(dom.window.sessionStorage.getItem(draftKey(admin.id, garden.id)), visitDraft);
     await staff.click('Updates');
-    await waitFor(() => staff.button('Resume update draft'));
+    staff.button('Resume update draft');
     await waitFor(() => assert.equal(doc.querySelectorAll('article').length, 1));
   });
 
