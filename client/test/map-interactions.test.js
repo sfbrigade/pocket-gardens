@@ -223,11 +223,12 @@ test('map viewport interactions', async (t) => {
     // Use the real Leaflet event subscription with deterministic geographic viewports.
     let visible = latLngBounds([[37.76, -122.44], [37.78, -122.42]]);
     t.mock.method(map, 'getBounds', () => visible);
-    for (const delta of [0, 0.01, 0.02]) {
-      visible = latLngBounds([[37.76 + delta, -122.44], [37.78 + delta, -122.42]]);
-      await interact(() => map.fire('moveend'));
-      await interact(() => delay(30));
-    }
+    await interact(() => {
+      for (const delta of [0, 0.01, 0.02]) {
+        visible = latLngBounds([[37.76 + delta, -122.44], [37.78 + delta, -122.42]]);
+        map.fire('moveend');
+      }
+    });
     await waitFor(() => assert.equal(list.mock.calls.length, 1, 'rapid viewport changes should issue one settled request'));
     assert.strictEqual(marker(), originalMarker);
 

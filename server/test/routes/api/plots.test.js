@@ -466,11 +466,10 @@ test('/api/plots', async (t) => {
     assert.equal((await getEdit(staff)).json().staffPermissionNotes, 'Private');
 
     await prisma.user.update({ where: { email: 'admin.user@test.com' }, data: { role: 'user' } });
-    const formerStaff = await authenticate(app, 'admin.user@test.com', 'test');
-    assert.deepEqual((await getEdit(formerStaff)).json().editableFields, ['permissionAdditionalNote']);
-    assert.equal((await patch(formerStaff, { 'Pocket Garden Name': 'Other account' })).statusCode, StatusCodes.FORBIDDEN);
-    assert.equal((await patch(formerStaff, { permissionAdditionalNote: '' })).statusCode, StatusCodes.OK);
-    assert.deepEqual((await access(formerStaff)).json(), { canEdit: false });
+    assert.deepEqual((await getEdit(staff)).json().editableFields, ['permissionAdditionalNote']);
+    assert.equal((await patch(staff, { 'Pocket Garden Name': 'Other account' })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(staff, { permissionAdditionalNote: '' })).statusCode, StatusCodes.OK);
+    assert.deepEqual((await access(staff)).json(), { canEdit: false });
     assert.equal((await patch(owner, { permissionAdditionalNote: 'New note in an empty field' })).statusCode, StatusCodes.OK);
   });
 
@@ -492,24 +491,21 @@ test('/api/plots', async (t) => {
     assert.equal((await app.inject({ url })).json().environmentalNotes, 'Saved by someone else');
   });
 
-  await t.test('users cannot write staff permission notes, including an empty value', async () => {
-    const headers = await authenticate(app, 'regular.user@test.com', 'test');
+  await t.test('staff permission notes require administrator access and appear only in the editor response', async () => {
+    const member = await authenticate(app, 'regular.user@test.com', 'test');
     const before = await prisma.plot.count();
     for (const note of ['Staff note supplied by a user', '']) {
       const response = await app.inject({
         method: 'POST',
         url: '/api/plots',
-        headers,
+        headers: member,
         payload: { ...validPlot, staffPermissionNotes: note },
       });
       assert.equal(response.statusCode, StatusCodes.FORBIDDEN, response.body);
     }
     assert.equal(await prisma.plot.count(), before);
-  });
 
-  await t.test('staff permission notes appear only in the administrator editor response', async () => {
     const headers = await authenticate(app, 'admin.user@test.com', 'test');
-    const member = await authenticate(app, 'regular.user@test.com', 'test');
     const note = 'Permission evidence for staff';
     const payload = { ...validPlot, submissionId: '87c0ed72-2e5f-45a8-9d33-5982a6ec3666', staffPermissionNotes: note };
     const created = await app.inject({

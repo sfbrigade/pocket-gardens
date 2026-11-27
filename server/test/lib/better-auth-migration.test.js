@@ -22,13 +22,16 @@ test('Better Auth upgrades existing accounts without replacing garden identities
   t.after(() => prisma.$disconnect());
   const directory = await mkdtemp(path.join(os.tmpdir(), 'garden-auth-migration-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const execute = (file) => promisify(execFile)('npx', ['prisma', 'db', 'execute', '--file', file], {
-    cwd: serverDir, env: { ...process.env, DATABASE_URL: databaseUrl },
-  });
-  const previous = (await readdir(migrations)).filter(name => name < migrationName).sort();
-  const baseline = path.join(directory, 'baseline.sql');
-  await writeFile(baseline, (await Promise.all(previous.map(name => readFile(path.join(migrations, name, 'migration.sql'), 'utf8')))).join('\n'));
-  await execute(baseline);
+  const names = (await readdir(migrations)).filter(name => /^\d+_/.test(name)).sort();
+  const script = path.join(directory, 'migrations.sql');
+  async function execute (names) {
+    const sql = await Promise.all(names.map(name => readFile(path.join(migrations, name, 'migration.sql'), 'utf8')));
+    await writeFile(script, sql.join('\n'));
+    await promisify(execFile)('npx', ['prisma', 'db', 'execute', '--file', script], {
+      cwd: serverDir, env: { ...process.env, DATABASE_URL: databaseUrl },
+    });
+  }
+  await execute(names.filter(name => name < migrationName));
 
   const [admin, member] = await prisma.$queryRaw`INSERT INTO "User"
     (id, "firstName", "lastName", email, "hashedPassword", "isAdmin", "deactivatedAt", picture, "createdAt", "updatedAt") VALUES
@@ -55,14 +58,13 @@ test('Better Auth upgrades existing accounts without replacing garden identities
     assignments: await prisma.plotAssignedVolunteer.findMany(),
   };
 
-  await execute(path.join(migrations, migrationName, 'migration.sql'));
+  await execute([migrationName]);
   const pending = await prisma.user.create({
     data: { firstName: 'Pending', lastName: 'Signup', name: 'Pending Signup', email: 'pending-after-cutover@example.com' },
   });
   assert.equal(pending.emailVerified, false);
   assert.equal(pending.legacyHashedPassword, null);
-  const followups = (await readdir(migrations)).filter(name => /^\d+_/.test(name) && name > migrationName).sort();
-  for (const name of followups) await execute(path.join(migrations, name, 'migration.sql'));
+  await execute(names.filter(name => name > migrationName));
   const users = await prisma.user.findMany({ where: { id: { in: [admin.id, member.id] } }, orderBy: { email: 'asc' } });
   assert.deepEqual(users.map(user => user.id), [admin.id, member.id]);
   for (const [old, user] of [[admin, users[0]], [member, users[1]]]) {
