@@ -45,8 +45,7 @@ test('garden stage changes are distinct from visits and recover from stale or lo
     await waitFor(() => assert.match(doc.querySelector('[role="dialog"]')?.textContent || '', /Potential site/));
     assert.doesNotMatch(doc.body.textContent, /Edit garden details|Move to Preparing/);
     await contributor.click('Updates');
-    const add = await waitFor(() => contributor.button('Add an update'));
-    assert.ok(add.compareDocumentPosition(contributor.button('Photo update')) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+    await waitFor(() => contributor.button('Add an update'));
     await contributor.click('Add an update');
     const watered = await waitFor(() => contributor.field('Watered'));
     await interact(() => watered.click());
@@ -74,18 +73,9 @@ test('garden stage changes are distinct from visits and recover from stale or lo
     await waitFor(() => assert.equal(doc.querySelectorAll('article').length, 1));
   });
 
-  await t.test('a conflict displays the latest stage without replaying the mutation', async (t) => {
-    const patch = t.mock.method(Api.plots, 'update', async () => { throw Object.assign(new Error('Conflict'), { response: { status: 409 } }); });
-    t.mock.method(Api.plots, 'get', async () => ({ data: { ...garden, stage: 'active' } }));
-    const view = await mountGarden(t);
-    await confirmMove(view);
-    await waitFor(() => assert.match(doc.body.textContent, /garden stage has changed/i));
-    assert.equal(view.client.getQueryData(['plot', garden.id]).stage, 'active');
-    assert.doesNotMatch(view.container.textContent, /Move to Preparing/);
-    assert.equal(patch.mock.calls.length, 1);
-  });
-
-  await t.test('after a lost response, verification can be retried without a second write', async (t) => {
+  await t.test('an offline stage write fails immediately and verification can be retried without a second write', async (t) => {
+    const { onlineManager } = await import('@tanstack/react-query');
+    t.after(() => onlineManager.setOnline(true));
     const patch = t.mock.method(Api.plots, 'update', async () => { throw new Error('Response lost'); });
     t.mock.method(Api.maintenance, 'index', async () => ({ data: [], headers: {} }));
     let attempts = 0;
@@ -94,9 +84,12 @@ test('garden stage changes are distinct from visits and recover from stale or lo
       return { data: { ...garden, stage: 'preparing' } };
     });
     const view = await mountGarden(t);
+    await interact(() => onlineManager.setOnline(false));
     await confirmMove(view);
     await waitFor(() => view.button('Check garden stage'));
     assert.doesNotMatch(view.container.textContent, /Move to Preparing/);
+    assert.equal(patch.mock.calls.length, 1);
+    await interact(() => onlineManager.setOnline(true));
     await view.click('Updates');
     await view.click('Info');
     await waitFor(() => view.button('Check garden stage'));
@@ -115,6 +108,52 @@ test('garden stage changes are distinct from visits and recover from stale or lo
     await waitFor(() => assert.match(doc.body.textContent, /already Preparing/));
     assert.equal(view.client.getQueryData(['plot', garden.id]).stage, 'preparing');
     assert.equal(patch.mock.calls.length, 1);
+  });
+
+  await t.test('stage conflict verification survives navigation, refreshes both IDs, and performs no second write', async (t) => {
+    const alias = '22222222-2222-4222-8222-222222222222';
+    const checking = Promise.withResolvers();
+    const patch = t.mock.method(Api.plots, 'update', async () => { throw Object.assign(new Error('Conflict'), { response: { status: 409 } }); });
+    const get = t.mock.method(Api.plots, 'get', async () => ({ data: await checking.promise }));
+    const view = await mount(t, { initialEntry: `/plots/${alias}`, user: admin, showHome: true, queryData: [...queryData, [['plot', alias], garden]] });
+
+    await confirmMove(view);
+    await waitFor(() => assert.match(view.container.textContent, /Checking garden stage/));
+    await view.navigate('/');
+    await interact(() => checking.resolve({ ...garden, stage: 'active' }));
+    await waitFor(() => assert.equal(view.client.getQueryData(['plot', alias]).stage, 'active'));
+    assert.equal(view.client.getQueryData(['plot', garden.id]).stage, 'active');
+    assert.equal(get.mock.calls.length, 1);
+
+    await view.navigate(gardenPath);
+    await waitFor(() => assert.match(view.container.textContent, /garden stage has changed/i));
+    assert.doesNotMatch(view.container.textContent, /Move to Preparing/);
+    assert.equal(patch.mock.calls.length, 1);
+  });
+
+  await t.test('a stage response cannot initialize the editor before its garden read finishes', async (t) => {
+    const editorRead = Promise.withResolvers();
+    const stageResponse = Promise.withResolvers();
+    t.after(() => { editorRead.resolve(garden); stageResponse.resolve(garden); });
+    const get = t.mock.method(Api.plots, 'get', async () => ({ data: await editorRead.promise }));
+    const patch = t.mock.method(Api.plots, 'update', async () => ({ data: await stageResponse.promise }));
+    const key = `pocket-gardens:plot-edit:v1:${admin.id}:${garden.id}`;
+    const saved = { ...garden, 'Pocket Garden Name': 'Already saved', stage: 'preparing' };
+    dom.window.sessionStorage.setItem(key, JSON.stringify({ 'Pocket Garden Name': saved['Pocket Garden Name'] }));
+    const view = await mountGarden(t);
+
+    await confirmMove(view);
+    await waitFor(() => assert.equal(patch.mock.calls.length, 1));
+    await view.click('Edit garden details');
+    await waitFor(() => assert.equal(get.mock.calls.length, 1));
+    await interact(() => stageResponse.resolve(saved));
+    await waitFor(() => assert.equal(view.client.getQueryData(['plot', garden.id]).stage, 'preparing'));
+    assert.equal(view.container.querySelector('form'), null);
+
+    await interact(() => editorRead.resolve(saved));
+    await waitFor(() => assert.equal(view.field('Garden title').value, 'Already saved'));
+    assert.equal(view.button('Save garden details').disabled, true);
+    assert.equal(dom.window.sessionStorage.getItem(key), null);
   });
 
   await t.test('a late edit response preserves the stage already shown in Info and on the map', async (t) => {

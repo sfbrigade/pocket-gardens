@@ -1,3 +1,6 @@
+import { keepPreviousData } from '@tanstack/react-query';
+import Api from './Api.js';
+
 export const plotStageLabels = {
   potential: 'Potential site', preparing: 'Preparing', active: 'Active', paused: 'Paused', archived: 'Archived',
 };
@@ -15,9 +18,6 @@ export const plotPermissionLabels = {
   not_granted: 'Not granted',
 };
 
-import Api from './Api.js';
-import { keepPreviousData, queryOptions } from '@tanstack/react-query';
-
 export function canContributeToPlots (user) {
   return Boolean(user?.emailVerified && !user.banned);
 }
@@ -27,19 +27,10 @@ export function canAdministerPlots (user) {
 }
 
 export function plotQueryOptions (id) {
-  return queryOptions({
+  return {
     queryKey: ['plot', id],
     queryFn: ({ signal }) => Api.plots.get(id, signal).then(({ data }) => data),
-  });
-}
-
-export function updatePlotViewport (client, plotId, changes) {
-  const filter = { queryKey: ['plots'], predicate: ({ queryKey }) => queryKey[1] !== 'capabilities' };
-  const summary = Object.fromEntries(['Pocket Garden Name', 'stage'].filter((field) => Object.hasOwn(changes, field)).map((field) => [field, changes[field]]));
-  if (Object.keys(summary).length) {
-    client.setQueriesData(filter, (rows) => rows?.map((row) => row.id === plotId ? { ...row, ...summary } : row));
-  }
-  client.invalidateQueries(filter);
+  };
 }
 
 export async function cacheUpdatedPlot (client, plot, fields, routeId = plot.id) {
@@ -49,14 +40,21 @@ export async function cacheUpdatedPlot (client, plot, fields, routeId = plot.id)
     predicate: ({ queryKey, state }) => queryKey.length === 2 && (ids.has(queryKey[1]) || state.data?.id === plot.id),
   };
   const changes = Object.fromEntries(fields.map((field) => [field, plot[field]]));
-  await client.cancelQueries(detail);
-  const current = client.getQueryData(['plot', plot.id]) ?? client.getQueryData(['plot', routeId]) ?? plot;
+  const mapChanges = Object.fromEntries(['Pocket Garden Name', 'stage'].filter((field) => Object.hasOwn(changes, field)).map((field) => [field, changes[field]]));
+  const affectsMap = Object.keys(mapChanges).length > 0;
+  const viewports = { queryKey: ['plots'], predicate: ({ queryKey }) => queryKey.length === 2 && typeof queryKey[1] === 'object' };
+  // Cancel reads that may have started before the save, including empty caches.
+  await Promise.all([client.cancelQueries(detail), affectsMap && client.cancelQueries(viewports)]);
+  const current = client.getQueryData(['plot', plot.id]) ?? client.getQueriesData(detail).find(([, cached]) => cached)?.[1] ?? plot;
   client.setQueriesData(detail, (cached) => cached && { ...cached, ...changes });
   for (const id of ids) {
     if (client.getQueryData(['plot', id]) === undefined) client.setQueryData(['plot', id], { ...current, ...changes });
   }
   client.invalidateQueries(detail);
-  updatePlotViewport(client, plot.id, changes);
+  if (affectsMap) {
+    client.setQueriesData(viewports, (rows) => rows?.map((row) => row.id === plot.id ? { ...row, ...mapChanges } : row));
+    client.invalidateQueries(viewports);
+  }
 }
 
 export function hasCoordinates ({ Latitude, Longitude }) {

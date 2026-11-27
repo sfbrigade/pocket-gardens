@@ -4,7 +4,7 @@ import { modals } from '@mantine/modals';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router';
 import Api from '../Api';
-import { cacheUpdatedPlot, plotQueryOptions, updatePlotViewport } from '../plots';
+import { cacheUpdatedPlot } from '../plots';
 
 export default function PlotStage ({ plot, accountId }) {
   const mutationKey = ['plot-stage', accountId, plot.id];
@@ -13,16 +13,14 @@ export default function PlotStage ({ plot, accountId }) {
     select: ({ mutationId, state }) => ({ id: mutationId, status: state.status, error: state.error }),
   });
   const attempt = attempts.at(-1);
-  if (plot.stage !== 'potential' && !attempt) return null;
-  return <StageAction plot={plot} mutationKey={mutationKey} attempt={attempt} />;
-}
-
-function StageAction ({ plot, mutationKey, attempt }) {
   const { plotId } = useParams();
   const client = useQueryClient();
   const modalId = useId();
   const mutation = useMutation({
     mutationKey,
+    networkMode: 'always',
+    // An uncertain write still needs checking when the administrator returns.
+    gcTime: Infinity,
     mutationFn: () => Api.plots.update(plot.id, { stage: 'preparing', expectedStage: 'potential' }),
     onSuccess: ({ data }) => cacheUpdatedPlot(client, data, ['stage'], plotId),
   });
@@ -32,22 +30,22 @@ function StageAction ({ plot, mutationKey, attempt }) {
   const writeStatus = writeError?.response?.status;
   const verify = !!writeError && (!writeStatus || writeStatus === 409 || writeStatus >= 500);
   const verification = useQuery({
-    queryKey: ['plot-stage-verification', ...mutationKey.slice(1), attempt?.id],
+    queryKey: ['plot-stage-verification', accountId, plot.id, attempt?.id],
     queryFn: async () => {
-      const options = plotQueryOptions(plotId);
-      // A request that started before the failed write could return the old stage.
-      await client.cancelQueries({ queryKey: options.queryKey, exact: true });
-      const current = await client.fetchQuery({ ...options, staleTime: 0, retry: false });
-      updatePlotViewport(client, current.id, { stage: current.stage });
-      return current.stage;
+      // Keep this read alive when the Info panel unmounts during verification.
+      const { data } = await Api.plots.get(plot.id);
+      await cacheUpdatedPlot(client, data, ['stage'], plotId);
+      return data.stage;
     },
     enabled: verify,
+    gcTime: Infinity,
     staleTime: Infinity,
+    networkMode: 'always',
     retry: false,
     retryOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
   });
+  if (plot.stage !== 'potential' && !attempt) return null;
+
   const error = verify ? verification.error : writeError;
   const status = error?.response?.status;
   const blocked = [401, 403, 404].includes(status);
