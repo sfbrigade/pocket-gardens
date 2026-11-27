@@ -210,6 +210,13 @@ describe('login choices', () => {
     await waitFor(() => expect(Api.users.me).toHaveBeenCalled());
     user.queryClient.setQueryData(['users', previous.id], { data: previous });
     user.queryClient.setQueryData(['plots', 'capabilities'], { canAssignCarers: true });
+    user.queryClient.setQueryData(['plot-editor', previous.id, 'garden', true], { staffPermissionNotes: 'Staff only' });
+    const publicGarden = { id: 'garden', stage: 'potential' };
+    let completeGarden;
+    const pendingGarden = user.queryClient.fetchQuery({
+      queryKey: ['plot', 'garden'],
+      queryFn: () => new Promise(resolve => { completeGarden = resolve; }),
+    }).catch(() => {});
     let complete;
     const pending = user.queryClient.fetchQuery({
       queryKey: ['people', 'private-person'],
@@ -220,11 +227,15 @@ describe('login choices', () => {
     await act(async () => {
       finishProfile({ status: 200, data: previous });
       complete({ email: 'private@example.com' });
+      completeGarden(publicGarden);
       await pending;
+      await pendingGarden;
     });
     expect(user.queryClient.getQueryData(['users', 'me', profile.id])).toEqual(profile);
     expect(user.queryClient.getQueryData(['users', previous.id])).toBeUndefined();
     expect(user.queryClient.getQueryData(['plots', 'capabilities'])).toBeUndefined();
+    expect(user.queryClient.getQueryData(['plot-editor', previous.id, 'garden', true])).toBeUndefined();
+    expect(user.queryClient.getQueryData(['plot', 'garden'])).toEqual(publicGarden);
     expect(user.queryClient.getQueryData(['people', 'private-person'])).toBeUndefined();
     expect(screen.queryByRole('link', { name: 'Previous!' })).toBeNull();
   });
