@@ -18,8 +18,12 @@ export const plotPermissionLabels = {
 import Api from './Api.js';
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 
-export function canEditPlot (user) {
-  return Boolean(user?.isAdmin && user.emailVerified && !user.banned);
+export function canContributeToPlots (user) {
+  return Boolean(user?.emailVerified && !user.banned);
+}
+
+export function canAdministerPlots (user) {
+  return canContributeToPlots(user) && Boolean(user.isAdmin);
 }
 
 export function plotQueryOptions (id) {

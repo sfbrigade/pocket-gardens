@@ -72,6 +72,11 @@ export async function setupPlotTests (t) {
   const { default: MaintenanceForm } = await vite.ssrLoadModule('/src/Maintenance/MaintenanceForm.jsx');
   const { default: Api } = await vite.ssrLoadModule('/src/Api.js');
   const { authContext } = await vite.ssrLoadModule('/src/AuthContext.js');
+  t.mock.method(Api.plots, 'getForEdit', async (...args) => {
+    const { data } = await Api.plots.get(...args);
+    return { data: { ...data, editableFields: ['Pocket Garden Name', 'Location Description', 'permissionStatus', 'permissionAdditionalNote', 'staffPermissionNotes', 'gardenCareNote', 'environmentalNotes'] } };
+  });
+  t.mock.method(Api.plots, 'editAccess', async () => ({ data: { canEdit: false } }));
   t.mock.method(Api.maintenance, 'capabilities', async () => ({ data: { canCreate: true, canManage: true, today: '2026-11-15', activities: ['Watered', 'Planted'], observations: ['Nothing stood out', 'Plants look dry'] } }));
   t.mock.method(Api.plots, 'capabilities', async () => ({ data: { canCreatePlot: true, canAssignCarers: true } }));
   // Keep real modal portals so the plant form is outside the garden form in

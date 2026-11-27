@@ -9,6 +9,8 @@ import { useHead } from '@unhead/react';
 import { v4 as uuid } from 'uuid';
 
 import Api from '../Api';
+import { useAuthContext } from '../AuthContext';
+import { canAdministerPlots } from '../plots';
 import uploadPhoto from '../upload-photo';
 import { isMapPosition } from '../map-location';
 import DraftRefreshGuard from '../Components/DraftRefreshGuard';
@@ -28,6 +30,11 @@ export default function PlotForm () {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { user, isPending: authPending } = useAuthContext();
+  const staffAccountId = !authPending && canAdministerPlots(user) ? user.id : null;
+  // The shared browser draft and its saved retry payload contain public fields only.
+  const [staffNote, setStaffNote] = useState(null);
+  const staffPermissionNotes = staffAccountId && staffNote?.accountId === staffAccountId ? staffNote.value : '';
   const [initial] = useState(createPlotDraft);
   const [saved, setSaved, removeSaved] = useSessionStorage({ key: 'pocket-gardens:plot-draft:v1', defaultValue: null });
   const hydrated = useRef(false);
@@ -79,7 +86,10 @@ export default function PlotForm () {
   }, [mounted, capability.data?.canCreatePlot, location.key]);
 
   const mutation = useMutation({
-    mutationFn: async ({ draft, attempt, file }) => {
+    // A queued write could use another account's cookie after reconnecting.
+    networkMode: 'always',
+    mutationFn: async ({ draft, attempt, file, staffPermissionNotes, checkSavedGarden }) => {
+      if (checkSavedGarden) return Api.plots.getSubmission(draft.submissionId);
       let payload = attempt.payload;
       if (file && !draft.photo) {
         const controller = new AbortController();
@@ -92,6 +102,7 @@ export default function PlotForm () {
           // draft fingerprint and filename for retries, including after refresh.
           const completed = preparePlotSubmission({ ...draft, photo: filename, submissionAttempt: null });
           completed.payload = { ...payload, Photos: [filename] };
+          completed.hadStaffNote = attempt.hadStaffNote;
           form.setValues({ photo: filename, submissionAttempt: completed });
           payload = completed.payload;
         } catch (error) {
@@ -102,7 +113,7 @@ export default function PlotForm () {
           if (uploadController.current === controller) uploadController.current = null;
         }
       }
-      return Api.plots.create(payload);
+      return Api.plots.create(staffPermissionNotes ? { ...payload, staffPermissionNotes } : payload);
     },
     onSettled: () => { submitting.current = false; },
     onSuccess: ({ data }) => {
@@ -111,6 +122,8 @@ export default function PlotForm () {
     },
   });
   const previousAttempt = matchingPlotSubmission(form.values);
+  const missingStaffNote = !staffPermissionNotes.trim() && !!form.values.submissionAttempt?.hadStaffNote;
+  const checkSavedGarden = missingStaffNote && !!previousAttempt;
   const suggestions = usePlotSuggestions(form.values, mutation.isPending || !!previousAttempt);
   const attemptedPayload = mutation.isPending ? mutation.variables?.attempt.payload : previousAttempt?.payload;
   const values = {
@@ -121,13 +134,19 @@ export default function PlotForm () {
   };
   const needsPhoto = values.photoWasSelected && !values.photo && !photoFile;
   const carersNeedStaff = values.carers.length > 0 && !capability.data?.canAssignCarers;
+  const submissionBlocked = !!pendingPosition || (!checkSavedGarden && (missingStaffNote || needsPhoto || carersNeedStaff));
   const uploadingPhoto = mutation.isPending && !!mutation.variables?.file && !form.values.photo;
-  const dirty = hasDraftContent(values) && !mutation.isSuccess;
+  const dirty = !mutation.isSuccess && (hasDraftContent(values) || !!staffPermissionNotes.trim());
 
   function discard () {
     const finish = () => { hydrated.current = false; removeSaved(); navigate('/'); };
     if (!dirty) finish();
     else modals.openConfirmModal({ title: 'Discard this garden draft?', children: <Text>Your unfinished garden will be removed.</Text>, labels: { confirm: 'Discard draft', cancel: 'Keep editing' }, onConfirm: finish });
+  }
+
+  function continueWithoutStaffNote () {
+    form.setFieldValue('submissionAttempt', { ...form.getValues().submissionAttempt, hadStaffNote: false });
+    form.clearFieldError('_form');
   }
 
   function addPlant (plant) {
@@ -165,6 +184,7 @@ export default function PlotForm () {
                 form.setValues({ ...createPlotDraft(), position: pendingPosition });
                 form.clearErrors();
                 setPhotoFile(null);
+                setStaffNote(null);
                 setRestored(false);
                 clearIncomingPosition();
               }}
@@ -175,13 +195,14 @@ export default function PlotForm () {
       )}
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing='xl'>
         <form onSubmit={form.onSubmit((draft) => {
-          if (submitting.current || mutation.isPending || needsPhoto || carersNeedStaff || pendingPosition) return;
+          if (submitting.current || mutation.isPending || submissionBlocked) return;
           submitting.current = true;
-          const attempt = preparePlotSubmission(draft, suggestions.result);
-          form.setFieldValue('submissionAttempt', attempt);
+          const staffNoteText = staffPermissionNotes.trim();
+          const attempt = checkSavedGarden ? previousAttempt : { ...preparePlotSubmission(draft, suggestions.result), hadStaffNote: !!staffNoteText };
+          if (!checkSavedGarden) form.setFieldValue('submissionAttempt', attempt);
           // Per-call callbacks belong to this mounted form. A save that outlives
           // navigation still updates the cache without clearing a newer draft.
-          mutation.mutate({ draft, attempt, file: photoFile }, {
+          mutation.mutate({ draft, attempt, file: photoFile, staffPermissionNotes: staffNoteText, checkSavedGarden }, {
             onSuccess: ({ data }) => {
               if (form.getValues().submissionId !== draft.submissionId) return;
               hydrated.current = false;
@@ -228,6 +249,9 @@ export default function PlotForm () {
               <Fieldset legend='3 · Permission and care'>
                 <Stack><Select label='Permission' data={permissions} allowDeselect={false} {...form.getInputProps('permissionStatus')} />
                   {values.stage !== 'potential' && !['confirmed', 'not_required'].includes(values.permissionStatus) && <Alert color='yellow'>Permission has not been confirmed. You can still record this garden’s current stage.</Alert>}
+                  <Textarea label='Additional permission note' description='Visible on the public garden page.' autosize minRows={2} {...form.getInputProps('permissionAdditionalNote')} />
+                  {staffAccountId && <Textarea label='Staff-only permission notes' description='Visible to verified administrators. Unsaved text stays in this form.' autosize minRows={2} value={staffPermissionNotes} onChange={(event) => setStaffNote({ accountId: staffAccountId, value: event.currentTarget.value })} error={form.errors.staffPermissionNotes} />}
+                  <Textarea label='Garden care note' description='Care guidance for the whole garden. Visible on the public garden page.' autosize minRows={2} {...form.getInputProps('gardenCareNote')} />
                   {capability.data.canAssignCarers || values.carers.length > 0
                     ? <CarerPicker value={values.carers} onChange={(carers) => form.setFieldValue('carers', carers)} error={form.errors.carers} disabled={mutation.isPending || !!pendingPosition} canAssign={capability.data.canAssignCarers} />
                     : <Text c='dimmed' size='sm'>Sign in with a staff account to assign registered carers.</Text>}
@@ -269,7 +293,14 @@ export default function PlotForm () {
                   {values.stage !== 'potential' && <Text>Plants: {values.plants.map(({ label }) => label).join(', ') || 'Not recorded'}</Text>}
                 </Stack>
               </Fieldset>
-              <Button type='submit' color='green' size='lg' loading={mutation.isPending} disabled={needsPhoto || carersNeedStaff}>Create garden</Button>
+              {missingStaffNote && (
+                <Alert color='yellow' title='Staff note from a previous save attempt'>
+                  {checkSavedGarden ? 'Check whether the garden was saved with its staff note.' : 'This draft has changed since the previous save attempt.'}
+                  {staffAccountId && ' You can re-enter the note to include it when saving.'}
+                  <Button type='button' variant='subtle' onClick={continueWithoutStaffNote}>Continue without the staff note</Button>
+                </Alert>
+              )}
+              <Button type='submit' color='green' size='lg' loading={mutation.isPending} disabled={submissionBlocked}>{checkSavedGarden ? 'Check for saved garden' : 'Create garden'}</Button>
               {uploadingPhoto && <Text role='status'>Uploading photo before saving your garden.</Text>}
               <Button variant='subtle' onClick={discard}>Cancel and discard draft</Button>
             </Stack>
