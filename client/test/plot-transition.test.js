@@ -156,7 +156,7 @@ test('garden stage changes are distinct from visits and recover from stale or lo
     assert.equal(dom.window.sessionStorage.getItem(key), null);
   });
 
-  await t.test('a late edit response preserves the stage already shown in Info and on the map', async (t) => {
+  await t.test('a late edit response merges its own fields across Info, aliases, and the map', async (t) => {
     const editResponse = Promise.withResolvers();
     const finalRead = Promise.withResolvers();
     let plot = garden;
@@ -171,14 +171,21 @@ test('garden stage changes are distinct from visits and recover from stale or lo
       if (!expectedStage) await editResponse.promise;
       return { data: saved };
     });
-    const view = await mountGarden(t);
+    const alias = '22222222-2222-4222-8222-222222222222';
+    const detailKeys = [['plot', garden.id], ['plot', alias], ['plot', 'other-alias']];
     const viewportKey = ['plots', { north: 10, south: 0, east: 10, west: 0 }];
-    view.client.setQueryData(viewportKey, [garden]);
+    const view = await mount(t, {
+      initialEntry: `/plots/${alias}`,
+      user: admin,
+      showHome: true,
+      queryData: [...detailKeys.map((key) => [key, garden]), [viewportKey, [garden]]],
+    });
 
     try {
       await view.click('Edit garden details');
       await waitFor(() => view.field('Garden title'));
       await view.change('Garden title', 'Revised title');
+      await view.change('Environmental notes', 'Revised note');
       await view.submit();
       await waitFor(() => assert.equal(patch.mock.calls.length, 1));
       await view.navigate(-1);
@@ -187,9 +194,15 @@ test('garden stage changes are distinct from visits and recover from stale or lo
 
       delayReads = true;
       await interact(() => editResponse.resolve());
-      await waitFor(() => assert.deepEqual(view.client.getQueryData(['plot', garden.id]), plot));
-      assert.equal(view.client.getQueryData(viewportKey)[0].stage, 'preparing');
-      assert.equal(view.client.getQueryData(viewportKey)[0]['Pocket Garden Name'], 'Revised title');
+      await waitFor(() => {
+        for (const key of detailKeys) {
+          assert.deepEqual(view.client.getQueryData(key), plot);
+          assert.equal(view.client.getQueryState(key).isInvalidated, true);
+        }
+      });
+      assert.deepEqual(view.client.getQueryData(viewportKey), [{ ...garden, stage: 'preparing', 'Pocket Garden Name': 'Revised title' }]);
+      assert.equal(view.client.getQueryState(viewportKey).isInvalidated, true);
+      assert.equal(view.client.getQueryState(['plots', 'capabilities']).isInvalidated, false);
       assert.match(view.container.textContent, /Garden moved to Preparing/);
     } finally {
       await interact(() => { editResponse.resolve(); finalRead.resolve(); });

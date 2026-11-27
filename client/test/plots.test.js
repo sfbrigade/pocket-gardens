@@ -10,36 +10,10 @@ axios.defaults.adapter = async (config) => {
   requests.push(config);
   return { config, status: 200, statusText: 'OK', headers: {}, data: [], ...await respond(config) };
 };
-const { cacheUpdatedPlot, hasCoordinates, plotsQueryOptions } = await import('../src/plots.js');
+const { hasCoordinates, plotsQueryOptions } = await import('../src/plots.js');
 
 const bounds = { north: 37.82, south: 37.75, east: -122.38, west: -122.45 };
 const garden = { id: 'garden', Latitude: 37.78, Longitude: -122.42 };
-
-test('garden saves update only their fields across detail aliases and viewport caches', async (t) => {
-  const client = new QueryClient();
-  t.after(() => client.clear());
-  const original = { ...garden, 'Pocket Garden Name': 'Original', stage: 'potential' };
-  const detail = { ...original, environmentalNotes: 'Existing note' };
-  const preparing = { ...detail, stage: 'preparing' };
-  const earlierEdit = { ...detail, 'Pocket Garden Name': 'Revised', environmentalNotes: 'Revised note' };
-  const aliases = [['plot', garden.id], ['plot', 'route-alias'], ['plot', 'other-alias']];
-  const map = ['plots', bounds];
-  const capabilities = ['plots', 'capabilities'];
-  for (const key of aliases) client.setQueryData(key, detail);
-  client.setQueryData(map, [original]);
-  client.setQueryData(capabilities, { canCreatePlot: true });
-
-  await cacheUpdatedPlot(client, preparing, ['stage']);
-  await cacheUpdatedPlot(client, earlierEdit, ['Pocket Garden Name', 'environmentalNotes'], 'route-alias');
-
-  for (const key of aliases) {
-    assert.deepEqual(client.getQueryData(key), { ...earlierEdit, stage: 'preparing' });
-    assert.equal(client.getQueryState(key).isInvalidated, true);
-  }
-  assert.deepEqual(client.getQueryData(map), [{ ...original, 'Pocket Garden Name': 'Revised', stage: 'preparing' }]);
-  assert.equal(client.getQueryState(map).isInvalidated, true);
-  assert.equal(client.getQueryState(capabilities).isInvalidated, false);
-});
 
 test('viewport plot queries', async (t) => {
   t.beforeEach(() => { requests.length = 0; });

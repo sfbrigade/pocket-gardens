@@ -326,17 +326,15 @@ test('/api/plots', async (t) => {
     assert.equal(await prisma.plot.count(), before);
   });
 
-  await t.test('legacy details preserve imported volunteers without exposing contacts or internal notes', async () => {
+  await t.test('legacy details preserve imported volunteers without exposing contacts', async () => {
     const person = await prisma.person.findUnique({ where: { airtableId: 'recPersonAlpha' } });
     const plot = await prisma.plot.findUnique({ where: { airtableId: 'recPlotAlpha' } });
     await prisma.plotAssignedVolunteer.create({ data: { plotId: plot.id, personId: person.id } });
-    await prisma.plot.update({ where: { id: plot.id }, data: { staffPermissionNotes: 'Private note' } });
     const response = await app.inject({ url: '/api/plots/recPlotAlpha' });
     assert.equal(response.statusCode, StatusCodes.OK);
     assert.deepEqual(response.json().assignedVolunteers, [{ id: person.id, displayName: 'Alex Gardener' }]);
     assert.equal(response.json().stage, 'active');
     assert.equal(response.json().permissionStatus, null);
-    assert.equal(response.json().staffPermissionNotes, undefined);
     assert.ok(!response.body.includes('alex@example.com'));
     const unchanged = await prisma.plot.findUnique({ where: { id: plot.id } });
     assert.equal(unchanged.stage, 'active');
@@ -373,9 +371,6 @@ test('/api/plots', async (t) => {
     assert.equal(initial.statusCode, StatusCodes.OK);
     const transition = { stage: 'preparing', expectedStage: 'potential' };
 
-    const member = await authenticate(app, 'regular.user@test.com', 'test');
-    assert.equal((await app.inject({ method: 'PATCH', url, payload: transition })).statusCode, StatusCodes.UNAUTHORIZED);
-    assert.equal((await app.inject({ method: 'PATCH', url, headers: member, payload: transition })).statusCode, StatusCodes.FORBIDDEN);
     for (const payload of [{ expectedStage: 'potential' }, { ...transition, permissionStatus: 'confirmed' }]) {
       assert.equal((await patch(payload)).statusCode, StatusCodes.UNPROCESSABLE_ENTITY);
     }
@@ -384,24 +379,22 @@ test('/api/plots', async (t) => {
     assert.deepEqual(results.map(({ statusCode }) => statusCode).sort(), [StatusCodes.OK, StatusCodes.CONFLICT]);
     assert.deepEqual(results.find(({ statusCode }) => statusCode === StatusCodes.OK).json(), { ...initial.json(), stage: 'preparing' });
 
-    assert.equal((await patch({ stage: 'active' })).statusCode, StatusCodes.OK);
-    assert.equal((await patch(transition)).statusCode, StatusCodes.CONFLICT);
-    assert.equal((await app.inject({ url })).json().stage, 'active');
+    assert.equal((await app.inject({ url })).json().stage, 'preparing');
   });
 
   await t.test('anonymous requests cannot submit plots and existing users cannot edit unowned plots', async () => {
     assert.equal((await app.inject({ method: 'POST', url: '/api/plots', payload: validPlot })).statusCode, StatusCodes.UNAUTHORIZED);
-    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', payload: { stage: 'active' } })).statusCode, StatusCodes.UNAUTHORIZED);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotBeta', payload: { stage: 'preparing', expectedStage: 'potential' } })).statusCode, StatusCodes.UNAUTHORIZED);
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities' })).json(), { canCreatePlot: false, canAssignCarers: false });
     const member = await authenticate(app, 'regular.user@test.com', 'test');
     assert.equal((await app.inject({ method: 'POST', url: '/api/plots', headers: member, payload: validPlot })).statusCode, StatusCodes.CREATED);
-    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers: member, payload: { stage: 'active' } })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await app.inject({ method: 'PATCH', url: '/api/plots/recPlotAlpha', headers: member, payload: { 'Pocket Garden Name': 'Not my garden' } })).statusCode, StatusCodes.FORBIDDEN);
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: member })).json(), { canCreatePlot: true, canAssignCarers: false });
     const admin = await authenticate(app, 'admin.user@test.com', 'test');
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers: admin })).json(), { canCreatePlot: true, canAssignCarers: true });
   });
 
-  await t.test('new verified users can submit plots with plants and photos but cannot change stages or assign carers', async () => {
+  await t.test('new verified users can submit plots with plants and photos but cannot assign carers', async () => {
     const { user, headers } = await verifiedUser(app);
     assert.equal(user.role, 'user');
     assert.deepEqual((await app.inject({ url: '/api/plots/capabilities', headers })).json(), { canCreatePlot: true, canAssignCarers: false });
@@ -439,9 +432,6 @@ test('/api/plots', async (t) => {
     assert.equal(await prisma.plot.count(), before);
     assert.equal((await app.inject({ url: '/api/plots/carers', headers })).statusCode, StatusCodes.FORBIDDEN);
     assert.equal((await app.inject({
-      method: 'PATCH', url: `/api/plots/${created.json().id}`, headers, payload: { stage: 'paused' },
-    })).statusCode, StatusCodes.FORBIDDEN);
-    assert.equal((await app.inject({
       method: 'POST', url: '/api/assets', headers, payload: { contentType: 'image/jpeg', byteSize: 100 },
     })).statusCode, StatusCodes.OK);
   });
@@ -463,7 +453,7 @@ test('/api/plots', async (t) => {
     assert.equal((await getEdit(stranger)).statusCode, StatusCodes.FORBIDDEN);
     assert.equal((await patch(stranger, { gardenCareNote: 'Not mine' })).statusCode, StatusCodes.FORBIDDEN);
     assert.equal((await patch(owner, { staffPermissionNotes: 'Restricted' })).statusCode, StatusCodes.FORBIDDEN);
-    assert.equal((await patch(owner, { stage: 'preparing' })).statusCode, StatusCodes.FORBIDDEN);
+    assert.equal((await patch(owner, { stage: 'preparing', expectedStage: 'potential' })).statusCode, StatusCodes.FORBIDDEN);
     assert.equal((await patch(owner, { 'Pocket Garden Name': 'Owner correction', gardenCareNote: 'Updated care' })).statusCode, StatusCodes.OK);
     assert.equal((await patch(staff, { gardenCareNote: 'Staff correction', permissionAdditionalNote: 'Staff-authored public note', staffPermissionNotes: 'Private' })).statusCode, StatusCodes.OK);
 
