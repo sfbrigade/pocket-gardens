@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { interact, setupPlotTests, waitFor } from './helpers/plot-harness.js';
+import { interact, setupPlotTests, testAccount, waitFor } from './helpers/plot-harness.js';
 
 test('map viewport interactions', async (t) => {
   const { dom, Api, mount, readDraft } = await setupPlotTests(t);
@@ -189,16 +189,20 @@ test('map viewport interactions', async (t) => {
     const get = t.mock.method(Api.plots, 'get', () => reload.promise);
     t.mock.method(Api.plots, 'index', async () => ({ data: [plot], headers: {} }));
     t.mock.method(Api.maintenance, 'index', async () => ({ data: [], headers: {} }));
+    const { data: capabilities } = await Api.maintenance.capabilities();
     const view = await mount(t, {
       initialEntry: `/plots/${alias}?tab=updates`,
       showHome: true,
-      queryData: [[['plot', alias], plot], [['plot', plot.id], plot]],
+      queryData: [
+        [['plot', alias], plot],
+        [['plot', plot.id], plot],
+        [['maintenance-capabilities', testAccount], capabilities],
+      ],
     });
     await waitFor(() => assert.ok(view.container.querySelector('.leaflet-container')));
     await interact(() => map.setView([37.79, -122.42], 16, { animate: false }));
     const center = map.getCenter();
     const originalMap = map;
-    await waitFor(() => view.button('Add an update'));
     await view.click('Add an update');
     view.client.removeQueries({ queryKey: ['plot', alias], exact: true });
     await view.navigate(-1);
