@@ -46,7 +46,11 @@ API plot `id` is the Airtable record id when present; plots created via the API 
 
 ## Plot submission API
 
-`POST /api/plots` requires a verified, unbanned account with the `user` or `admin` role. To test account-free creation locally, explicitly set both `NODE_ENV=development` and `ALLOW_ANONYMOUS_PLOT_SUBMISSION=true` in the server environment. Anonymous creation stays disabled in production even if the flag is set. `PATCH /api/plots/:id` remains administrator-only.
+`POST /api/plots` requires a verified, unbanned account with the `user` or `admin` role. To test account-free creation locally, explicitly set both `NODE_ENV=development` and `ALLOW_ANONYMOUS_PLOT_SUBMISSION=true` in the server environment. Anonymous creation stays disabled in production even if the flag is set.
+
+The creator can correct the garden's title, location description, and permission status, and add public notes to empty fields. Contributors can edit public notes they authored. Administrators can edit any plot, including plots and notes without reliable author data. Administrator corrections preserve the original author of an existing note. `GET /api/plots/:id/edit` reports which fields the current account can edit, and `PATCH /api/plots/:id` enforces that access. Stage changes remain administrator-only.
+
+The editor sends `expectedValues` for the fields it changes. A stale value returns `409` so the editor can show the newer data before saving. `GET /api/plots/submissions/:submissionId` lets the submitting account check a previous save after a refresh without storing private note text in a browser draft.
 
 `GET /api/plots/capabilities` reports `canCreatePlot` and `canAssignCarers` for the current session. Use these capabilities to display the form entry and enable registered-user selection. Only active administrators can assign carers, including when anonymous development creation is enabled.
 
@@ -56,7 +60,7 @@ If a draft contains carers and the current session cannot assign them, the form 
 
 Creation requires `Location Description` and valid coordinates. `stage` defaults to `potential`; `permissionStatus` defaults to `unknown`. Permission is independent of garden stage. `firstPlanted` uses `YYYY-MM-DD` and can be set for active gardens. See `/api/reference` for the full field contract.
 
-Environmental notes can be included in normal plot submissions. Supplying the legacy `Seth's Notes` field, including an empty value, requires an administrator even when anonymous development creation is enabled. Existing legacy notes are retained.
+Normal plot submissions accept `gardenCareNote`, `permissionAdditionalNote`, and `environmentalNotes`. These fields appear in public plot details. Only active administrators can supply `staffPermissionNotes`, including an empty value, even when anonymous development creation is enabled. Administrators can read that field through `GET /api/plots/:id/edit`. Public details, map responses, and write responses omit it. The `20261126000000_plot_notes` migration moves existing `Seth's Notes` into `staffPermissionNotes` by renaming the database column. Airtable imports continue reading the legacy source field into the staff-only field.
 
 Map responses contain marker information and photos; detail responses add site facts and assigned volunteer display names. Private notes and volunteer contact details are excluded. `stage` replaces the legacy `Status` field, which is rejected on POST/PATCH and omitted from responses. Imported plots may have a null stage.
 

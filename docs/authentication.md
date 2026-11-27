@@ -41,13 +41,15 @@ profile loading fails.
 
 Plot submission requires a verified, unbanned user or administrator account,
 including existing users without a role change.
-Plot editing and carer assignment remain administrator-only. New carer assignments
-require verified, unbanned users. Accounts and Person records remain separate;
+Contributors can edit the garden details and public notes they submitted. Verified,
+unbanned administrators can edit any garden. Stage changes and carer assignment
+require an administrator. New carer assignments require verified, unbanned users.
+Accounts and Person records remain separate;
 existing links are preserved, and matching names or emails do not claim imported
 Person records.
 
-Supplying the legacy `Seth's Notes` field during plot creation also requires an
-administrator. Environmental notes remain available to users submitting plots.
+Only verified, unbanned administrators can write and view staff permission notes.
+Garden care, additional permission, and environmental notes are public.
 
 Create the first administrator with the [bootstrap script](../README.md#one-time-setup).
 For subsequent administrators, invite a user, wait for email verification, then use

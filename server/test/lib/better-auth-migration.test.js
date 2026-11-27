@@ -41,13 +41,16 @@ test('Better Auth upgrades existing accounts without replacing garden identities
     }
   });
   const person = await prisma.person.create({ data: { airtableId: 'existing-person', userId: member.id, firstName: 'Existing' } });
-  const plot = await prisma.plot.create({ data: { airtableId: 'existing-plot', lastVolunteerId: person.id } });
+  const [plot] = await prisma.$queryRaw`INSERT INTO "Plot"
+    ("airtableId", "lastVolunteerId", "sethsNotes", "updatedAt")
+    VALUES ('existing-plot', ${person.id}::uuid, ${'Legacy permission note\nSecond line'}, now())
+    RETURNING *`;
   await prisma.plotAssignedVolunteer.create({ data: { plotId: plot.id, personId: person.id } });
   const record = await prisma.maintenanceRecord.create({ data: { airtableId: 'existing-visit', plotId: plot.id, volunteerId: person.id, activity: ['Watering'] } });
   const before = {
     invite: await prisma.invite.findUnique({ where: { id: invite.id } }),
     person: await prisma.person.findUnique({ where: { id: person.id } }),
-    plot: await prisma.plot.findUnique({ where: { id: plot.id } }),
+    plot,
     record: await prisma.maintenanceRecord.findUnique({ where: { id: record.id } }),
     assignments: await prisma.plotAssignedVolunteer.findMany(),
   };
@@ -79,7 +82,17 @@ test('Better Auth upgrades existing accounts without replacing garden identities
   }
   assert.deepEqual(await prisma.invite.findUnique({ where: { id: invite.id } }), before.invite);
   assert.deepEqual(await prisma.person.findUnique({ where: { id: person.id } }), before.person);
-  assert.deepEqual(await prisma.plot.findUnique({ where: { id: plot.id } }), before.plot);
+  const { sethsNotes, ...oldPlot } = before.plot;
+  assert.deepEqual(await prisma.plot.findUnique({ where: { id: plot.id } }), {
+    ...oldPlot,
+    staffPermissionNotes: sethsNotes,
+    gardenCareNote: null,
+    permissionAdditionalNote: null,
+    createdById: null,
+    gardenCareNoteAuthorId: null,
+    permissionAdditionalNoteAuthorId: null,
+    environmentalNotesAuthorId: null,
+  });
   assert.deepEqual(await prisma.maintenanceRecord.findUnique({ where: { id: record.id } }), before.record);
   assert.deepEqual(await prisma.plotAssignedVolunteer.findMany(), before.assignments);
   assert.equal(await prisma.account.count(), 0, 'Legacy passwords are not imported');
